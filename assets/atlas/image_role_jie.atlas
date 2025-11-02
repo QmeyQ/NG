@@ -1,0 +1,245 @@
+{
+  "frames": {
+    "01.png": {
+      "frame": {
+        "idx": 0,
+        "x": 377,
+        "y": 576,
+        "w": 171,
+        "h": 153
+      },
+      "sourceSize": {
+        "w": 250,
+        "h": 200
+      },
+      "spriteSourceSize": {
+        "x": 35,
+        "y": 29
+      }
+    },
+    "02.png": {
+      "frame": {
+        "idx": 0,
+        "x": 209,
+        "y": 424,
+        "w": 191,
+        "h": 149
+      },
+      "sourceSize": {
+        "w": 250,
+        "h": 200
+      },
+      "spriteSourceSize": {
+        "x": 26,
+        "y": 32
+      }
+    },
+    "03.png": {
+      "frame": {
+        "idx": 0,
+        "x": 239,
+        "y": 275,
+        "w": 207,
+        "h": 147
+      },
+      "sourceSize": {
+        "w": 250,
+        "h": 200
+      },
+      "spriteSourceSize": {
+        "x": 20,
+        "y": 34
+      }
+    },
+    "04.png": {
+      "frame": {
+        "idx": 0,
+        "x": 0,
+        "y": 435,
+        "w": 191,
+        "h": 149
+      },
+      "sourceSize": {
+        "w": 250,
+        "h": 200
+      },
+      "spriteSourceSize": {
+        "x": 26,
+        "y": 32
+      }
+    },
+    "05.png": {
+      "frame": {
+        "idx": 0,
+        "x": 239,
+        "y": 134,
+        "w": 222,
+        "h": 139
+      },
+      "sourceSize": {
+        "w": 250,
+        "h": 200
+      },
+      "spriteSourceSize": {
+        "x": 15,
+        "y": 42
+      }
+    },
+    "06.png": {
+      "frame": {
+        "idx": 0,
+        "x": 193,
+        "y": 575,
+        "w": 182,
+        "h": 149
+      },
+      "sourceSize": {
+        "w": 250,
+        "h": 200
+      },
+      "spriteSourceSize": {
+        "x": 49,
+        "y": 31
+      }
+    },
+    "07.png": {
+      "frame": {
+        "idx": 0,
+        "x": 402,
+        "y": 424,
+        "w": 182,
+        "h": 150
+      },
+      "sourceSize": {
+        "w": 250,
+        "h": 200
+      },
+      "spriteSourceSize": {
+        "x": 52,
+        "y": 31
+      }
+    },
+    "08.png": {
+      "frame": {
+        "idx": 0,
+        "x": 463,
+        "y": 134,
+        "w": 183,
+        "h": 149
+      },
+      "sourceSize": {
+        "w": 250,
+        "h": 200
+      },
+      "spriteSourceSize": {
+        "x": 56,
+        "y": 30
+      }
+    },
+    "09.png": {
+      "frame": {
+        "idx": 0,
+        "x": 0,
+        "y": 586,
+        "w": 182,
+        "h": 148
+      },
+      "sourceSize": {
+        "w": 250,
+        "h": 200
+      },
+      "spriteSourceSize": {
+        "x": 52,
+        "y": 32
+      }
+    },
+    "10.png": {
+      "frame": {
+        "idx": 0,
+        "x": 0,
+        "y": 290,
+        "w": 207,
+        "h": 143
+      },
+      "sourceSize": {
+        "w": 375,
+        "h": 200
+      },
+      "spriteSourceSize": {
+        "x": 45,
+        "y": 40
+      }
+    },
+    "11.png": {
+      "frame": {
+        "idx": 0,
+        "x": 550,
+        "y": 576,
+        "w": 138,
+        "h": 160
+      },
+      "sourceSize": {
+        "w": 375,
+        "h": 200
+      },
+      "spriteSourceSize": {
+        "x": 79,
+        "y": 40
+      }
+    },
+    "12.png": {
+      "frame": {
+        "idx": 0,
+        "x": 239,
+        "y": 0,
+        "w": 242,
+        "h": 132
+      },
+      "sourceSize": {
+        "w": 375,
+        "h": 200
+      },
+      "spriteSourceSize": {
+        "x": 101,
+        "y": 44
+      }
+    },
+    "13.png": {
+      "frame": {
+        "idx": 0,
+        "x": 0,
+        "y": 0,
+        "w": 237,
+        "h": 143
+      },
+      "sourceSize": {
+        "w": 375,
+        "h": 200
+      },
+      "spriteSourceSize": {
+        "x": 114,
+        "y": 44
+      }
+    },
+    "14.png": {
+      "frame": {
+        "idx": 0,
+        "x": 0,
+        "y": 145,
+        "w": 237,
+        "h": 143
+      },
+      "sourceSize": {
+        "w": 375,
+        "h": 200
+      },
+      "spriteSourceSize": {
+        "x": 114,
+        "y": 44
+      }
+    }
+  },
+  "meta": {
+    "trimImage": true
+  }
+}
