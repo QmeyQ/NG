@@ -28,7 +28,7 @@ export class Res {
     private static _img: { [key: string]: any } = {};
     private static _process: number = 0;
     private static _atlasCache: { [key: string]: Laya.AtlasResource } = {};
-    private static _textureCache: { [key: string]: Laya.Texture } = {};
+    public static _textureCache: { [key: string]: Laya.Texture } = {};
     private static _err: number = 0;
     private static _count: number = 0;
     private static _loadingKeys: Set<string> = new Set();
@@ -452,7 +452,7 @@ export class Res {
      */
     static loadTexture(
         key: string,
-        subKey?: string,
+        subKey: string,
         index: number = 0,
         success?: (texture: Laya.Texture, subKey?: string, index?: number) => void,
         error?: (errMsg: string, subKey?: string, index?: number) => void
