@@ -18,7 +18,7 @@ export class load extends Laya.Script {
     onAwake(): void {
         this.progress = this.owner.getChildByName("Area2D").getChildByName("progress") as Laya.Text
         Res.init();
-        Res.url('http://normalgame.cn/res.json?v=9999', (res: Res) => {
+        Res.url('http://normalgame.cn/res.json?v=99999', (res: Res) => {
             Res.down("card");
             //监听进度
             Res.onProcessUpdate = (pro, err, cont) => {
@@ -27,14 +27,14 @@ export class load extends Laya.Script {
             }
             //监听完成
             Res.onDownComplete = (res: Res) => {
-                Res.loadTexture("card", "catgirl", 0, (tex: Laya.Texture) => {
+                Res.loadTexture("card", undefined, 0, (tex: Laya.Texture) => {
                     console.log(tex);
                 });
                 Res.onLoadComplete = (res: Res) => {
                     Laya.Scene.open("game/select.ls");
                 }
             }
-        });
+        }, true);
         
     }
 

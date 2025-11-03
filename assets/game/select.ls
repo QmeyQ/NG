@@ -63,7 +63,7 @@
               "repeatX": 3,
               "repeatY": 6,
               "spaceX": 45,
-              "spaceY": 5,
+              "spaceY": 40,
               "scrollType": 2,
               "selectEnable": true,
               "_$child": [
@@ -77,30 +77,44 @@
                   "height": 420,
                   "_$child": [
                     {
-                      "_$id": "dz8ut0ah",
-                      "_$type": "Image",
+                      "_$id": "goz1v4ko",
+                      "_$type": "Sprite",
                       "name": "hero",
-                      "x": 36,
+                      "x": 70,
+                      "y": 11,
+                      "width": 224,
+                      "height": 319
+                    },
+                    {
+                      "_$id": "6esa30om",
+                      "_$type": "Sprite",
+                      "name": "bg",
+                      "x": 51,
                       "width": 224,
                       "height": 319,
-                      "centerX": 0,
-                      "color": "#ffffff"
+                      "zIndex": -1,
+                      "_gcmds": [
+                        {
+                          "_$type": "DrawRectCmd",
+                          "fillColor": "#8b8b8b"
+                        }
+                      ]
                     },
                     {
                       "_$id": "d9e6wwtm",
                       "_$type": "Label",
                       "name": "name",
-                      "x": 78,
+                      "x": 36,
                       "y": 350,
-                      "width": 154,
-                      "height": 72,
+                      "width": 237,
+                      "height": 75,
                       "centerX": 7,
                       "text": "99",
                       "font": "Microsoft YaHei",
-                      "fontSize": 66,
+                      "fontSize": 30,
                       "bold": true,
                       "align": "center",
-                      "valign": "bottom",
+                      "valign": "middle",
                       "leading": 0
                     }
                   ]

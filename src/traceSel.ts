@@ -11,34 +11,39 @@ export class traceSel extends Laya.Script {
     private timer: TimeManager;
     private bagList: Laya.List;
     private lastIndex: number = -1;
-    private res : Res;
-
+    private res: Res;
     onStart() {
-    console.log(Res.get("card", "catgirl"));
-    
-    const jsonPath = "resources/UI/json/bag.json";
+        console.log(Res.get("card", "catgirl"));
+        console.log(Res._textureCache);
+        //列举attrbute下的所有key并以{name:key}的形式存储
+        console.log("attribute" + Res.getList().attribute["catgirl"]);
+        console.log(Res.getList().attribute);
+        let attributeKeys = Object.keys(Res.getList().attribute).map(key => ({ name: Res.getList().attribute[key].name, hero: Res.get("card", key) }));
+        console.log(attributeKeys);
 
-    this.bagList = this.owner.getChildByName("Area2D").getChildByName("View").getChildByName("list");
-    
-    console.log(Res.getList().card);
-    this.bagList.array = ['111', '222', '333'];
-    //绑定list渲染单元处理方法，自定义list的渲染单元数据
-    this.bagList.renderHandler = new Laya.Handler(this, this.onListRender);
-    //绑定list选项改变的切换
-    this.bagList.selectHandler = new Laya.Handler(this, this.onListSelect);
-    //绑定单元格的鼠标事件
-    this.bagList.mouseHandler = new Laya.Handler(this, this.onListMouse);
+        const jsonPath = "resources/UI/json/bag.json";
 
-    //不使用皮肤，但有滚动条效果
-    this.bagList.vScrollBarSkin = "";
+        this.bagList = this.owner.getChildByName("Area2D").getChildByName("View").getChildByName("list");
 
-    this.timer = new TimeManager();
-    
-    // 初始化游戏管理器
-    //this.initializeGameManager();
-    
-    // 加载游戏资源
-}
+        console.log(Res.getList().card);
+        this.bagList.array = attributeKeys
+        //绑定list渲染单元处理方法，自定义list的渲染单元数据
+        this.bagList.renderHandler = new Laya.Handler(this, this.onListRender);
+        //绑定list选项改变的切换
+        this.bagList.selectHandler = new Laya.Handler(this, this.onListSelect);
+        //绑定单元格的鼠标事件
+        this.bagList.mouseHandler = new Laya.Handler(this, this.onListMouse);
+
+        //不使用皮肤，但有滚动条效果
+        this.bagList.vScrollBarSkin = "";
+
+        this.timer = new TimeManager();
+
+        // 初始化游戏管理器
+        //this.initializeGameManager();
+
+        // 加载游戏资源
+    }
 
     /** 列表单元的渲染处理 */
     onListRender(item: Laya.Box, index: number): void {
@@ -49,14 +54,18 @@ export class traceSel extends Laya.Script {
         // 获取listItemBG子项
         const listItemBG = item.getChildByName("name") as Laya.Text;
         const heros = item.getChildByName("hero") as Laya.Image;
+        const bg = item.getChildByName("bg") as Laya.Sprite;
         listItemBG.text = this.bagList.array[index].name;
+        heros.texture = this.bagList.array[index].hero;
         // 如果当前渲染项为选中项,设置选中的背景图片,否则设置未选中的背景图片
         if (index === this.lastIndex) {
-             listItemBG.texture = Res.get("card", "catgirl");
-            listItemBG.text = "selectBox";
+            //设置sprite graphics的0号 fillColor 为选中的颜色
+            bg.graphics.clear();
+            bg.graphics.drawRect(0, 0, item.width, item.height, "#fff5bfa2");
         } else {
-            listItemBG.texture = Res.get("card", "catgirl");
-            listItemBG.text = "selectBox";
+            //设置sprite graphics的0号 fillColor 为未选中的颜色
+            bg.graphics.clear();
+            bg.graphics.drawRect(0, 0, item.width, item.height, "#8b8b8b");
         }
     }
 
@@ -184,7 +193,7 @@ export class traceSel extends Laya.Script {
 
         // 创建敌人角色
         this.gameManager.createEnemy({ x: -200, y: 1000 }, area2D);
-        
+
         // 创建友方角色
         this.gameManager.createAlly({ x: -200, y: 1400 }, area2D);
 
