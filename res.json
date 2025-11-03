@@ -1,0 +1,119 @@
+{
+  "v": {
+    "v": "1",
+    "u": {}
+  },
+  "cha": {
+    "url": "https://agc-storage-drcn.platform.dbankcloud.cn/v0/sgf-rhq1y/image%2Frole%2F",
+    "archer": [
+      "archer.atlas?token=b94a9c78-09e1-40a8-bab0-cfcef58e7e1d",
+      "archer.png?token=6397ecc5-4d59-4dbd-9bf3-417b5ff7a290"
+    ],
+    "bigswordman": [
+      "bigswordman.atlas?token=9bffe49c-1fb3-4806-93c1-5367ee995f17",
+      "bigswordman.png?token=8ebda5a1-078f-4bf2-904d-5d97d5cc6c81"
+    ],
+    "catgirl": [
+      "catgirl.atlas?token=5f6bfd38-f5c7-4301-89b8-30f7d0bf0ae1",
+      "catgirl.png?token=8cac8732-5c80-42cf-ab5e-e4e6a1ff37c0"
+    ],
+    "chilinger": [
+      "chilinger.atlas?token=3e2d95a5-f781-469e-848a-651664d20adb",
+      "chilinger.png?token=9f1e08bc-9b99-4032-a038-d92171a87923"
+    ],
+    "jie": [
+      "jie.atlas?token=ef066f2e-31c1-482d-ac4d-d0bfd5569462",
+      "jie.png?token=274de0cb-1d65-45f2-b96f-5686caca48de"
+    ],
+    "lemon": [
+      "lemon.atlas?token=1cc80ba3-53cf-49c4-9349-ef786db711bd",
+      "lemon.plist?token=432d0181-a859-484e-b364-e4415aab86f8",
+      "lemon.png?token=41d033e3-9152-41e8-9c00-f0ecaf2eda83"
+    ],
+    "ling": [
+      "ling.atlas?token=5af68fa4-45a9-4b36-9bd5-59235fb314cb",
+      "ling.png?token=911cb2fa-f80d-405d-8fe9-9aca1e22bf08"
+    ],
+    "swordsman": [
+      "swordsman.atlas?token=f7710a1f-bfee-445e-9f77-198c1ef0e189",
+      "swordsman.png?token=d9042eab-0403-4e0f-995a-b737f9a725c5"
+    ]
+  },
+  "card": {
+    "url": "https://agc-storage-drcn.platform.dbankcloud.cn/v0/sgf-rhq1y/image%2Fcard%2F",
+    "archer": [
+      "archer.png?token=4fc9a6d5-8e42-4122-9fc9-850d19823bd2"
+    ],
+    "bigswordmen": [
+      "bigswordmen.png?token=0d6ead99-a706-4c29-b955-f4e7f8e5db3c"
+    ],
+    "catgirl": [
+      "catgirl.png?token=a218f209-55aa-4adc-86b7-d036f5a93def"
+    ],
+    "chilinger": [
+      "chilinger.png?token=e62b06ef-b7db-464d-8157-2adc1f9e1a50"
+    ],
+    "jie": [
+      "jie.png?token=a21bf92f-71f7-4b0c-aacd-a2cb0f29ae20"
+    ],
+    "lemon": [
+      "lemon.png?token=82dbdc15-531e-4e1b-a8e2-0cefc37f6dce"
+    ]
+  },
+  "attribute":{
+    "archer": {
+      "name": "弓箭手",
+      "attack": 10,
+      "defense": 5,
+      "speed": 10,
+      "health": 10,
+      "crit": 0.1,
+      "effect": [ 1, 2]
+    },
+    "bigswordmen": {
+      "name": "大剑士",
+      "attack": 15,
+      "defense": 10,
+      "speed": 8,
+      "health": 12,
+      "crit": 0.2,
+      "effect": [ 3, 4]
+    },
+    "catgirl": {
+      "name": "猫女孩",
+      "attack": 8,
+      "defense": 4,
+      "speed": 12,
+      "health": 8,
+      "crit": 0.15,
+      "effect": [ 5, 6]
+    },
+    "chilinger": {
+      "name": "赤翎",
+      "attack": 12,
+      "defense": 6,
+      "speed": 9,
+      "health": 10,
+      "crit": 0.18,
+      "effect": [ 7, 8]
+    },
+    "jie": {
+      "name": "红樱",
+      "attack": 9,
+      "defense": 3,
+      "speed": 14,
+      "health": 9,
+      "crit": 0.12,
+      "effect": [ 9, 10]
+    },
+    "lemon": {
+      "name": "柠檬",
+      "attack": 11,
+      "defense": 5,
+      "speed": 11,
+      "health": 11,
+      "crit": 0.14,
+      "effect": [ 11, 12]
+    }
+  }
+}

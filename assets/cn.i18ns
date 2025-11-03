@@ -1,0 +1,10 @@
+{
+  "id": "wjcz3qx8",
+  "scope": "extension",
+  "defaultLanguage": "zh-CN",
+  "fallbackLanguage": "en-cu",
+  "files": {
+    "en-cu": ""
+  },
+  "refFile": "res://072b7ab7-9a6f-4838-80a7-42775c81315b"
+}
