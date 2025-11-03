@@ -1,0 +1,19 @@
+{
+  "resolution": {
+    "designWidth": 1170,
+    "designHeight": 2532,
+    "scaleMode": "fixedwidth"
+  },
+  "UI": {
+    "alwaysIncludeDefaultSkin": false
+  },
+  "modules": {
+    "laya.ui": true,
+    "laya.d3": true,
+    "laya.physics2D": true
+  },
+  "splash": {
+    "enabled": false,
+    "fit": "center"
+  }
+}
