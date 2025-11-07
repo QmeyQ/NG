@@ -22,8 +22,9 @@ export class traceSel extends Laya.Script {
         console.log(attributeKeys);
 
         const jsonPath = "resources/UI/json/bag.json";
-
-        this.bagList = this.owner.getChildByName("Area2D").getChildByName("View").getChildByName("list");
+        const view = this.owner.getChildByName("Area2D").getChildByName("View");
+        this.bagList = view.getChildByName("list") as Laya.List;
+        
 
         console.log(Res.getList().card);
         this.bagList.array = attributeKeys
@@ -61,11 +62,11 @@ export class traceSel extends Laya.Script {
         if (index === this.lastIndex) {
             //设置sprite graphics的0号 fillColor 为选中的颜色
             bg.graphics.clear();
-            bg.graphics.drawRect(0, 0, item.width, item.height, "#fff5bfa2");
+            bg.graphics.drawRect(0, 0, bg.width, bg.height, "#fff5bfa2");
         } else {
             //设置sprite graphics的0号 fillColor 为未选中的颜色
             bg.graphics.clear();
-            bg.graphics.drawRect(0, 0, item.width, item.height, "#8b8b8b");
+            bg.graphics.drawRect(0, 0, bg.width, bg.height, "#8b8b8b");
         }
     }
 
@@ -79,7 +80,7 @@ export class traceSel extends Laya.Script {
 
         // 更新上次选中的索引
         this.lastIndex = index;
-
+        Res.storage.set("role", this.bagList.array[index]);
         // 刷新列表
         this.bagList.refresh();
 
