@@ -3588,7 +3588,7 @@ declare namespace Laya {
          * @param frontPlay
          * @param outDatas
          */
-        _evaluateClipDatasRealTime(playCurTime: number, realTimeCurrentFrameIndexes: Int16Array, addtive: boolean, frontPlay: boolean, outDatas: Array<number | string | boolean>): void;
+        _evaluateClipDatasRealTime(playCurTime: number, realTimeCurrentFrameIndexes: Int16Array, addtive: boolean, frontPlay: boolean, outDatas: Array<number | string | boolean | Vector3>): void;
         /**
          * @internal
          * @param frame
@@ -3685,6 +3685,7 @@ declare namespace Laya {
          * @returns
          */
         private static timeToFrame;
+        private static createPathPoints;
         /**
          * @internal
          */
@@ -4475,7 +4476,7 @@ declare namespace Laya {
         /**@internal */
         _scripts: AnimatorState2DScript[] | null;
         /**@internal */
-        _realtimeDatas: Array<number | string | boolean>;
+        _realtimeDatas: Array<number | string | boolean | Vector3>;
         /**
          * @en Animation Clip
          * @zh 动画剪辑
@@ -5402,7 +5403,7 @@ declare namespace Laya {
          * @zh 第几帧
          */
         f: number;
-        val: number | string | boolean;
+        val: number | string | boolean | CurvePath;
         /**
          * @en Currently used for 2D animation, it is used to record the types of animation gaps, for example (Linear|Quad_EaseIn)...
          * @zh 目前用于2D动画，用于记录动画补间的类型，比如(Linear|Quad_EaseIn)...
@@ -12069,6 +12070,7 @@ declare namespace Laya {
          */
         constructor();
         protected _createBaseRenderNode(): IBaseRenderNode;
+        protected _isMaterialVaild(value: Material): boolean;
         /**
          * @internal
          */
@@ -12417,6 +12419,7 @@ declare namespace Laya {
         protected _onEnable(): void;
         protected _onDisable(): void;
         protected _createBaseRenderNode(): IMeshRenderNode;
+        protected _isMaterialVaild(value: Material): boolean;
         /**
          * @internal
          * BaseRender motion
@@ -12715,7 +12718,7 @@ declare namespace Laya {
         /** @internal */
         _lightProb: VolumetricGI;
         /**@internal */
-        _surportVolumetricGI: boolean;
+        _supportVolumetricGI: boolean;
         /**@internal motion list index，not motion is -1*/
         _motionIndexList: number;
         /**@internal TODO*/
@@ -12954,6 +12957,7 @@ declare namespace Laya {
          * 返回第一个实例材质,第一次使用会拷贝实例对象。
          */
         get material(): Material;
+        protected _isMaterialVaild(value: Material): boolean;
         set material(value: Material);
         get materials(): Material[];
         set materials(value: Material[]);
@@ -16440,6 +16444,7 @@ declare namespace Laya {
          * @zh 构造方法，初始化3D UI。
         */
         constructor();
+        protected _isMaterialVaild(value: Material): boolean;
         private _creatDefaultMat;
         /**
          * @internal add renderelement
@@ -22566,6 +22571,7 @@ declare namespace Laya {
          * @zh 创建一个 SkyRenderer 的实例。
          */
         constructor();
+        protected _isMaterialVaild(value: Material): boolean;
         /**
          * @internal
          * 是否可用。
@@ -27173,7 +27179,6 @@ declare namespace Laya {
         /**
          * @en Indicates the vertical alignment of text paragraphs using this text format
          * @zh 表示使用此文本格式的文本段落的垂直对齐方式
-         * @default "top"
          */
         valign: string;
         /**
@@ -27189,16 +27194,13 @@ declare namespace Laya {
         /**
          * @en Stroke width (in pixels). Default is 0, meaning no stroke
          * @zh 描边宽度（以像素为单位）。默认值0，表示不描边
-         * @default 0
          */
         stroke: number;
         /**
          * @en Stroke color, represented as a string
          * @zh 描边颜色，以字符串表示
-         * @default "#000000"
          */
         strokeColor: string;
-        constructor();
     }
     class BlurEffect2D extends PostProcess2DEffect {
         private _renderElement;
@@ -27219,6 +27221,8 @@ declare namespace Laya {
         effectInit(postprocess: PostProcess2D): void;
         /** @ignore */
         render(context: PostProcessRenderContext2D): void;
+        private _checkRenderTarget;
+        clearRT(context: PostProcessRenderContext2D): void;
         /**
           * @en The strength of the blur filter.
           * @zh 模糊滤镜的强度。
@@ -27343,6 +27347,8 @@ declare namespace Laya {
         private _clampValue;
         /** @ignore */
         render(context: PostProcessRenderContext2D): void;
+        private _checkRenderTarget;
+        clearRT(context: PostProcessRenderContext2D): void;
         /**
          * @en Called after deserialization.
          * @zh 反序列化后调用。
@@ -27413,6 +27419,9 @@ declare namespace Laya {
         effectInit(postprocess: PostProcess2D): void;
         /** @ignore */
         render(context: PostProcessRenderContext2D): void;
+        private _checkRenderTarget;
+        /** @ignore */
+        clearRT(context: PostProcessRenderContext2D): void;
         /** @ignore */
         destroy(): void;
     }
@@ -27467,6 +27476,9 @@ declare namespace Laya {
         set useSpriteState(value: boolean);
         /**@ignore @blueprintIgnore */
         constructor();
+        protected _isMaterialVaild(value: Material): boolean;
+        /** @internal */
+        onModified(): void;
         /**
          * @en Destroy this object.
          * @zh 销毁此对象。
@@ -29236,6 +29248,8 @@ declare namespace Laya {
         /**@internal */
         _context: PostProcessRenderContext2D;
         /**@internal */
+        _hasCleanRT: boolean;
+        /**@internal */
         static init(): void;
         get enabled(): boolean;
         set enabled(value: boolean);
@@ -29247,6 +29261,8 @@ declare namespace Laya {
          */
         get owner(): Sprite;
         set owner(value: Sprite);
+        /** @internal */
+        _checkEnabled(): boolean;
         /**
          * @en Refresh render
          * @zh 刷新渲染
@@ -29302,10 +29318,16 @@ declare namespace Laya {
          * @en Destroy the post-processing instance.
          * @zh 销毁后期处理实例。
          */
+        /**
+         * @en Recover all RTs used in post-processing effects.
+         * @zh 回收后处理效果中使用的所有RT。
+         */
+        recoverAllRTS(): void;
+        apply(): void;
         destroy(): void;
     }
     /** @ignore @blueprintIgnore */
-    interface PostProcessRenderContext2D {
+    class PostProcessRenderContext2D {
         /**
          * @en The original RenderTexture that is rendered to initially. Do not modify this RT.
          * @zh 原始渲染 RenderTexture (RT)，禁止改变此 RT。
@@ -29339,11 +29361,33 @@ declare namespace Laya {
         /**
          * 顶点偏移值，在后处理中扩张rt的时候会累加
          */
-        OriOffset: Vector2;
+        oriOffset: Vector2;
+        /**
+          * @en Selects an RT from recycled RTs to save memory.
+          * @param width The width of the RenderTexture.
+          * @param height The height of the RenderTexture.
+          * @param colorFormat The color format of the RenderTexture.
+          * @param depthFormat The depth format of the RenderTexture.
+          * @returns The selected RenderTexture or null if no match is found.
+          * @zh 从回收的 RT 中选择一个 RT 用来节省内存。
+          * @param width 纹理的宽度。
+          * @param height 纹理的高度。
+          * @param colorFormat 纹理的颜色格式。
+          * @param depthFormat 纹理的深度格式。
+          * @returns 选择到的 RenderTexture，如果没有匹配的，则返回 null。
+          */
+        getRenderTexture(width: number, height: number, colorFormat: RenderTargetFormat, depthFormat: RenderTargetFormat): RenderTexture2D;
+        /**
+         * @internal
+         * @en Apply post-processing effects and recycle unused textures.
+         * @zh 应用后处理效果并回收纹理。
+         */
+        _apply(): void;
     }
     abstract class PostProcess2DEffect {
         protected _active: boolean;
         protected _owner: PostProcess2D;
+        destroyed: boolean;
         protected _singleton: boolean;
         /**
          * @internal
@@ -29372,10 +29416,17 @@ declare namespace Laya {
          */
         abstract render(context: PostProcessRenderContext2D): void;
         /**
+         * @en Clears the render texture.
+         * @param context The post-processing rendering context.
+         * @zh 清理渲染纹理。
+         * @param context 后期处理渲染上下文。
+         */
+        abstract clearRT(context: PostProcessRenderContext2D): void;
+        /**
          * @en Destroys the effect.
          * @zh 销毁效果。
          */
-        abstract destroy(): void;
+        destroy(): void;
     }
     /**
      * @blueprintIgnore
@@ -29838,6 +29889,9 @@ declare namespace Laya {
          * @returns
          */
         private _getScreenSize;
+        onEnable(): void;
+        onDisable(): void;
+        private _onTransChanged;
         /**
          * @internal
          * @returns
@@ -30201,15 +30255,27 @@ declare namespace Laya {
         private _internalInfo;
         /** @internal 渲染区域 */
         _rtRect: Rectangle;
+        _oriRect: Rectangle;
+        _logicMatrix: Matrix;
+        private _needUpdateVertexSize;
+        private _scaleX;
+        private _scaleY;
         constructor();
         bind(sprite: Sprite, subRenderPass: IRender2DPass, subStruct: IRenderStruct2D): void;
         /**
-         * @internal
+         * @internal 更新渲染区域
          * @param rect
+         * @param scaleX
+         * @param scaleY
          */
-        _updateRenderOffset(rect: Rectangle): void;
-        updateQuat(oriRT: RenderTexture2D, destRT: RenderTexture2D): void;
-        _updateVertexSize(): void;
+        _updateRenderOffset(rect: Rectangle, oriRect: Rectangle, scaleX: number, scaleY: number): void;
+        private _updateLogicMatrix;
+        /**
+         * @internal
+         * @param oriRT
+         * @param destRT
+         */
+        _updateRenderTexture(oriRT: RenderTexture2D, destRT: RenderTexture2D): void;
         destroy(): void;
     }
     /**
@@ -30226,6 +30292,7 @@ declare namespace Laya {
         _renderHandle: IMesh2DRenderDataHandle;
         protected _createRenderHandle(): IMesh2DRenderDataHandle;
         protected _initDefaultRenderData(): void;
+        protected _isMaterialVaild(value: Material): boolean;
         renderUpdate(context: IRenderContext2D): void;
         /**
          * @en 2D Mesh
@@ -30749,12 +30816,6 @@ declare namespace Laya {
         _scrollRect: Rectangle;
         /**
          * @internal
-         * @en Viewport
-         * @zh 视口
-         */
-        _viewport: Rectangle;
-        /**
-         * @internal
          * @en Hit area
          * @zh 点击区域
          */
@@ -30838,6 +30899,7 @@ declare namespace Laya {
         private _tfChanged;
         private _repaint;
         private _repaintCount;
+        private _previousType;
         private _sizeFlag;
         private _filterArr;
         private _userBounds;
@@ -30940,6 +31002,7 @@ declare namespace Laya {
          * @en If the height of the node is not set, this method will be called to obtain the display height each time the node height is obtained.
          */
         protected measureHeight(): number;
+        protected _isMaterialVaild(value: Material): boolean;
         /**
          * @en The display width of the object, in pixels, including X axis scaling.
          * @returns The display width.
@@ -31099,6 +31162,8 @@ declare namespace Laya {
          * @param flag
          */
         setSubpassFlag(flag: SubPassFlag): void;
+        /** @internal */
+        _needUpdateSubpass(): boolean;
         /**
          * @en The scroll rectangle range of the display object, with a clipping effect (if you only want to limit the rendering area of child objects, please use viewport).
          * Differences between srollRect and viewport:
@@ -31112,16 +31177,7 @@ declare namespace Laya {
         get scrollRect(): Rectangle;
         set scrollRect(value: Rectangle);
         /**
-         * @en The viewport size. Child objects outside the viewport will not be rendered (if you want to achieve a clipping effect, please use scrollRect). Proper use can improve rendering performance. For example, map tiles composed of small images will not render small images outside the viewport.
-         * The default value is null.
-         * The differences between scrollRect and viewport:
-         * 1. scrollRect comes with a clipping effect, while viewport only affects whether child objects are rendered without clipping (better performance).
-         * 2. Setting the x and y properties of the rect can achieve a scrolling effect in the area, but scrollRect will keep the position of point 0,0 unchanged.
-         * @zh 视口大小，视口外的子对象将不被渲染（如果想实现裁剪效果，请使用scrollRect），合理使用能提高渲染性能。例如，由一个个小图片拼成的地图块，viewport外面的小图片将不渲染。
-         * 默认值为null。
-         * scrollRect和viewport的区别：
-         * 1. scrollRect自带裁剪效果，viewport只影响子对象是否渲染，不具有裁剪效果（性能更高）。
-         * 2. 设置rect的x,y属性均能实现区域滚动效果，但scrollRect会保持0,0点位置不变。
+         * @deprecated
          */
         get viewport(): Rectangle;
         set viewport(value: Rectangle);
@@ -31135,6 +31191,12 @@ declare namespace Laya {
          */
         set drawCallOptimize(value: boolean);
         get drawCallOptimize(): boolean;
+        /**
+         * @en Whether to enable culling.
+         * @zh 是否启用裁剪。
+         */
+        set enableCulling(value: boolean);
+        get enableCulling(): boolean;
         /**
          * @en You can set a rectangular area as the clickable region, or set a HitArea instance as the clickable region. The HitArea can have both clickable and non-clickable areas defined. If the hitArea is not set, the mouse collision detection will be based on the area formed by the width and height of the object.
          * @zh 可以设置一个矩形区域作为点击区域，或者设置一个 `HitArea` 实例作为点击区域，HitArea 内可以设置可点击和不可点击区域。如果不设置 hitArea，则根据宽高形成的区域进行鼠标碰撞检测。
@@ -31419,9 +31481,11 @@ declare namespace Laya {
          * @param isDrawRenderRect 表示是否绘制渲染矩形。为 true 时，从渲染纹理的(0,0)点开始绘制，但要减去缓存矩形的偏移；为 false 时，保持精灵的原始相对位置进行绘制。
          * @param flipY 可选。如果为 true，则垂直翻转纹理。默认为 false。
          * @param clearColor 可选。如果提供，则在绘制前清除纹理为该颜色。默认为 null。
+         * @param renderScaleX 可选。渲染缩放 X。默认为 1。
+         * @param renderScaleY 可选。渲染缩放 Y。默认为 1。
          * @returns 绘制的 RenderTexture2D 对象。
          */
-        drawToRenderTexture2D(canvasWidth: number, canvasHeight: number, offsetX: number, offsetY: number, rt?: RenderTexture2D, isDrawRenderRect?: boolean, flipY?: boolean, clearColor?: Color): RenderTexture2D;
+        drawToRenderTexture2D(canvasWidth: number, canvasHeight: number, offsetX: number, offsetY: number, rt?: RenderTexture2D, isDrawRenderRect?: boolean, flipY?: boolean, clearColor?: Color, renderScaleX?: number, renderScaleY?: number): RenderTexture2D;
         /**
          * @en Draws the specified Sprite to a RenderTexture2D object.
          * @param sprite The Sprite to draw.
@@ -31433,6 +31497,8 @@ declare namespace Laya {
          * @param isDrawRenderRect A boolean indicating whether to draw the render rectangle. When true, it starts drawing from (0,0) of the render texture and subtracts the offset of the cache rectangle. When false, it keeps the sprite's original relative position for drawing.
          * @param flipY Optional. If true, the texture will be flipped vertical. Default is false.
          * @param clearColor Optional. If provided, the texture will be cleared to this color before drawing. Default is null.
+         * @param renderScaleX Optional. The scale of the render texture. Default is 1.
+         * @param renderScaleY Optional. The scale of the render texture. Default is 1.
          * @returns The drawn RenderTexture2D object.
          * @zh 将指定的 Sprite 绘制到 RenderTexture2D 对象上。
          * @param sprite 要绘制的 Sprite。
@@ -31444,9 +31510,11 @@ declare namespace Laya {
          * @param isDrawRenderRect 表示是否绘制渲染矩形。为 true 时，从渲染纹理的(0,0)点开始绘制，但要减去缓存矩形的偏移；为 false 时，保持精灵的原始相对位置进行绘制。
          * @param flipY 可选。如果为 true，则垂直翻转纹理。默认为 false。
          * @param clearColor 可选。如果为 true，则清除颜色。默认为 null。
+         * @param renderScaleX 可选。渲染缩放 X。默认为 1。
+         * @param renderScaleY 可选。渲染缩放 Y。默认为 1。
          * @returns 绘制的 RenderTexture2D 对象。
          */
-        static drawToRenderTexture2D(sprite: Sprite, canvasWidth: number, canvasHeight: number, offsetX: number, offsetY: number, rt?: RenderTexture2D, isDrawRenderRect?: boolean, flipY?: boolean, clearColor?: Color): RenderTexture2D;
+        static drawToRenderTexture2D(sprite: Sprite, canvasWidth: number, canvasHeight: number, offsetX: number, offsetY: number, rt?: RenderTexture2D, isDrawRenderRect?: boolean, flipY?: boolean, clearColor?: Color, renderScaleX?: number, renderScaleY?: number): RenderTexture2D;
         /**
          * @en Checks whether a point is within this object.
          * @param x Global x-coordinate.
@@ -31483,7 +31551,15 @@ declare namespace Laya {
          * @returns 矩形区域。
          */
         getSelfBounds(out?: Rectangle, recursive?: boolean): Rectangle;
-        /** @deprecated */
+        /**
+         * @en Get the rectangle display area of the drawn content of the object in its own coordinate system.
+         * @param realSize This parameter is reserved for future use.
+         * @param out The output rectangle object.
+         * @zh 获取本对象在自己坐标系的矩形显示区域，只计算绘制的内容。
+         * @param realSize 此参数预留以后使用。
+         * @param out 输出的矩形对象。
+         * @returns 矩形区域。
+         */
         getGraphicBounds(realSize?: boolean, out?: Rectangle): Rectangle;
         /**
          * @en Converts the local coordinates to the global coordinates relative to the stage.
@@ -31645,6 +31721,8 @@ declare namespace Laya {
         updateRenderTexture(): boolean;
         /** @internal */
         updateSubRenderPassState(): void;
+        /** @internal */
+        _updateStruct(): void;
         /**
          * @en Set the state of the sub-render pass.
          * @param enable Whether to enable the sub-render pass.
@@ -31656,10 +31734,12 @@ declare namespace Laya {
          * @ignore
          */
         protected _setParent(value: Node): void;
+        private _checkSubRenderPass;
+        private _refreshRenderPass;
         /** @ignore */
         _setDisplay(value: boolean): void;
         /**
-         * @internal
+         * @ignore
          */
         _setChildIndex(node: Sprite, oldIndex: number, index: number): number;
         /**
@@ -31739,7 +31819,9 @@ declare namespace Laya {
         PostProcess = 1,
         CacheAsBitmap = 2,
         Mask = 4,
-        RenderTexture = 8
+        RenderTexture = 8,
+        /** @internal */
+        UPDATE_POSTPROCESS = 9
     }
     class SpriteGlobalTransform {
         private _sp;
@@ -32236,11 +32318,6 @@ declare namespace Laya {
         get screenMode(): string;
         set screenMode(value: string);
         /**
-         * @en Get frame start time.
-         * @zh 获取帧开始时间
-         */
-        getFrameTm(): number;
-        /**
          * @en Get the time elapsed since the current frame started, in milliseconds.
          * This can be used to judge the time consumption within functions, reasonably control the processing time of each frame function, avoid doing too much in one frame, and process complex calculations across frames, which can effectively reduce frame rate fluctuations.
          * @zh 获得距当前帧开始后，过了多少时间，单位为毫秒。
@@ -32255,9 +32332,11 @@ declare namespace Laya {
         set visible(value: boolean);
         /**
          * @en Render all display objects on the stage
+         * @param timestamp Current time stamp
          * @zh 渲染舞台上的所有显示对象
+         * @param timestamp 当前时间戳
          */
-        render(): void;
+        render(timestamp: number): void;
         /** @ignore */
         _graphicUpdateList: Set<Sprite>;
         /** @ignore */
@@ -36803,150 +36882,166 @@ declare namespace Laya {
          */
         T_3DMainPass = 5,
         /**
+         * 3D context PreRender
+         */
+        T_3DContextPre = 6,
+        /**
+         * 3D Context render
+         */
+        T_3DContextRender = 7,
+        /**
          * main render opaque time
          */
-        T_3DMainPass_Opaque = 6,
+        T_3DMainPass_Opaque = 8,
         /**
          * main render trans time
          */
-        T_3DMainPass_Trans = 7,
+        T_3DMainPass_Trans = 9,
         /**
          * Batch 3D module Time
          */
-        T_3DBatchTime = 8,
+        T_3DBatchTime = 10,
         /**
          * 3D main cull time
          */
-        T_CullMain = 9,
+        T_CullMain = 11,
         /**
          * 3D shadow cull time
          */
-        T_CullShadow = 10,
+        T_CullShadow = 12,
         /**
          * render postprocess time
          */
-        T_Render_PostProcess = 11,
+        T_Render_PostProcess = 13,
         /**
          * render 2D time
          */
-        T_AllRender2D = 12,
+        T_AllRender2D = 14,
         /**
          * render 2D Pass Time
          */
-        T_2DPass = 13,
+        T_2DPass = 15,
+        /**
+         * 2D context PreRender
+         */
+        T_2DContextPre = 16,
+        /**
+         * 2D Context render
+         */
+        T_2DContextRender = 17,
         /**
          * component update time
          */
-        T_ScriptUpdateTime = 14,
+        T_ScriptUpdateTime = 18,
         /**
          * component Late update time
          */
-        T_ScriptLateUpdateTime = 15,
+        T_ScriptLateUpdateTime = 19,
         /**
          * 非透明物体DrawCall
          */
-        CT_OpaqueDrawCall = 16,
+        CT_OpaqueDrawCall = 20,
         /**
          * 透明物体的DrawCall
          */
-        CT_TransDrawCall = 17,
+        CT_TransDrawCall = 21,
         /**
          * 深度图/法线深度图的DrawCall
          */
-        CT_DepthCastDrawCall = 18,
+        CT_DepthCastDrawCall = 22,
         /**
          * 阴影DrawCall
          */
-        CT_ShadowDrawCall = 19,
+        CT_ShadowDrawCall = 23,
         /**
          * 2DDrawCall
          */
-        CT_2DDrawCall = 20,
+        CT_2DDrawCall = 24,
         /**
          * 3DDrawCall
          */
-        CT_3DDrawCall = 21,
+        CT_3DDrawCall = 25,
         /**
          * drawCall
          */
-        CT_DrawCall = 22,
-        CT_IndirectDrawCall = 23,
+        CT_DrawCall = 26,
+        CT_IndirectDrawCall = 27,
         /**
          * instance Draw Call
          */
-        CT_Instancing_DrawCall = 24,
-        M_GPUBuffer = 25,
-        C_GPUBuffer = 26,
-        M_VertexBuffer = 27,
-        C_VertexBuffer = 28,
-        M_IndexBuffer = 29,
-        C_IndexBuffer = 30,
-        M_UBOBuffer = 31,
-        C_UBOBuffer = 32,
-        M_DeviceBuffer = 33,
-        C_DeviceBuffer = 34,
-        M_AllTexture = 35,
-        C_AllTexture = 36,
-        M_Texture2D = 37,
-        C_Texture2D = 38,
-        M_TextureCube = 39,
-        C_TextureCube = 40,
-        M_Texture3D = 41,
-        C_Texture3D = 42,
-        M_Texture2DArray = 43,
-        C_Texture2DArray = 44,
-        M_RenderTexture = 45,
-        C_RenderTexture = 46,
-        M_GPUMemory = 47,
-        CT_ShaderChange = 48,
-        CT_Triangle = 49,
-        CT_BufferUploadCount = 50,
-        CT_GeometryBufferUploadCount = 51,
-        CT_UBOBufferUploadCount = 52,
-        CT_UBOBufferUploadMemory = 53,
-        C_Sprite2DCount = 54,
-        C_Sprite3DCount = 55,
-        C_BaseRenderCount = 56,
-        C_MeshRenderCount = 57,
-        C_SkinnedMeshRenderCount = 58,
-        C_ShurikenParticleRenderCount = 59,
-        T_AnimatorUpdate = 60,
-        T_SkinBoneUpdate = 61,
-        T_ShurikenUpdate = 62,
-        T_Physics_Simulation = 63,
-        T_Physics_UpdateNode = 64,
-        T_PhysicsEvent = 65,
-        C_PhysicsEventCount = 66,
-        T_PhysicsCollider = 67,
-        T_PhysicsTrigger = 68,
-        T_PhysicsColliderEnter = 69,
-        T_PhysicsColliderExit = 70,
-        T_PhysicsColliderStay = 71,
-        T_PhysicsTriggerEnter = 72,
-        T_PhysicsTriggerExit = 73,
-        T_PhysicsTriggerStay = 74,
-        C_PhysicaDynamicRigidBody = 75,
-        C_PhysicaStaticRigidBody = 76,
-        C_PhysicaKinematicRigidBody = 77,
-        C_PhysicaCharacterController = 78,
-        C_PhysicsJoint = 79,
+        CT_Instancing_DrawCall = 28,
+        M_GPUBuffer = 29,
+        C_GPUBuffer = 30,
+        M_VertexBuffer = 31,
+        C_VertexBuffer = 32,
+        M_IndexBuffer = 33,
+        C_IndexBuffer = 34,
+        M_UBOBuffer = 35,
+        C_UBOBuffer = 36,
+        M_DeviceBuffer = 37,
+        C_DeviceBuffer = 38,
+        M_AllTexture = 39,
+        C_AllTexture = 40,
+        M_Texture2D = 41,
+        C_Texture2D = 42,
+        M_TextureCube = 43,
+        C_TextureCube = 44,
+        M_Texture3D = 45,
+        C_Texture3D = 46,
+        M_Texture2DArray = 47,
+        C_Texture2DArray = 48,
+        M_RenderTexture = 49,
+        C_RenderTexture = 50,
+        M_GPUMemory = 51,
+        CT_ShaderChange = 52,
+        CT_Triangle = 53,
+        CT_BufferUploadCount = 54,
+        CT_GeometryBufferUploadCount = 55,
+        CT_UBOBufferUploadCount = 56,
+        CT_UBOBufferUploadMemory = 57,
+        C_Sprite2DCount = 58,
+        C_Sprite3DCount = 59,
+        C_BaseRenderCount = 60,
+        C_MeshRenderCount = 61,
+        C_SkinnedMeshRenderCount = 62,
+        C_ShurikenParticleRenderCount = 63,
+        T_AnimatorUpdate = 64,
+        T_SkinBoneUpdate = 65,
+        T_ShurikenUpdate = 66,
+        T_Physics_Simulation = 67,
+        T_Physics_UpdateNode = 68,
+        T_PhysicsEvent = 69,
+        C_PhysicsEventCount = 70,
+        T_PhysicsCollider = 71,
+        T_PhysicsTrigger = 72,
+        T_PhysicsColliderEnter = 73,
+        T_PhysicsColliderExit = 74,
+        T_PhysicsColliderStay = 75,
+        T_PhysicsTriggerEnter = 76,
+        T_PhysicsTriggerExit = 77,
+        T_PhysicsTriggerStay = 78,
+        C_PhysicaDynamicRigidBody = 79,
+        C_PhysicaStaticRigidBody = 80,
+        C_PhysicaKinematicRigidBody = 81,
+        C_PhysicaCharacterController = 82,
+        C_PhysicsJoint = 83,
         /**
          * 资源下载 + 解析时间。
          */
-        T_LoadResourceTime = 80,
+        T_LoadResourceTime = 84,
         /**
          * 加载次数
          */
-        C_LoadResourceCount = 81,
+        C_LoadResourceCount = 85,
         /**
          * 请求次数
          */
-        C_LoadRequestCount = 82,
+        C_LoadRequestCount = 86,
         /**
          *  网络下载时间
          */
-        T_LoadRequestTime = 83,
-        StatEnd = 84
+        T_LoadRequestTime = 87,
+        StatEnd = 88
     }
     interface IStaticsContext {
         /**
@@ -36979,12 +37074,14 @@ declare namespace Laya {
         getElementData(element: StatElement): number;
         /**
          * 开始帧逻辑
+         * @param timestamp
          */
-        startFrameLogic(): void;
+        startFrameLogic(timestamp: number): void;
         /**
          * 结束帧逻辑
+         * @param timestamp
          */
-        endFrameLogic(): void;
+        endFrameLogic(timestamp: number): void;
         /**
          * 中途切换统计信息 将当前统计信息复制到另一个统计信息中
          * @param context
@@ -37007,7 +37104,7 @@ declare namespace Laya {
         recordMemoryData(element: StatElement, data: number): void;
         getElementData(element: StatElement): number;
         startFrameLogic(): void;
-        endFrameLogic(): void;
+        endFrameLogic(timestamp: number): void;
     }
     /**
      * @internal
@@ -38462,11 +38559,11 @@ declare namespace Laya {
          */
         getGlobalPosY(): number;
         /**
-         * @en Get light scene position
-         * @zh 获取灯光位置的X坐标值（基于scene和stage）
+         * @en Get light global position
+         * @zh 获取灯光位置的X坐标值（基于全局坐标系）
          * @param out
          */
-        getScenePos(out: Point): Point;
+        getGlobalPos(out: Point): Point;
         /**
          * @en Set layer mask by list
          * @param layerList Layer list
@@ -38842,10 +38939,6 @@ declare namespace Laya {
         private _needCollectLightInLayer;
         private _needCollectOccluderInLight;
         private _lightsNeedCheckRange;
-        static LIGHTANDSHADOW_SCENE_INV_0: number;
-        static LIGHTANDSHADOW_SCENE_INV_1: number;
-        static LIGHTANDSHADOW_STAGE_MAT_0: number;
-        static LIGHTANDSHADOW_STAGE_MAT_1: number;
         static __init__(): void;
         constructor(scene: Scene);
         destroy(): void;
@@ -40075,6 +40168,7 @@ declare namespace Laya {
        */
         set sharedMaterial(value: Material);
         private _updateDashValue;
+        protected _isMaterialVaild(value: Material): boolean;
         /**
          * 基于不同BaseRender的uniform集合
          * @internal
@@ -41119,6 +41213,19 @@ declare namespace Laya {
          * @blueprintIgnore
          */
         static sortByKey(key: string, bigFirst?: boolean, forceNum?: boolean): (a: any, b: any) => number;
+        /**
+         * @en Round a number to fixed decimals and zero-out near-zero values to avoid floating errors.
+         * @param value Input number.
+         * @param decimals Decimals to keep. Default 3.
+         * @param epsilon Threshold to clamp to 0. Default 1e-6.
+         * @returns Rounded number, with near-zero clamped to 0.
+         * @zh 将数字按小数位四舍五入，并将接近 0 的值归零，避免浮点误差。
+         * @param value 输入数字。
+         * @param decimals 保留小数位数，默认 3。
+         * @param epsilon 接近 0 判定阈值，默认 1e-6。
+         * @returns 处理后的数字。
+         */
+        static roundTo(value: number, decimals?: number, epsilon?: number): number;
     }
     /**
      * @en The MathUtils3D class is used to create mathematical utilities.
@@ -46241,6 +46348,8 @@ declare namespace Laya {
         _filter: any;
         /**@internal */
         _curentSpeed: Vector3;
+        /**@internal navMeshSurface是否准备好，这里处理先添加agent再初始化navMeshSurface的情况*/
+        private _navMeshSurfaceReady;
         /**
          * @en Radius of the agent.
          * @zh 代理的半径。
@@ -47362,10 +47471,10 @@ declare namespace Laya {
     }
     /**
      * 自动图集管理类
-     * @internal
+     * @ignore
      */
     class AtlasInfoManager {
-        static _fileLoadDic: Record<string, {
+        static readonly _fileLoadDic: Record<string, {
             url: string;
             baseUrl?: string;
         }>;
@@ -47374,7 +47483,7 @@ declare namespace Laya {
             string,
             string[]
         ]>): void;
-        static addAtlas(atlasUrl: string, prefix: string, frames: Array<string>): void;
+        static addAtlas(atlasUrl: string, prefix: string, frames: Array<string>, allowOverride?: boolean): void;
         static getFileLoadPath(file: string): {
             url: string;
             baseUrl?: string;
@@ -47972,7 +48081,6 @@ declare namespace Laya {
         private _loadings;
         private _queue;
         private _downloadings;
-        private _tempTime;
         /** @ignore @blueprintIgnore */
         constructor();
         /**
@@ -48240,7 +48348,7 @@ declare namespace Laya {
          * @param onProgress 加载进度回调。
          * @returns 当包加载完成时解析的 Promise。
          */
-        loadPackage(path: string, onProgress?: ProgressCallback): Promise<void>;
+        loadPackage(path: string, onProgress?: ProgressCallback): Promise<boolean>;
         /**
          * @en Loads a sub-package.
          * @param path The path of the sub-package.
@@ -48253,8 +48361,10 @@ declare namespace Laya {
          * @param onProgress 加载进度回调。
          * @returns 当包加载完成时解析的 Promise。
          */
-        loadPackage(path: string, remoteUrl?: string, onProgress?: ProgressCallback): Promise<void>;
-        _loadFileConfig(path: string, loadScript: boolean, onProgress: ProgressCallback): Promise<any>;
+        loadPackage(path: string, remoteUrl?: string, onProgress?: ProgressCallback): Promise<boolean>;
+        /** @ignore */
+        _loadFileConfig(path: string, loadScript: boolean, onProgress: ProgressCallback): Promise<boolean>;
+        /** @ignore */
         _parseFileConfig(fileConfig: any): void;
     }
     /**
@@ -48836,6 +48946,7 @@ declare namespace Laya {
         /** @ignore */
         _getRenderHandle(): I2DBaseRenderDataHandle;
         protected _createRenderHandle(): I2DBaseRenderDataHandle;
+        protected _isMaterialVaild(value: Material): boolean;
         /**
          * @en render layer
          * @zh 渲染层。
@@ -49457,6 +49568,7 @@ declare namespace Laya {
         private _gradientMaxAlphaBuffer;
         private _gradientMaxTimeRange;
         constructor();
+        protected _isMaterialVaild(value: Material): boolean;
         protected _getcommonUniformMap(): Array<string>;
         private setParticleColorOverLifetime;
         private setParticleVelocityOverLifetime;
@@ -52107,6 +52219,7 @@ declare namespace Laya {
          * @zh 创建ShurikenParticleRender类的新实例。
          */
         constructor();
+        protected _isMaterialVaild(value: Material): boolean;
         protected _getcommonUniformMap(): Array<string>;
         protected _onAdded(): void;
         protected _onEnable(): void;
@@ -55493,18 +55606,13 @@ declare namespace Laya {
         stop(): void;
     }
     /**
-     * @en Physical auxiliary line
-     * @zh 物理辅助线
+     * @ignore
      * @blueprintIgnore
      */
-    class Physics2DDebugDraw extends Sprite {
-        /**@internal */
-        protected _camera: any;
-        /**@internal */
-        protected _physics2DWorld: Physics2DWorldManager;
-        /**@internal */
-        protected _mG: Graphics;
-        protected _lineWidth: number;
+    class Physics2DDebugDraw {
+        _scene: Scene;
+        _camera: any;
+        _lineWidth: number;
         private _matrix;
         /**绘制需要使用的材质 */
         private _material;
@@ -55513,55 +55621,9 @@ declare namespace Laya {
         private _linePointsList;
         private _cmdDrawMeshList;
         private _meshList;
-        /**
-         * @en The color string used for drawing text.
-         * @zh 用于绘制文本的颜色字符串。
-         */
-        DrawString_color: string;
-        /**
-         * @en The color string representing red.
-         * @zh 表示红色的颜色字符串。
-         */
-        Red: string;
-        /**
-         * @en The color string representing green.
-         * @zh 表示绿色的颜色字符串。
-         */
-        Green: string;
-        /**
-         * @en The Graphics object used for drawing shapes.
-         * @zh 用于绘制形状的 Graphics 对象。
-         */
-        get mG(): Graphics;
-        /**
-         * @en The current line width used for drawing.
-         * @zh 用于绘制的当前线宽。
-         */
-        get lineWidth(): number;
-        /**
-         * @en The camera object associated with the scene or view.
-         * @zh 与场景或视图关联的摄像机对象。
-         */
-        get camera(): any;
-        set physics2DWorld(world: Physics2DWorldManager);
         constructor();
-        /**@internal */
-        private _renderToGraphic;
-        /**
-         * @en Renders the object using the given context and position.
-         * @zh 使用给定的上下文和位置渲染对象。
-         */
-        render(x: number, y: number): void;
-        /**
-         * @en Saves the current state of the environment and remaps the position and rotation on the canvas.
-         * @zh 保存当前环境的状态，重新映射画布上的位置和旋转。
-         */
-        PushTransform(tx: number, ty: number, angle: number): void;
-        /**
-         * @en Restores the previously saved path state and properties.
-         * @zh 返回之前保存过的路径状态和属性。
-         */
-        PopTransform(): void;
+        setActive(value: boolean): void;
+        private render;
         /**
          * 根据多边形顶点生成Mesh2D，不添加中心点
          * @param vertices 多边形顶点数组 [x1, y1, x2, y2, ...]
@@ -55573,7 +55635,7 @@ declare namespace Laya {
             y: number;
         }, radius: number, numSegments: number): Mesh2D;
         addMeshDebugDrawCMD(mesh2D: Mesh2D, color: Color, matrix?: Matrix): void;
-        addLineDebugDrawCMD(points: any[], color: Color, lineWidth: number, matrix?: Matrix): void;
+        addLineDebugDrawCMD(points: any[], color: Color, lineWidth?: number, matrix?: Matrix): void;
         destroy(): void;
     }
     /**
@@ -55646,12 +55708,12 @@ declare namespace Laya {
      * @zh 场景对应的2D物理管理类
      */
     class Physics2DWorldManager implements IElementComponentManager {
-        static _debugSprite: Sprite;
         /**
          * @en 2Dphysics manager class name
          * @zh 2D物理管理类类名
          */
         static __managerName: string;
+        name: string;
         private _box2DWorld;
         private _pixelRatio;
         private _RePixelRatio;
@@ -55662,14 +55724,12 @@ declare namespace Laya {
         private _gravity;
         private _worldDef;
         private _eventList;
-        private _enableDraw;
         private _debugDraw;
         private _jsDraw;
         private _contactListener;
         private _JSQuerycallback;
         private _JSRayCastcallback;
         private _allowWorldSleep;
-        get enableDraw(): boolean;
         /**
          * @en Get the box2D world corresponding to the current scene
          * @zh 获取当前场景对应的box2D世界
@@ -55680,14 +55740,13 @@ declare namespace Laya {
          * @zh 获取当前物理世界的重力值
          */
         get gravity(): Vector2;
-        Init(data: any): void;
         /**
          * @en constructor method
          * @zh 构造方法
          * @param scene
          */
         constructor(scene: Scene | Sprite);
-        name: string;
+        Init(data: any): void;
         update(dt: number): void;
         /**
          * @zh 设置物理世界绑定的场景或根节点
@@ -55695,7 +55754,7 @@ declare namespace Laya {
          * @param scene 场景
          * @param scene scene
          */
-        setRootSprite(scene: Scene | Sprite): void;
+        private setRootSprite;
         /**
          * @zh 设置重力向量
          * @param gravity 重力
@@ -55865,7 +55924,6 @@ declare namespace Laya {
         private _worldContactCallback;
         private _makeStyleString;
         private _enableBox2DDraw;
-        private _frameLoop;
         private _debugDrawSegment;
         private _debugDrawPolygon;
         private _debugDrawSolidPolygon;
@@ -55878,7 +55936,7 @@ declare namespace Laya {
     }
     class PhysicsDrawLine2DCMD extends Command2D {
         private static readonly _pool;
-        private _renderElements;
+        _renderElements: IRenderElement2D[];
         private _physicsGeometry;
         private _material;
         get physicsGeometry(): PhysicsLineGemetry;
@@ -68134,6 +68192,7 @@ declare namespace Laya {
      * @blueprintIgnore
      */
     interface I2DGlobalRenderData {
+        /** minx , maxx , miny , maxy */
         cullRect: Vector4;
         renderLayerMask: number;
         globalShaderData: ShaderData;
@@ -68178,6 +68237,7 @@ declare namespace Laya {
      */
     interface I2DPrimitiveDataHandle extends IRender2DDataHandle {
         mask: IRenderStruct2D | null;
+        logicMatrix: Matrix | null;
         applyVertexBufferBlock(views: IGraphics2DBufferBlock[]): void;
     }
     /**
@@ -68239,11 +68299,17 @@ declare namespace Laya {
         clipMatrix: Matrix;
         _updateFrame: number;
     }
-    /** @ignore @blueprintIgnore */
+    /**
+     * @ignore @blueprintIgnore
+     * 需要传递的属性 get 效率慢
+     */
     interface IRenderStruct2D {
+        subStruct: IRenderStruct2D;
         owner: Sprite;
         zIndex: number;
         stackingRoot: boolean;
+        enableCulling: boolean;
+        readonly inheritedEnableCulling: boolean;
         rect: Rectangle;
         renderLayer: number;
         parent: IRenderStruct2D | null;
@@ -68259,8 +68325,7 @@ declare namespace Laya {
         /** 是否启动 */
         enabled: boolean;
         dcOptimize: boolean;
-        dcBounds: Rectangle;
-        dcBoundsTarget: IRenderStruct2D;
+        readonly inheritedDcOptimize: boolean;
         isRenderStruct: boolean;
         renderElements: IRenderElement2D[];
         spriteShaderData: ShaderData;
@@ -68871,7 +68936,6 @@ declare namespace Laya {
         needRender(): boolean;
         setClearColor(r: number, g: number, b: number, a: number): void;
         constructor();
-        private traverse;
         /**
          * pass 2D 渲染
          * @param context
@@ -68928,6 +68992,9 @@ declare namespace Laya {
         _mask: RTRenderStruct2D | null;
         get mask(): RTRenderStruct2D | null;
         set mask(value: RTRenderStruct2D | null);
+        private _logicMatrix;
+        get logicMatrix(): Matrix | null;
+        set logicMatrix(value: Matrix | null);
         private _blocks;
         applyVertexBufferBlock(blocks: RTGraphics2DBufferBlock[]): void;
         inheriteRenderData(context: GLESRenderContext2D): void;
@@ -68983,27 +69050,36 @@ declare namespace Laya {
     class RTRenderStruct2D implements IRenderStruct2D {
         _nativeObj: any;
         owner: Sprite;
-        dcOptimize: boolean;
-        dcBounds: Rectangle;
-        dcBoundsTarget: RTRenderStruct2D;
+        globalAlpha: number;
+        private _dcOptimize;
+        get dcOptimize(): boolean;
+        set dcOptimize(value: boolean);
+        get inheritedDcOptimize(): boolean;
         private _zIndex;
         set zIndex(value: number);
         get zIndex(): number;
         private _stackingRoot;
         set stackingRoot(value: boolean);
         get stackingRoot(): boolean;
+        private _enableCulling;
+        get enableCulling(): boolean;
+        set enableCulling(value: boolean);
+        get inheritedEnableCulling(): boolean;
         private _rect;
         set rect(value: Rectangle);
         get rect(): Rectangle;
         private _renderLayer;
         set renderLayer(value: number);
         get renderLayer(): number;
+        private _subStruct;
+        get subStruct(): RTRenderStruct2D;
+        set subStruct(value: RTRenderStruct2D);
         private _parent;
-        set parent(value: IRenderStruct2D);
-        get parent(): IRenderStruct2D | null;
+        set parent(value: RTRenderStruct2D);
+        get parent(): RTRenderStruct2D | null;
         private _children;
-        get children(): IRenderStruct2D[];
-        set children(value: IRenderStruct2D[]);
+        get children(): RTRenderStruct2D[];
+        set children(value: RTRenderStruct2D[]);
         private _renderType;
         set renderType(value: number);
         get renderType(): number;
@@ -69013,9 +69089,6 @@ declare namespace Laya {
         private _renderMatrix;
         set renderMatrix(value: Matrix);
         get renderMatrix(): Matrix;
-        private _globalAlpha;
-        set globalAlpha(value: number);
-        get globalAlpha(): number;
         private _alpha;
         get alpha(): number;
         set alpha(value: number);
@@ -69041,16 +69114,15 @@ declare namespace Laya {
         set globalRenderData(value: RTGlobalRenderData);
         get globalRenderData(): RTGlobalRenderData;
         private _pass;
-        private _parentPass;
         get pass(): RTRender2DPass;
         set pass(value: RTRender2DPass);
         constructor();
         setRenderUpdateCallback(func: Function): void;
         setClipRect(rect: Rectangle): void;
         setRepaint(): void;
-        addChild(child: IRenderStruct2D, index: number): void;
-        updateChildIndex(child: IRenderStruct2D, oldIndex: number, index: number): void;
-        removeChild(child: IRenderStruct2D): void;
+        addChild(child: RTRenderStruct2D, index: number): void;
+        updateChildIndex(child: RTRenderStruct2D, oldIndex: number, index: number): void;
+        removeChild(child: RTRenderStruct2D): void;
         destroy(): void;
     }
     class NativeBounds implements IClone {
@@ -69940,6 +70012,11 @@ declare namespace Laya {
         _modifyOneView(view: Web2DGraphic2DIndexDataView): void;
     }
     class Web2DGraphicsIndexBatchBuffer extends Web2DGraphicsIndexBuffer {
+        _first: Web2DGraphic2DIndexCloneDataView;
+        _last: Web2DGraphic2DIndexCloneDataView;
+        /** @internal */
+        _upload(): void;
+        _modifyOneView(view: Web2DGraphic2DIndexCloneDataView): void;
         clearBufferViews(): void;
         _resetData(byteLength: number): void;
     }
@@ -69974,7 +70051,7 @@ declare namespace Laya {
         constructor(owner: Web2DGraphicsVertexBuffer, start: number, length: number, stride?: number);
     }
     class Web2DGraphic2DIndexDataView extends Web2DGraphicsBufferDataView implements I2DGraphicIndexDataView {
-        private _view;
+        protected _view: Uint16Array;
         owner: Web2DGraphicsIndexBuffer;
         _geometry: IRenderGeometryElement;
         setGeometry(value: IRenderGeometryElement): void;
@@ -69993,12 +70070,20 @@ declare namespace Laya {
          * @param create
          * @returns
          */
-        _clone(cloneOwner?: boolean, create?: boolean): Web2DGraphic2DIndexDataView;
+        _clone(cloneOwner?: boolean, create?: boolean): Web2DGraphic2DIndexCloneDataView;
         /**
          * 克隆视图
          * @param view
          */
         _cloneView(view: Web2DGraphic2DIndexDataView): void;
+        destroy(): void;
+    }
+    class Web2DGraphic2DIndexCloneDataView extends Web2DGraphic2DIndexDataView {
+        /** @internal */
+        owner: Web2DGraphicsIndexBatchBuffer;
+        _next: Web2DGraphic2DIndexCloneDataView;
+        _prev: Web2DGraphic2DIndexCloneDataView;
+        /** @internal */
         destroy(): void;
     }
     class BatchBuffer {
@@ -70008,7 +70093,9 @@ declare namespace Laya {
         maxIndexCount: number;
         bufferStates: Map<IVertexBuffer, IBufferState>;
         constructor();
-        add(element: IPrimitiveRenderElement2D): import("../../../DriverDesign/RenderDevice/IRenderGeometryElement").IRenderGeometryElement;
+        _addWebgl(element: IPrimitiveRenderElement2D): IRenderGeometryElement;
+        _addWebgpu(element: IPrimitiveRenderElement2D): IRenderGeometryElement;
+        add(element: IPrimitiveRenderElement2D): IRenderGeometryElement;
         updateBufLength(): void;
         bindBuffer(buffer: IVertexBuffer): IBufferState;
         clear(): void;
@@ -70030,10 +70117,23 @@ declare namespace Laya {
         type: number;
         lowType: number;
         globalRenderData: any;
+        fillTexture: boolean;
+        texRange: Vector4;
+        constructor();
+        _setHeadWebgl(element: IPrimitiveRenderElement2D): void;
+        _setHeadWebgpu(element: IPrimitiveRenderElement2D): void;
         /**
          * 从渲染元素初始化批次上下文
          */
         setHead(element: IPrimitiveRenderElement2D): void;
+        /**
+         * @internal WebGL 检查元素是否与批次兼容
+         */
+        _isCompatibleWebgl(element: IPrimitiveRenderElement2D): boolean;
+        /**
+         * @internal WebGPU 检查元素是否与批次兼容
+         */
+        _isCompatibleWebgpu(element: IPrimitiveRenderElement2D): boolean;
         /**
          * 检查元素是否与批次兼容
          */
@@ -70054,6 +70154,9 @@ declare namespace Laya {
         private addSingle;
         private merge;
     }
+    /**
+     * @ignore
+     */
     class WebRender2DPass implements IRender2DPass {
         static buffers: Set<Web2DGraphicWholeBuffer>;
         private _renderElements;
@@ -70087,8 +70190,10 @@ declare namespace Laya {
          * rt渲染偏移
          **/
         offsetMatrix: Matrix;
-        private _invertMat_0;
-        private _invertMat_1;
+        /** @internal 反向矩阵 0 */
+        _invertMat_0: Vector3;
+        /** @internal 反向矩阵 1 */
+        _invertMat_1: Vector3;
         shaderData: ShaderData;
         destroyed: boolean;
         constructor();
@@ -70098,6 +70203,7 @@ declare namespace Laya {
           */
         needRender(): boolean;
         cullAndSort(context2D: IRenderContext2D, struct: WebRenderStruct2D): void;
+        private _isRectIntersect;
         /**
          * pass 2D 渲染
          * @param context
@@ -70144,6 +70250,7 @@ declare namespace Laya {
         vertexViews: I2DGraphicVertexDataView[];
     }
     class WebPrimitiveDataHandle extends WebRender2DDataHandle implements I2DPrimitiveDataHandle {
+        logicMatrix: Matrix | null;
         mask: WebRenderStruct2D | null;
         private _bufferBlocks;
         private _needUpdateBuffer;
@@ -70153,7 +70260,7 @@ declare namespace Laya {
         /** @internal */
         _getBlocks(): IGraphics2DBufferBlock[];
         inheriteRenderData(context: IRenderContext2D): void;
-        getCloneViews(): Web2DGraphic2DIndexDataView[];
+        getCloneViews(): Web2DGraphic2DIndexCloneDataView[];
         updateCloneView(): void;
         private _cloneView;
         destroy(): void;
@@ -70203,31 +70310,51 @@ declare namespace Laya {
         matrix: Matrix;
         modifiedFrame: number;
     }
+    type ParentData = {
+        clipInfo: IClipInfo;
+        blendMode: BlendMode;
+        globalRenderData: WebGlobalRenderData;
+        pass: WebRender2DPass;
+        enableCulling: boolean;
+        dcOptimize: boolean;
+        globalAlpha: number;
+    };
     class WebRenderStruct2D implements IRenderStruct2D {
         owner: Sprite;
+        /** @internal 原始数据，修改操作时修改这个 */
+        _parentData: ParentData;
+        /** @internal 读取数据，用于读取数据，subStruct 截断 */
+        _currentData: ParentData;
         zIndex: number;
         _effectZ: number;
         stackingRoot: boolean;
         rect: Rectangle;
+        private _enableCulling;
+        get enableCulling(): boolean;
+        set enableCulling(value: boolean);
+        get inheritedEnableCulling(): boolean;
         renderLayer: number;
         parent: WebRenderStruct2D | null;
         children: WebRenderStruct2D[];
         /** 按标记来 */
         renderType: number;
         renderUpdateMask: number;
-        dcOptimize: boolean;
+        /** @internal */
+        _dcOptimize: boolean;
+        get dcOptimize(): boolean;
+        set dcOptimize(value: boolean);
+        get inheritedDcOptimize(): boolean;
         dcOptimizeEnd: WebRenderStruct2D;
-        dcBounds: Rectangle;
-        dcBoundsTarget: WebRenderStruct2D;
         get renderMatrix(): Matrix;
         set renderMatrix(value: Matrix);
         trans: StructTransform;
-        globalAlpha: number;
+        get globalAlpha(): number;
+        set globalAlpha(value: number);
         private _alpha;
         get alpha(): number;
         set alpha(value: number);
+        /** @internal 最特殊，需要最后一个处理混合 */
         private _blendMode;
-        private _parentBlendMode;
         get blendMode(): BlendMode;
         set blendMode(value: BlendMode);
         /** @internal */
@@ -70246,27 +70373,36 @@ declare namespace Laya {
         _globalShaderData: ShaderData;
         /** @internal */
         private _globalRenderData;
-        /** @internal */
-        _parentGlobalRenderData: WebGlobalRenderData;
         get globalRenderData(): WebGlobalRenderData;
         set globalRenderData(value: WebGlobalRenderData);
-        private _pass;
-        private _parentPass;
+        private _updateGlobalShaderData;
+        /** @internal */
+        _pass: WebRender2DPass;
+        /** @internal */
+        _maskParentPass: WebRender2DPass;
+        private _updatePriority;
+        /** @internal */
+        setMaskParentPass(pass: WebRender2DPass): void;
         get pass(): WebRender2DPass;
         set pass(value: WebRender2DPass);
+        private _subStruct;
+        get subStruct(): WebRenderStruct2D;
+        set subStruct(value: WebRenderStruct2D);
         constructor();
         /** @internal */
         _clipRect: Rectangle;
         /** @internal */
-        _parentClipInfo: IClipInfo;
-        /** @internal */
         _clipInfo: IClipInfo;
+        /**@deprecated 使用_currentData.clipInfo代替 */
+        get _parentClipInfo(): IClipInfo;
         private _rnUpdateFun;
         setRenderUpdateCallback(func: Function): void;
         _handleInterData(): void;
-        private _updateBlendMode;
+        private _setBlendMode;
         setClipRect(rect: Rectangle): void;
         private _initClipInfo;
+        private _updateGlobalAlpha;
+        private _updateBlendMode;
         getClipInfo(): IClipInfo;
         private updateChildren;
         setRepaint(): void;
@@ -73395,9 +73531,9 @@ declare namespace Laya {
         name: string;
         enableInstancing: boolean;
         supportReflectionProbe: boolean;
-        surportVolumetricGI: boolean;
+        supportVolumetricGI: boolean;
         attributeMap: any;
-        shaderType: ShaderFeatureType;
+        shaderType: ShaderFeatureType | string;
         uniformMap: any;
         defaultValue: any;
         shaderPass: Array<any>;
@@ -73412,11 +73548,12 @@ declare namespace Laya {
         renderState?: Record<string, string | boolean | number | string[]>;
     }
     enum ShaderFeatureType {
-        DEFAULT = 0,
+        None = -1,
+        Default = 0,
         D3 = 1,
         D2_primitive = 2,
         D2_TextureSV = 3,
-        D2_BaseRednerNode2D = 4,
+        D2_BaseRenderNode2D = 4,
         PostProcess = 5,
         Sky = 6,
         Effect = 7
@@ -73571,7 +73708,7 @@ declare namespace Laya {
         /**@internal */
         _supportReflectionProbe: boolean;
         /**@internal */
-        _surportVolumetricGI: boolean;
+        _supportVolumetricGI: boolean;
         /**@internal */
         _subShaders: SubShader[];
         shaderType: ShaderFeatureType;
@@ -73951,11 +74088,14 @@ declare namespace Laya {
          * @internal
          */
         static __init__(): void;
+        /**
+         * @internal
+         */
         static startLoop(): void;
         /**
          * @internal
          */
-        static loop(): void;
+        static loop(timestamp: number): void;
         /**
          * @ignore
          */
@@ -73970,16 +74110,6 @@ declare namespace Laya {
         static setGlobalRepaint(): void;
         /** @deprecated */
         static get canvas(): any;
-    }
-    /**
-     *
-     * @author laya
-     */
-    class RenderInfo {
-        /**当前帧的开始时间 */
-        static loopStTm: number;
-        /**主舞台 <code>Stage</code> 渲染次数计数。 */
-        static loopCount: number;
     }
     interface IAutoExpiringResource {
         isRandomTouch: boolean;
@@ -75300,6 +75430,14 @@ declare namespace Laya {
          */
         clone(): Material;
         /**
+         * @en Checks if the material type matches the expected type.
+         * @param type The expected type.
+         * @zh 检查材质类型是否匹配预期类型。
+         * @param type 预期类型。
+         * @returns 是否匹配。
+         */
+        checkType(type: ShaderFeatureType): boolean;
+        /**
          * @en The material define.
          * @zh 材质宏
          */
@@ -75799,9 +75937,26 @@ declare namespace Laya {
      * @zh RenderTexture2D 类用于创建2D渲染目标。
      */
     class RenderTexture2D extends BaseTexture implements IRenderTarget {
+        static _empty: RenderTexture2D;
+        /** @internal */
+        static __init__(): void;
         private static _currentActive;
         private static _pool;
         private static _poolMemory;
+        private static _poolTimeouts;
+        /**
+         * @en The timeout for cleanup checks.
+         * @zh 清理检查的超时时间。
+         * @default 30000
+         */
+        static cleanupTimeout: number;
+        /**
+         * @en The frame interval for cleanup checks.
+         * @zh 清理检查的帧间隔。
+         * @default 360
+         */
+        static cleanupFrameInterval: number;
+        private static _lastCleanupFrame;
         /**
          * @en Creates a RenderTexture instance from the pool.
          * @param width Width of the RenderTexture.
@@ -75829,6 +75984,13 @@ declare namespace Laya {
          * @zh 清空渲染纹理对象池。
          */
         static clearPool(): void;
+        /**
+         * @en Cleans up expired RenderTexture2D instances from the pool.
+         * @returns Number of cleaned up instances.
+         * @zh 清理池中过期的RenderTexture2D实例。
+         * @returns 清理的实例数量。
+         */
+        static cleanupExpired(): number;
         /** @internal */
         static _clearColor: Color;
         /** @internal */
@@ -78142,6 +78304,11 @@ declare namespace Laya {
          */
         vertexBones: number;
         /**
+         * @en The bones that affect a vertex.
+         * @zh 影响一个顶点的骨骼。
+         */
+        bones: Set<number>;
+        /**
          * @en Initializes the attachment parser with the given parameters.
          * @param attachment The spine attachment to parse.
          * @param boneIndex The index of the bone.
@@ -79599,6 +79766,7 @@ declare namespace Laya {
         private _offset;
         /** @ignore */
         constructor();
+        protected _isMaterialVaild(value: Material): boolean;
         protected _getcommonUniformMap(): Array<string>;
         protected _createRenderHandle(): ISpineRenderDataHandle;
         /**
@@ -79679,6 +79847,12 @@ declare namespace Laya {
          */
         get useFastRender(): boolean;
         set useFastRender(value: boolean);
+        get offset(): Vector2;
+        set offset(value: Vector2);
+        private _autoAdjust;
+        get autoAdjust(): boolean;
+        set autoAdjust(value: boolean);
+        private _doAutoAdjust;
         /** @ignore @blueprintIgnore */
         onEnable(): void;
         /** @ignore @blueprintIgnore */
@@ -79842,6 +80016,8 @@ declare namespace Laya {
          * @en Clear method, used to release and reset related resources.
          */
         clear(): void;
+        /** @internal */
+        clearRenderElement(): void;
         /**
          * @zh 切换至快速渲染模式，开启后可以大幅度提升渲染性能，但是有骨骼顶点限制，比如spine资源中某个顶点的骨骼控制数不能大于4
          * @en Use fast rendering mode, which can greatly improve rendering performance but has limitations on bone vertices. For example, the number of bones controlling a vertex in spine resources cannot be greater than 4
@@ -79864,6 +80040,7 @@ declare namespace Laya {
         _updateRenderElements(): void;
         /** @internal */
         _onMeshChange(mesh: Mesh2D, force?: boolean): boolean;
+        get rect(): Vector4;
     }
     class TimeKeeper {
         maxDelta: number;
@@ -81234,6 +81411,7 @@ declare namespace Laya {
          * @ignore
          */
         constructor();
+        protected _isMaterialVaild(value: Material): boolean;
         private _initialTileSet;
         /**
          * 修改renderTileSize 会触发此函数
@@ -81457,7 +81635,7 @@ declare namespace Laya {
          * @returns
          */
         static getTransFlag(rotateCount: number, flip_h: boolean, flip_v: boolean, transpose: boolean): number;
-        static parseTransFlag(tileshape: TileShape, transFlag: number): Vector4;
+        static parseTransFlag(tileshape: TileShape, transFlag: number, cellData: TileSetCellData): Vector4;
         /**
         * 对格子进行uv翻转
         * 先做45度斜角翻转，然后再做水平或者垂直翻转,最后再旋转 (六边形旋转每次旋转60度，四边形旋转每次旋转90度)
@@ -81583,6 +81761,12 @@ declare namespace Laya {
         static _EMPTY: TileSetCellData;
         private _index;
         private _cellowner;
+        private _flip_h;
+        private _flip_v;
+        private _transpose;
+        private _rotateCount;
+        private _transChange;
+        private _transFlag;
         private _texture_origin;
         private _material;
         private _colorModulate;
@@ -81600,11 +81784,32 @@ declare namespace Laya {
         private _destroyed;
         gid: number;
         get index(): number;
+        get transFlag(): number;
         /**
          * 原始顶点图块的引用
          */
         get cellowner(): TileAlternativesData;
         set cellowner(value: TileAlternativesData);
+        /**
+         *  是否水平翻转
+         */
+        get flip_h(): boolean;
+        set flip_h(value: boolean);
+        /**
+         * 是否垂直翻转
+         */
+        get flip_v(): boolean;
+        set flip_v(value: boolean);
+        get transpose(): boolean;
+        /**
+         * 是否转置
+         */
+        set transpose(value: boolean);
+        /**
+         * 旋转次数
+         */
+        get rotateCount(): number;
+        set rotateCount(value: number);
         /**
          * 贴图原点
          */
@@ -81781,6 +81986,7 @@ declare namespace Laya {
        */
         set color(value: Color);
         get color(): Color;
+        protected _isMaterialVaild(value: Material): boolean;
         /**
          * 基于不同BaseRender的uniform集合
          * @internal
@@ -81911,6 +82117,7 @@ declare namespace Laya {
         _trailFilter: TrailFilter;
         /** @ignore */
         constructor();
+        protected _isMaterialVaild(value: Material): boolean;
         protected _getcommonUniformMap(): Array<string>;
         protected _createBaseRenderNode(): IBaseRenderNode;
         protected _onAdded(): void;
@@ -84512,10 +84719,10 @@ declare namespace Laya {
         };
     }
     /**
-     * @en The `ComboBox` component contains a drop-down list from which the user can select a single value.
-     * - `change` event: Dispatched when the user changes the selected content in `ComboBox` component.
      * @zh `ComboBox` 组件包含一个下拉列表，用户可以从该列表中选择单个值。
      * - `change`事件：当用户更改 `ComboBox` 组件中的选定内容时调度。
+     * @en The `ComboBox` component contains a drop-down list from which the user can select a single value.
+     * - `change` event: Dispatched when the user changes the selected content in `ComboBox` component.
      * @blueprintInheritable
      */
     class ComboBox extends UIComponent {
@@ -84541,173 +84748,173 @@ declare namespace Laya {
         protected _scrollType: ScrollType;
         protected _isCustomList: boolean;
         /**
-         * @en Rendering item, used to display a dropdown list to display objects
          * @zh 渲染项，用来显示下拉列表展示对象
+         * @en Rendering item, used to display a dropdown list to display objects
          */
         itemRender: any;
         /**
-         * @en The skin resource address of the object. Supports single state, two states and three states, set with the `stateNum` property.
          * @zh 对象的皮肤纹理资源地址。 支持单态，两态和三态，用 `stateNum` 属性设置
+         * @en The skin resource address of the object. Supports single state, two states and three states, set with the `stateNum` property.
          */
         get skin(): string;
         set skin(value: string);
         /**
-         * @en The padding of the drop-down list text.
-         * - The format is: top, right, bottom, left
          * @zh 下拉列表文本的边距。
          * - 格式：上边距,右边距,下边距,左边距
+         * @en The padding of the drop-down list text.
+         * - The format is: top, right, bottom, left
          */
         get itemPadding(): string;
         set itemPadding(value: string);
         /**
-         * @en The string of label collection.
          * @zh 标签集合字符串。
+         * @en The string of label collection.
          */
         get labels(): string;
         set labels(value: string);
         /**
-         * @en Indicates the index of the selected drop-down list item.
          * @zh 表示选择的下拉列表项的索引。
+         * @en Indicates the index of the selected drop-down list item.
          */
         get selectedIndex(): number;
         set selectedIndex(value: number);
         /**
-         * @en The default drop-down prompt text.
          * @zh 默认的下拉提示文本。
+         * @en The default drop-down prompt text.
          */
         get defaultLabel(): string;
         set defaultLabel(value: string);
         /**
-         * @en The handler to be executed when changing the selection of the drop-down list (default returns parameter index:int).
          * @zh 改变下拉列表的选择项时执行的处理器(默认返回参数index:int)。
+         * @en The handler to be executed when changing the selection of the drop-down list (default returns parameter index:int).
          */
         get selectHandler(): Handler;
         set selectHandler(value: Handler);
         /**
-         * @en Indicates the label of the selected drop-down list item.
          * @zh 表示选择的下拉列表项的的标签。
+         * @en Indicates the label of the selected drop-down list item.
          */
         get selectedLabel(): string;
         set selectedLabel(value: string);
         /**
-         * @en Gets or sets the maximum number of rows that can be displayed in the drop-down list without a scrollbar.
          * @zh 获取或设置没有滚动条的下拉列表中可显示的最大行数。
+         * @en Gets or sets the maximum number of rows that can be displayed in the drop-down list without a scrollbar.
          */
         get visibleNum(): number;
         set visibleNum(value: number);
         /**
-         * @en The height of the drop-down list item.
          * @zh 下拉列表项的高度。
+         * @en The height of the drop-down list item.
          */
         get itemHeight(): number;
         set itemHeight(value: number);
         /**
-         * @en The color of drop-down list items.
-         * The format is: "background color when hovering or selected, label color when hovering or selected, label color, border color, background color"
          * @zh 下拉列表项颜色。
          * 格式：悬停或被选中时背景颜色,悬停或被选中时标签颜色,标签颜色,边框颜色,背景颜色"。
+         * @en The color of drop-down list items.
+         * The format is: "background color when hovering or selected, label color when hovering or selected, label color, border color, background color"
          */
         get itemColors(): string;
         set itemColors(value: string);
         /**
-         * @en The font size of the drop-down list item label.
          * @zh 下拉列表项标签的字体大小。
+         * @en The font size of the drop-down list item label.
          */
         get itemSize(): number;
         set itemSize(value: number);
         /**
-         * @en Indicates the open state of the drop-down list.
          * @zh 表示下拉列表的打开状态。
+         * @en Indicates the open state of the drop-down list.
          */
         get isOpen(): boolean;
         set isOpen(value: boolean);
         /**
-         * @en The scroll type.
          * @zh 滚动类型。
+         * @en The scroll type.
          */
         get scrollType(): ScrollType;
         set scrollType(value: ScrollType);
         /**
-         * @en The scrollbar skin.
          * @zh 滚动条皮肤。
+         * @en The scrollbar skin.
          */
         get scrollBarSkin(): string;
         set scrollBarSkin(value: string);
         /**
-         * @en The size grid of the texture.
-         * The size grid is a 3x3 division of the texture, allowing it to be scaled without distorting the corners and edges.
-         * The array contains five values representing the top, right, bottom, and left margins, and whether to repeat the fill (0: no repeat, 1: repeat).
-         * The values are separated by commas. For example: "6,6,6,6,1".
          * @zh 纹理的九宫格数据。
          * 九宫格是一种将纹理分成3x3格的方式，使得纹理缩放时保持角和边缘不失真。
          * 数组包含五个值，分别代表上边距、右边距、下边距、左边距以及是否重复填充（0：不重复填充，1：重复填充）。
          * 值以逗号分隔。例如："6,6,6,6,1"。
+         * @en The size grid of the texture.
+         * The size grid is a 3x3 division of the texture, allowing it to be scaled without distorting the corners and edges.
+         * The array contains five values representing the top, right, bottom, and left margins, and whether to repeat the fill (0: no repeat, 1: repeat).
+         * The values are separated by commas. For example: "6,6,6,6,1".
          */
         get sizeGrid(): string;
         set sizeGrid(value: string);
         /**
-         * @en a reference to the `VScrollBar` scrollbar component contained in the `ComboBox` component.
          * @zh `ComboBox` 组件所包含的 `VScrollBar` 滚动条组件的引用。
+         * @en a reference to the `VScrollBar` scrollbar component contained in the `ComboBox` component.
          */
         get scrollBar(): VScrollBar;
         /**
-         * @en a reference to the `Button` component contained in the `ComboBox` component.
          * @zh `ComboBox` 组件所包含的 `Button` 组件的引用。
+         * @en a reference to the `Button` component contained in the `ComboBox` component.
          */
         get button(): Button;
         /**
-         * @en a reference to the `List` list component contained in the `ComboBox` component.
          * @zh `ComboBox` 组件所包含的 `List` 列表组件的引用。
+         * @en a reference to the `List` list component contained in the `ComboBox` component.
          */
         get list(): List;
         set list(value: List);
         /**
-         * @en the text label color of the `Button` component contained in the `ComboBox` component.
-         * The format is: upColor,overColor,downColor
          * @zh  `ComboBox` 组件所包含的 `Button` 组件的文本标签颜色。
          * 格式：upColor,overColor,downColor
+         * @en the text label color of the `Button` component contained in the `ComboBox` component.
+         * The format is: upColor,overColor,downColor
          */
         get labelColors(): string;
         set labelColors(value: string);
         /**
-         * @en the text margin of the `Button` component contained in the `ComboBox` component.
-         * The format is: top, right, bottom, left
          * @zh `ComboBox` 组件所包含的 `Button` 组件的文本边距。
          * 格式：上边距,右边距,下边距,左边距
+         * @en the text margin of the `Button` component contained in the `ComboBox` component.
+         * The format is: top, right, bottom, left
          */
         get labelPadding(): string;
         set labelPadding(value: string);
         /**
-        * @en the label font size of the `Button` component contained in the `ComboBox` component.
         * @zh `ComboBox` 组件所包含的 `Button` 组件的标签字体大小。
+        * @en the label font size of the `Button` component contained in the `ComboBox` component.
         */
         get labelSize(): number;
         set labelSize(value: number);
         /**
-        * @en Indicates whether the button text label is bold.
         * @zh 表示按钮文本标签是否为粗体字。
+        * @en Indicates whether the button text label is bold.
         */
         get labelBold(): boolean;
         set labelBold(value: boolean);
         /**
-         * @en Indicates the font name of the button text label, expressed as a string.
          * @zh 表示按钮文本标签的字体名称，以字符串形式表示。
+         * @en Indicates the font name of the button text label, expressed as a string.
          */
         get labelFont(): string;
         set labelFont(value: string);
         /**
-         * @en Indicates the state value of the button.
          * @zh 表示按钮的状态值。
+         * @en Indicates the state value of the button.
          */
         get stateNum(): number;
         set stateNum(value: number);
         /**
-         * @en `ComboBox` constructor.
-         * @param skin The skin resource address.
-         * @param labels The string of the label collection in the drop-down list. Separated by commas, such as "item0,item1,item2,item3,item4,item5".
          * @zh  `ComboBox` UI组件的构造函数。
          * @param skin 皮肤资源地址。
          * @param labels 下拉列表的标签集字符串。以逗号做分割，如"item0,item1,item2,item3,item4,item5"。
+         * @en `ComboBox` constructor.
+         * @param skin The skin resource address.
+         * @param labels The string of the label collection in the drop-down list. Separated by commas, such as "item0,item1,item2,item3,item4,item5".
          */
         constructor(skin?: string, labels?: string);
         protected createChildren(): void;
@@ -84719,8 +84926,8 @@ declare namespace Laya {
         protected _transChanged(kind: TransformKind): void;
         private _onStageMouseWheel;
         /**
-         * @en Close the drop-down list of ComboBox.
          * @zh 关闭下拉列表。
+         * @en Close the drop-down list of ComboBox.
          */
         protected removeList(e: Event): void;
         private onListDown;
@@ -84730,38 +84937,38 @@ declare namespace Laya {
         protected measureHeight(): number;
         protected changeList(): void;
         /**
-         * @en Handles mouse events on a list item. This method manages the visual state of the list item based on mouse interaction, such as hover and click.
-         * @param e The mouse event.
-         * @param index The index of the list item.
          * @zh 处理列表项的鼠标事件。该方法根据鼠标交互（如悬停和点击）管理列表项的视觉状态。
          * @param e 鼠标事件。
          * @param index 列表项的索引。
+         * @en Handles mouse events on a list item. This method manages the visual state of the list item based on mouse interaction, such as hover and click.
+         * @param e The mouse event.
+         * @param index The index of the list item.
          */
         protected onlistItemMouse(e: Event, index: number): void;
         private switchTo;
         /**
-         * @en Changing the open state of the drop-down list.
          * @zh 更改下拉列表的打开状态。
+         * @en Changing the open state of the drop-down list.
          */
         protected changeOpen(): void;
         /**
-         * @en Updates the items in the list and adjusts its visual representation. This method recalculates the list height, updates the background if it's not a custom list, and populates the list with new data.
          * @zh 更新列表中的项目并调整其视觉表现。此方法重新计算列表高度，如果不是自定义列表，则更新背景，并使用新数据填充列表。
+         * @en Updates the items in the list and adjusts its visual representation. This method recalculates the list height, updates the background if it's not a custom list, and populates the list with new data.
          */
         protected changeItem(): void;
         private changeSelected;
         /**
-         * @en Destroy the component and release the memory occupied by the component. Destroy the child objects of the component at the same time by default.
-         * @param destroyChild Whether to simultaneously destroy the child objects of the component. The default value is true.
          * @zh 销毁组件并释放组件所占用的内存。默认会同时销毁组件的子对象。
          * @param destroyChild 是否同时销毁组件的子对象。默认值为true。
+         * @en Destroy the component and release the memory occupied by the component. Destroy the child objects of the component at the same time by default.
+         * @param destroyChild Whether to simultaneously destroy the child objects of the component. The default value is true.
          */
         destroy(destroyChild?: boolean): void;
         /**
-         * @en Set the data source of the ComboBox.
-         * @param value The new data source.
          * @zh 设置下拉选项框的数据源。
          * @param value 新的数据源。
+         * @en Set the data source of the ComboBox.
+         * @param value The new data source.
          */
         set_dataSource(value: any): void;
         /** @internal @blueprintEvent */
@@ -86465,7 +86672,25 @@ declare namespace Laya {
      * `change`事件用于当Group的selectedIndex属性发生变化时调度。
      */
     class RadioGroup extends UIGroup {
+        /** @internal */
+        constructor();
         protected createItem(skin: string, label: string): Sprite;
+        /**
+         * @zh 设置节点宽高是否自适应文本内容，一旦适应后，文本对齐设置将无效。
+         * - true（文本宽度和高度自适应）
+         * - false （不自适应）
+         * @en sets whether the node width and height adapts to the text content. Once adapted, the text alignment settings will be invalid.
+         * - true (both text width and height adapt)
+         * - false (does not adapt)
+         */
+        get fitContent(): boolean;
+        set fitContent(value: boolean);
+        /**
+         * @zh 文本标签固定的宽高，不自动适应文本内容时，并且宽高值大于0，该功能才会生效。
+         * @en The fixed width and height of the text label. This feature will only take effect when the text content is not automatically adapted. The width and height values must be greater than 0.
+         */
+        get labelFixedSize(): Vector2;
+        set labelFixedSize(value: Vector2);
     }
     /**
      * @en The `ScaleBox` is a container that automatically scales its content to fit the stage size while maintaining the original aspect ratio.
@@ -87865,9 +88090,11 @@ declare namespace Laya {
         protected _skin: string;
         protected _direction: string;
         protected _space: number;
+        protected _stateNum: number;
+        protected _lineWrap: boolean;
+        protected _lineSpace: number;
         protected _labels: string;
         protected _labelColors: string;
-        private _labelFont;
         protected _labelStrokeColor: string;
         protected _strokeColors: string;
         protected _labelStroke: number;
@@ -87875,133 +88102,185 @@ declare namespace Laya {
         protected _labelBold: boolean;
         protected _labelPadding: string;
         protected _labelAlign: string;
-        protected _stateNum: number;
+        protected _labelVAlign: string;
         protected _labelChanged: boolean;
+        protected _labelOverflow: string;
+        protected _fitContent: boolean;
+        protected _labelFixedSize: Vector2;
+        private _labelFont;
         /**
-         * @en The processor executed when changing the selection of the Group, (Default return parameter: item index (index: int)).
          * @zh 改变 Group 的选择项时执行的处理器，(默认返回参数： 项索引（index:int）)。
+         * @en The processor executed when changing the selection of the Group, (Default return parameter: item index (index: int)).
          */
         selectHandler: Handler;
         /**
-         * @en Indicates the index of the currently selected item. The default value is -1.
          * @zh 表示当前选择的项索引。默认值为-1。
+         * @en Indicates the index of the currently selected item. The default value is -1.
          */
         get selectedIndex(): number;
         set selectedIndex(value: number);
         /**
-         * @en The URL of the skin for the component.
-         * @zh 组件的皮肤URL。
+         * @zh 纹理皮肤URL。
+         * @en The URL of the skin for the UIComponent.
          */
         get skin(): string;
         set skin(value: string);
         /**
-         * @en The labels string, separated by commas, such as "item0,item1,item2,item3,item4,item5".
          * @zh 标签集合字符串。以逗号做分割，如"item0,item1,item2,item3,item4,item5"。
+         * @en The labels string, separated by commas, such as "item0,item1,item2,item3,item4,item5".
          */
         get labels(): string;
         set labels(value: string);
         /**
-         * @en The label colors string for the component.
+         * @zh 标签文本溢出模式。
+         * - hidden: 默认值，隐藏超出部分，超出部分被裁切。
+         * - visible: 超出部分可见，不裁切。
+         * @en The text overflow mode for the label.
+         * - hidden: The default value. The overflow part is hidden and clipped.
+         * - visible: The overflow part is visible and not clipped.
+         */
+        get labelOverflow(): string;
+        set labelOverflow(value: string);
+        /**
          * @zh 组件的标签颜色字符串。
+         * @en The label colors string for the component.
          */
         get labelColors(): string;
         set labelColors(value: string);
         /**
-         * @en The text alignment mode.
          * @zh 标签水平对齐模式。
+         * - left: 居左对齐。
+         * - center: 居中对齐。
+         * - right: 居右对齐。
+         * @en The text alignment mode.
+         * - left: Left alignment.
+         * - center: Center alignment.
+         * - right: Right alignment.
          */
         get labelAlign(): string;
         set labelAlign(value: string);
         /**
-         * @en The stroke width (in pixels) for the label.
-         * The default value is 0, indicating no stroke.
+         * @zh 标签垂直对齐模式。
+         * - top: 顶部对齐。
+         * - middle: 居中对齐。
+         * - bottom: 底部对齐。
+         * @en The vertical alignment mode for the label.
+         * - top: Top alignment.
+         * - middle: Middle alignment.
+         * - bottom: Bottom alignment.
+         */
+        get labelVAlign(): string;
+        set labelVAlign(value: string);
+        /**
          * @zh 描边宽度（以像素为单位）。
          * 默认值0，表示不描边。
+         * @en The stroke width (in pixels) for the label.
+         * The default value is 0, indicating no stroke.
          */
         get labelStroke(): number;
         set labelStroke(value: number);
         /**
-         * @en The stroke color for the label, represented as a string.
-         * The default color is "#000000" (black).
          * @zh 描边颜色，以字符串表示。
          * 默认值为 "#000000"（黑色）;
+         * @en The stroke color for the label, represented as a string.
+         * The default color is "#000000" (black).
          */
         get labelStrokeColor(): string;
         set labelStrokeColor(value: string);
         /**
-         * @en The stroke colors in various states.
          * @zh 各个状态下的描边颜色
+         * @en The stroke colors in various states.
          */
         get strokeColors(): string;
         set strokeColors(value: string);
         /**
-         * @en The font size of the button's text label.
          * @zh 按钮文本标签的字体大小。
+         * @en The font size of the button's text label.
          */
         get labelSize(): number;
         set labelSize(value: number);
         /**
-         * @en The number of states the button has, represented as a number. The default is 3 states.
          * @zh 按钮的状态值，以数字表示，默认为3态。
+         * @en The number of states the button has, represented as a number. The default is 3 states.
          */
         get stateNum(): number;
         set stateNum(value: number);
         /**
-         * @en Whether the button's text label is bold.
          * @zh 按钮文本标签是否为粗体字。
+         * @en Whether the button's text label is bold.
          */
         get labelBold(): boolean;
         set labelBold(value: boolean);
         /**
-         * @en The font name of the button's text label, represented as a string.
          * @zh 按钮文本标签的字体名称，以字符串形式表示。
+         * @en The font name of the button's text label, represented as a string.
          */
         get labelFont(): string;
         set labelFont(value: string);
         /**
-         * @en The padding of the button's text label.
-         * Format: "Top,Right,Bottom,Left".
          * @zh 按钮文本标签的边距。
          * 格式："上边距,右边距,下边距,左边距"。
+         * @en The padding of the button's text label.
+         * Format: "Top,Right,Bottom,Left".
          */
         get labelPadding(): string;
         set labelPadding(value: string);
         /**
-         * @en The layout direction. The default value is "horizontal".
-         * Possible values:
-         * "horizontal": Indicates a horizontal layout.
-         * "vertical": Indicates a vertical layout.
          * @zh 布局方向。 默认值为"horizontal"。
          * 取值：
          * "horizontal"：表示水平布局。
          * "vertical"：表示垂直布局。
+         * @en The layout direction. The default value is "horizontal".
+         * Possible values:
+         * "horizontal": Indicates a horizontal layout.
+         * "vertical": Indicates a vertical layout.
          */
         get direction(): string;
         set direction(value: string);
         /**
-         * @en The space between items in pixels.
+     * @en Whether to enable automatic line wrapping when items exceed the container size.
+     * Default is false (no wrapping).
+     * @zh 是否开启自动换行，当子项超出容器尺寸时自动换行。
+     * 默认为 false（不换行）。
+     */
+        get lineWrap(): boolean;
+        set lineWrap(value: boolean);
+        /**
+         * @zh 换行开启时，行与行之间的间距。
+         * - 当 direction 为 "horizontal" 时，表示垂直间距（行间距）。
+         * - 当 direction 为 "vertical" 时，表示水平间距（列间距）。
+         * 默认值为 10。
+         * @en The spacing between lines when wrap is enabled.
+         * - If direction is "horizontal", this value indicates the vertical spacing (row spacing).
+         * - If direction is "vertical", this value indicates the horizontal spacing (column spacing).
+         * Default is 10.
+         */
+        get lineSpace(): number;
+        set lineSpace(value: number);
+        /**
          * @zh 项对象们之间的间隔（以像素为单位）。
+         * @en The space between items in pixels.
          */
         get space(): number;
         set space(value: number);
         /**
-         * @en The array where the item objects are stored.
          * @zh 项对象们的存放数组。
+         * @en The array where the item objects are stored.
          */
         get items(): ISelect[];
         /**
-         * @en The currently selected item object.
          * @zh 当前选择的项对象。
+         * @en The currently selected item object.
          */
         get selection(): ISelect;
         set selection(value: ISelect);
         /**
-         * @en Creates an instance of UIGroup.
-         * @param labels A string of labels separated by commas, e.g., "item0,item1,item2,item3,item4,item5".
-         * @param skin The skin.
          * @zh 创建一个 UIGroup 的实例。
          * @param labels 标签集字符串，以逗号分隔，例如 "item0,item1,item2,item3,item4,item5"。
          * @param skin 皮肤。
+         * @en Creates an instance of UIGroup.
+         * @param labels A string of labels separated by commas, e.g., "item0,item1,item2,item3,item4,item5".
+         * @param skin The skin.
          */
         constructor(labels?: string, skin?: string);
         /**
@@ -88019,34 +88298,34 @@ declare namespace Laya {
         protected _skinLoaded(): void;
         protected _setLabelChanged(): void;
         /**
-         * @en The item object's click event listener function, used to set the current selected item index.
-         * @param index The item index.
          * @zh 项对象的点击事件侦听处理函数，用于设置当前选择的项索引
          * @param index 项索引。
+         * @en The item object's click event listener function, used to set the current selected item index.
+         * @param index The item index.
          */
         protected itemClick(index: number): void;
         /**
-         * @en Creates an item display object.
-         * @param skin The skin path for the item object.
-         * @param label The text label for the item object.
          * @zh 创建一个项显示对象。
          * @param skin 项对象的皮肤路径。
          * @param label 项对象的文本标签。
+         * @en Creates an item display object.
+         * @param skin The skin path for the item object.
+         * @param label The text label for the item object.
          */
         protected createItem(skin: string, label: string): Sprite;
         /**
-         * @en Change the property value of an item object.
          * @zh 更改项对象的属性值。
+         * @en Change the property value of an item object.
          */
         protected changeLabels(): void;
         protected commitMeasure(): void;
         /**
-         * @en Sets the `selected`property value of an item object by its index.
-         * @param index The index of the item object to be set.
-         * @param selected Indicates the selected state of the item object.
          * @zh 通过对象的索引设置项对象的 `selected`属性值。
          * @param index 需要设置的项对象的索引。
          * @param selected 表示项对象的选中状态。
+         * @en Sets the `selected`property value of an item object by its index.
+         * @param index The index of the item object to be set.
+         * @param selected Indicates the selected state of the item object.
          */
         protected setSelect(index: number, selected: boolean): void;
         /**
@@ -88057,38 +88336,38 @@ declare namespace Laya {
          */
         destroy(destroyChild?: boolean): void;
         /**
-         * @en Adds an item object.
-         * @param item The item object to be added.
-         * @param autoLayout Whether to automatically layout the item. If true, the position of the item will be calculated based on the direction and space properties.
-         * @returns returns the index ID of this item object.
          * @zh 添加一个项对象。
          * @param item 需要添加的项对象。
          * @param autoLayout 是否自动布局，如果为true，会根据 direction 和 space 属性计算item的位置。
          * @returns 返回添加的项对象的索引ID。
+         * @en Adds an item object.
+         * @param item The item object to be added.
+         * @param autoLayout Whether to automatically layout the item. If true, the position of the item will be calculated based on the direction and space properties.
+         * @returns returns the index ID of this item object.
          */
         addItem(item: ISelect, autoLayout?: boolean): number;
         /**
-         * @en Removes an item object.
-         * @param item The item object to be added.
-         * @param autoLayout Whether to automatically layout the item. If true, the position of the item will be calculated based on the direction and space properties. Default is true.
          * @zh 删除一个项对象。
          * @param item 需要删除的项对象。
          * @param autoLayout 是否自动布局，如果为true，会根据 direction 和 space 属性计算item的位置。
+         * @en Removes an item object.
+         * @param item The item object to be added.
+         * @param autoLayout Whether to automatically layout the item. If true, the position of the item will be calculated based on the direction and space properties. Default is true.
          */
         delItem(item: ISelect, autoLayout?: boolean): void;
         /**
-         * @en This method is called after deserialization of this instance.
          * @zh 反序列化后调用此方法。
+         * @en This method is called after deserialization of this instance.
          */
         onAfterDeserialize(): void;
         /**
-         * @en Initializes the item objects.
          * @zh 初始化项对象们。
+         * @en Initializes the item objects.
          */
         initItems(): void;
         /**
-         * @en Sets the data source for this component.
          * @zh 设置此组件的数据源。
+         * @en Sets the data source for this component.
          */
         set_dataSource(value: any): void;
         /** @internal @blueprintEvent */
@@ -89297,6 +89576,8 @@ declare namespace Laya {
          */
         get mesh(): IMeshFactory;
         set mesh(value: IMeshFactory);
+        get material(): Material;
+        set material(value: Material);
         protected loadContent(): void;
         protected onLoaded(value: Texture | AtlasResource, loadID: number): void;
         private onTextureReload;
@@ -93035,8 +93316,8 @@ declare namespace Laya {
          */
         static removeElement(ele: any): void;
         /**
-         * @en Gets the current timestamp in milliseconds since the epoch.
-         * @zh 获取浏览器当前时间戳，单位为毫秒。
+         * @en Gets the current timestamp in milliseconds since the epoch. It is equivalent to `performance.now()`.
+         * @zh 获取浏览器当前时间戳，单位为毫秒。等同于 `performance.now()`。
          */
         static now(): number;
         /**
@@ -94642,7 +94923,7 @@ declare namespace Laya {
         private _items;
         private _pass;
         private createUI;
-        show(): void;
+        show(x?: number, y?: number): void;
         update(): void;
         render(): void;
     }
@@ -94704,7 +94985,7 @@ declare namespace Laya {
          * @en The frame update handling function.
          * @zh 帧循环处理函数。
          */
-        _update(): void;
+        _update(timestamp: number): void;
         private _clearHandlers;
         /** @internal */
         _create(useFrame: boolean, repeat: boolean, delay: number, caller: any, method: Function, args: any[], coverBefore: boolean): TimerHandler;
@@ -95671,7 +95952,6 @@ declare namespace Laya {
         destroy(): void;
     }
     class BasePoly {
-        private static _checkMinAngle;
         /**
          * 构造线的三角形数据。根据一个位置数组生成vb和ib
          * @param p
@@ -95682,7 +95962,46 @@ declare namespace Laya {
          * @return
          */
         static createLine2(p: any[], indices: any[], lineWidth: number, indexBase: number, outVertex: any[], loop: boolean): any[];
+        /**
+          * 设置中间折角顶点的位置
+          * @param x1,y1 第一个点的坐标
+          * @param x2,y2 中间点的坐标
+          * @param x3,y3 第三个点的坐标
+          * @param w 线条宽度的一半
+          * @param vertexs 顶点数组
+          * @param out 用于存储法向量的临时向量
+          * @param join 连接点样式
+          */
         private static _setMiddleVertexs;
+        /**
+          * 计算三个点形成的夹角 (以第二个点为顶点)
+          * @param x1 点1的x坐标
+          * @param y1 点1的y坐标
+          * @param x2 点2的x坐标 (顶点)
+          * @param y2 点2的y坐标 (顶点)
+          * @param x3 点3的x坐标
+          * @param y3 点3的y坐标
+          * @returns 夹角 (弧度制)
+          */
+        private static angleBetweenPoints;
+        private static _createSimpleLineVertices;
+        private static _setTurnPoint;
+        private static checkCrossPoint;
+        /**
+          * 计算两条直线或线段的交点
+          * @param p1x 第一个点的x坐标
+          * @param p1y 第一个点的y坐标
+          * @param p2x 第二个点的x坐标
+          * @param p2y 第二个点的y坐标
+          * @param p3x 第三个点的x坐标
+          * @param p3y 第三个点的y坐标
+          * @param p4x 第四个点的x坐标
+          * @param p4y 第四个点的y坐标
+          * @param isLineSegment 如果为true则判断两个线段的交点，如果为false则判断两条直线的交点
+          * @returns 交点坐标，如果没有交点则返回null
+          */
+        private static getCrossPoint;
+        private static getDistance;
         static getNormal(x1: number, y1: number, x2: number, y2: number, w: number, out?: Vector2): Vector2;
         /**
          * 相邻的两段线，边界会相交，这些交点可以作为三角形的顶点。有两种可选，一种是采用左左,右右交点，一种是采用 左右，左右交点。当两段线夹角很小的时候，如果采用
@@ -96557,6 +96876,9 @@ declare namespace Laya {
             family: string;
         } | null>;
     }
+    class NativeMediaAdapter extends MediaAdapter {
+        protected init(): void;
+    }
     class NativeTextInputAdapter extends TextInputAdapter {
         constructor();
         setText(value: string): void;
@@ -96569,6 +96891,48 @@ declare namespace Laya {
         private onKeyboardInput;
         private onKeyboardConfirm;
         private onKeyboardComplete;
+    }
+    /**
+     * @ignore
+     */
+    class NativeVideoPlayer extends VideoPlayer {
+        readonly video: any;
+        private _loop;
+        private _ended;
+        private _muted;
+        private _playbackRate;
+        get loop(): boolean;
+        set loop(value: boolean);
+        get ended(): boolean;
+        get currentTime(): number;
+        set currentTime(value: number);
+        get muted(): boolean;
+        set muted(value: boolean);
+        get playbackRate(): number;
+        set playbackRate(value: number);
+        protected onLoad(url: string): void;
+        protected onPlay(): void;
+        protected onPause(): void;
+        protected onTransformChanged(): void;
+        protected onDestroy(): void;
+    }
+    class NativeVideoTexture extends VideoTexture {
+        readonly decoder: any;
+        private _currentTime;
+        private _ended;
+        private _waitFirstFrame;
+        private _startOption;
+        constructor();
+        get readyState(): number;
+        get ended(): boolean;
+        get currentTime(): number;
+        set currentTime(value: number);
+        protected onLoad(url: string): void;
+        protected onPlay(): void;
+        protected onPause(): void;
+        protected onStop(): void;
+        onRender(): boolean;
+        protected onDestroy(): void;
     }
     class TbTextInputAdapter extends TextInputAdapter {
         constructor();
