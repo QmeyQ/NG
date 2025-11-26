@@ -1,9 +1,9 @@
 const { regClass, property } = Laya;
-import { TimeManager } from "./lib/time";
+import { TimeManager } from "./libs/time";
 import { Cha } from "./cha";
 import { GameManager } from "./GameManager";
 import { EnemyCollisionSpeedBoostEffect } from "./EffectManager";
-import { Res } from "./lib/res";
+import { Res } from "./libs/res";
 
 @regClass()
 export class Main extends Laya.Script {

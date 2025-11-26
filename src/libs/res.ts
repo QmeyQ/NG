@@ -76,8 +76,12 @@ export class Res {
 
     static url(url: string, forceOrsuc: boolean | Function = false, force2: boolean = false): void {
         if (!Res._isInitialized) {
-            console.error('Res未初始化，请先调用Res.init()');
-            return;
+            this.init();
+            //初始失败，返回
+            if(!Res._isInitialized) {
+                console.error('Res初始化失败');
+                return;
+            }
         }
         Res.storage.get('resJson', (cachedData: any) => {
             if (cachedData === null || forceOrsuc || force2) {

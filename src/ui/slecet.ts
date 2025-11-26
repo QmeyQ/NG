@@ -1,7 +1,7 @@
 const { regClass, property } = Laya;
 
-import {Res} from "../lib/res";
-import { TimeManager } from "../lib/time"; // 按实际路径导入
+import {Res} from "../libs/res";
+import { TimeManager } from "../libs/time"; // 按实际路径导入
 
 @regClass()
 export class slecet extends Laya.Script {
@@ -27,14 +27,17 @@ export class slecet extends Laya.Script {
     });
     console.log(Laya.stage.width + "//////////" + Laya.stage.height);
 
+
     const time = new TimeManager();
-    const res = new Res();
-    res.url("http://normalgame.cn/res.json", ()=>{
-    res.downRes();
+    console.log("res");
+    console.log(Res);
+    Res.init();
+    Res.url("http://normalgame.cn/res.json", (()=>{
+    Res.downRes();
         const vvv =time.setInterval(500, () => {
             time.clear(vvv);
-            if (res.getList()) {
-            if(res.get("lemon")){
+            if (Res.getList()) {
+            if(Res.get("lemon")){
                 const lemon = this.owner.getChild("Area2D").getChildByName("list").getChildByName("item0").getChild("trace") as Laya.Sprite;
                 console.log(lemon)
                 lemon.graphics = new Laya.Graphics();
@@ -47,7 +50,7 @@ export class slecet extends Laya.Script {
                     Laya.Scene.open("game/Scene.ls", true)
                 });
                 lemon.addComponentInstance(sc);
-                let url = URL.createObjectURL(res.get("lemon", 0));
+                let url = URL.createObjectURL(Res.get("lemon"));
                 console.log(url);
                 Laya.loader.load(
                     {url, 
@@ -65,7 +68,7 @@ export class slecet extends Laya.Script {
             }
             }
         })
-    });
+    }))
     
 
 
