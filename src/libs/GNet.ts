@@ -18,11 +18,6 @@ interface GnetConfig {
   openId: string;
   appId: string;
   platform?: number;
-  matchRules?: {
-    maxPlayers?: number;
-    roomType?: string;
-    // 可以添加其他匹配规则配置
-  };
 }
 
 // 回调函数类型
@@ -50,7 +45,7 @@ interface PlayerOptions {
 // 匹配配置
 interface MatchConfig {
   matchParams: {
-    code: string;
+    level: string;
   };
   maxPlayers?: number;
   roomType?: string;
@@ -133,7 +128,7 @@ export class Gnet {
     const roomConfig = {
       roomName,
       maxPlayers,
-      roomType: options.roomType || this.config?.matchRules?.roomType,
+      roomType: options.roomType || 2,
       isPrivate: options.isPrivate ? 1 : 0,
       customRoomProperties: options.customProperties
     };
@@ -212,8 +207,8 @@ export class Gnet {
     // 构建匹配配置
     const matchRoomConfig: MatchConfig = typeof matchCode === 'string'
       ? { 
-          matchParams: { code: matchCode }, 
-          maxPlayers: this.config?.matchRules?.maxPlayers || 2 
+          matchParams: { level: matchCode }, 
+          maxPlayers: 4 
         }
       : matchCode;
 

@@ -20,7 +20,12 @@ export class load extends Laya.Script {
     onAwake(): void {
         const openId = Date.now().toString();
         const roomName = "room-" + openId;
-        Gnet.init('1263859182919011264', openId, '5765880207855344723', '8D99CCC71D57DD3DFF0F1C4EB5A800E527AB122C9580D781E6BEB18C917AE277', (err: Error | null, client: any) => {
+        Gnet.init({
+                clientId: '1263859182919011264',
+                clientSecret: '5765880207855344723',
+                openId,
+                appId: '8D99CCC71D57DD3DFF0F1C4EB5A800E527AB122C9580D781E6BEB18C917AE277',
+            },(err: Error | null, client: any) => {
             if (err) {
                 console.error("init failed: " + err.message);
                 return;
@@ -60,13 +65,13 @@ export class load extends Laya.Script {
                     const all = room.players || [];
                     console.log("room players", all.map((p: any) => ({ playerId: p.playerId, status: p.status, customPlayerStatus: p.customPlayerStatus, customPlayerProperties: p.customPlayerProperties })));
                 });
-                Gnet.sendC({ type: 0, msg: payloadClient });
-                Gnet.sendS(payloadServer);
+                Gnet.sendToClient( 0, payloadClient);
+                Gnet.sendToServer(payloadServer);
             };
 
             const level = (this.text && this.text.trim()) || "1";
             console.log("matchR", { matchParams: { level }, maxPlayers: 4, roomType: "demo" });
-            Gnet.matchR({ matchParams: { level }, maxPlayers: 4, roomType: "demo" }, (err: Error | null, room?: any) => {
+            Gnet.matchRoom({ matchParams: { level }, maxPlayers: 4, roomType: "demo" }, (err: Error | null, room?: any) => {
                 if (err || !room) {
                     console.error("matchRoom failed", err?.message);
                     return;
