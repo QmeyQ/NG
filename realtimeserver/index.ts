@@ -14,205 +14,167 @@
  *  limitations under the License.
  */
 
-import GOBERTS, {FrameInfo} from './GOBERTS';
-import {CmdType, GameCmdInfo, GameInitInfo} from "./GameInterface";
-import {Game} from "./Game";
-import gameManage from "./GameManage";
+import GOBERTS from './GOBERTS';
+
+// 存储房间信息的映射
+const roomInfoMap: Map<string, GOBERTS.RoomInfo> = new Map();
+
+// 定期广播房间和玩家信息的间隔时间（毫秒）
+const BROADCAST_INTERVAL = 5000;
+
+// 广播房间和玩家信息的函数
+async function broadcastRoomAndPlayerInfo(args: GOBERTS.ActionArgs, sendReason: string, targetType: string = "all") {
+    try {
+        // 获取当前房间信息
+        const roomInfo = await args.SDK.getRoomInfo();
+        if (roomInfo) {
+            // 更新房间信息映射
+            roomInfoMap.set(args.roomId, roomInfo);
+            
+            // 构建广播消息，附带送达对象和发送原因
+            const broadcastData = {
+                type: "RoomAndPlayerInfo",
+                roomInfo: roomInfo,
+                timestamp: Date.now(),
+                sendReason: sendReason, // 发送原因
+                targetType: targetType, // 送达对象类型：all(所有玩家)、specific(特定玩家)、broadcast(广播)
+                targetPlayers: roomInfo.players.map((p: any) => p.playerId), // 目标玩家列表
+                serverInfo: {
+                    appId: "5765880207855344723",
+                    roomId: args.roomId
+                }
+            };
+            
+            // 向所有客户端广播消息
+            await args.SDK.sendData(JSON.stringify(broadcastData));
+            args.SDK.log.info(`Broadcasted room and player info for room: ${args.roomId}, reason: ${sendReason}, target: ${targetType}`);
+        }
+    } catch (error) {
+        args.SDK.log.error(`Failed to broadcast room and player info: ${error}`);
+    }
+}
 
 const gameServer: GOBERTS.GameServer = {
     onDestroyRoom(args: GOBERTS.ActionArgs): void {
-        let game = gameManage.getGame(args.roomId);
-        if (game === undefined) {
-            args.SDK.log.error('onDestroyRoom game not exist' + args.roomId);
-            return;
-        }
-        game.stopFrameClock();
-        gameManage.removeGame(args.roomId);
+        // 移除房间信息
+        roomInfoMap.delete(args.roomId);
+        args.SDK.log.info(`Room destroyed: ${args.roomId}`);
     },
     onCreateRoom(args: GOBERTS.ActionArgs): void {
-        // do something
+        args.SDK.log.info(`Room created: ${args.roomId}`);
+        // 立即广播一次房间信息
+        broadcastRoomAndPlayerInfo(args, "房间创建").catch(err => {
+            args.SDK.log.error(`Failed to broadcast on room create: ${err}`);
+        });
+        // 设置定期广播
+        setInterval(() => {
+            broadcastRoomAndPlayerInfo(args, "定期广播").catch(err => {
+                args.SDK.log.error(`Failed to broadcast in interval: ${err}`);
+            });
+        }, BROADCAST_INTERVAL);
     },
     onRealTimeServerConnected(args: GOBERTS.ActionArgs): void {
-        // do something
+        args.SDK.log.info('RealTimeServer connected');
+        // 实时服务器连接时广播房间信息
+        broadcastRoomAndPlayerInfo(args, "实时服务器连接").catch(err => {
+            args.SDK.log.error(`Failed to broadcast on realtime server connected: ${err}`);
+        });
     },
     onRealTimeServerDisconnected(args: GOBERTS.ActionArgs): void {
-        // do something
+        args.SDK.log.info('RealTimeServer disconnected');
+        // 实时服务器断开时广播房间信息
+        broadcastRoomAndPlayerInfo(args, "实时服务器断开").catch(err => {
+            args.SDK.log.error(`Failed to broadcast on realtime server disconnected: ${err}`);
+        });
     },
     onConnect(args: GOBERTS.ActionArgs): void {
-        // do something
+        args.SDK.log.info('Client connected');
+        // 客户端连接时广播房间信息
+        broadcastRoomAndPlayerInfo(args, "客户端连接").catch(err => {
+            args.SDK.log.error(`Failed to broadcast on connect: ${err}`);
+        });
     },
     onDisconnect(args: GOBERTS.ActionArgs): void {
-        // do something
+        args.SDK.log.info('Client disconnected');
+        // 客户端断开时广播房间信息
+        broadcastRoomAndPlayerInfo(args, "客户端断开").catch(err => {
+            args.SDK.log.error(`Failed to broadcast on disconnect: ${err}`);
+        });
     },
 
     onJoin(playerInfo: GOBERTS.FramePlayerInfo, args: GOBERTS.ActionArgs): void {
-        // do something
+        args.SDK.log.info(`Player joined: ${playerInfo.playerId}`);
+        // 玩家加入时广播房间信息
+        broadcastRoomAndPlayerInfo(args, "玩家加入", "specific").catch(err => {
+            args.SDK.log.error(`Failed to broadcast on player join: ${err}`);
+        });
     },
     onLeave(playerInfo: GOBERTS.FramePlayerInfo, args: GOBERTS.ActionArgs): void {
-        // do something
+        args.SDK.log.info(`Player left: ${playerInfo.playerId}`);
+        // 玩家离开时广播房间信息
+        broadcastRoomAndPlayerInfo(args, "玩家离开", "specific").catch(err => {
+            args.SDK.log.error(`Failed to broadcast on player leave: ${err}`);
+        });
     },
     onRecvFrame(msg: GOBERTS.RecvFrameMessage | GOBERTS.RecvFrameMessage[], args: GOBERTS.ActionArgs): void {
-        let frameMessages: GOBERTS.RecvFrameMessage[] = Array.isArray(msg)? msg : [msg];
-
-        frameMessages.forEach(gameFrame => {
-            // 若为空帧则不处理
-            if (!gameFrame.frameInfo || gameFrame.frameInfo.length < 1) {
-                return;
-            }
-            gameFrame.frameInfo.forEach((frameData:FrameInfo) => {
-                let frameDataList: string[] = frameData.data;
-                if (frameDataList && frameDataList.length > 0) {
-                    frameDataList.forEach(data => {
-                        const gameCmd: GameCmdInfo = JSON.parse(data);
-                        // 获取当前房间的游戏信息
-                        let game = gameManage.getGame(args.roomId);
-                        if (game === undefined) {
-                            // args.SDK.log.error('onRecvFrame, game not exist, roomId:' + args.roomId);
-                            return;
-                        }
-                        switch (gameCmd.cmd) {
-                            case CmdType.planeFly:
-                                game.updatePlane(gameCmd);
-                                break;
-                            case CmdType.bulletFly:
-                                game.updateBullet(gameCmd);
-                                break;
-                            case CmdType.bulletDestroy:
-                                game.destroyBullet(gameCmd);
-                                break;
-                            default:
-                                break;
-                        }
-                    })
-                }
-            })
-        })
+        // 处理帧数据，用于测试
+        broadcastRoomAndPlayerInfo(args, "收到帧数据", "broadcast").catch(err => {
+            args.SDK.log.error(`Failed to broadcast on recv frame: ${err}`);
+        });
     },
     onRecvFromClientV2(msg: GOBERTS.RecvFromClientInfo, args: GOBERTS.ActionArgs): void {
-        let gameData = JSON.parse(msg.msg);
-        switch (gameData.type) {
-            case 'InitGame':
-                handleInitGame(gameData, args);
-                break;
-            case 'Progress':
-                handleProgress(gameData, args);
-                break;
-            case 'GameEnd':
-                handleGameEnd(gameData, args, msg.srcPlayer).then().catch();
-                break;
-            default:
-                args.SDK.log.error('onRecvFromClientV2 unsupported gameData type');
-                break;
-        }
+        // 处理客户端消息，用于测试
+        broadcastRoomAndPlayerInfo(args, "收到客户端消息", "broadcast").catch(err => {
+            args.SDK.log.error(`Failed to broadcast on recv client message: ${err}`);
+        });
     },
     onRoomPropertiesChange(msg: GOBERTS.UpdateRoomInfo, args: GOBERTS.ActionArgs): void {
-        // do something
+        args.SDK.log.info('Room properties changed');
+        // 房间属性变化时广播房间信息
+        broadcastRoomAndPlayerInfo(args, "房间属性变化").catch(err => {
+            args.SDK.log.error(`Failed to broadcast on room properties change: ${err}`);
+        });
     },
     onStartFrameSync(args: GOBERTS.ActionArgs): void {
-        // do something
+        args.SDK.log.info('Frame sync started');
+        // 帧同步开始时广播房间信息
+        broadcastRoomAndPlayerInfo(args, "帧同步开始").catch(err => {
+            args.SDK.log.error(`Failed to broadcast on start frame sync: ${err}`);
+        });
     },
     onStopFrameSync(args: GOBERTS.ActionArgs): void {
-        let game = gameManage.getGame(args.roomId);
-        if (game === undefined) {
-            args.SDK.log.error('onStopFrameSync game not exist' + args.roomId);
-            return;
-        }
-        game.stopFrameClock();
+        args.SDK.log.info('Frame sync stopped');
+        // 帧同步停止时广播房间信息
+        broadcastRoomAndPlayerInfo(args, "帧同步停止").catch(err => {
+            args.SDK.log.error(`Failed to broadcast on stop frame sync: ${err}`);
+        });
     },
     onUpdateCustomProperties(player: GOBERTS.FramePlayerPropInfo, args: GOBERTS.ActionArgs): void {
-        // do something
+        args.SDK.log.info(`Player custom properties updated: ${player.playerId}`);
+        // 玩家自定义属性变化时广播房间信息
+        broadcastRoomAndPlayerInfo(args, "玩家属性更新", "specific").catch(err => {
+            args.SDK.log.error(`Failed to broadcast on player properties update: ${err}`);
+        });
     },
     onUpdateCustomStatus(msg: GOBERTS.PlayerStatusInfo, args: GOBERTS.ActionArgs): void {
-        // do something
+        args.SDK.log.info(`Player status updated: ${msg.playerId}`);
+        // 玩家状态变化时广播房间信息
+        broadcastRoomAndPlayerInfo(args, "玩家状态更新", "specific").catch(err => {
+            args.SDK.log.error(`Failed to broadcast on player status update: ${err}`);
+        });
     },
     onRequestFrameError(error: GOBERTS.GOBEError, args: GOBERTS.ActionArgs): void {
-        // do something
+        args.SDK.log.error(`Frame request error: ${error}`);
     },
     onRoomPropertiesChangeFailed(error: GOBERTS.GOBEError, args:GOBERTS.ActionArgs): void {
-        // do something
+        args.SDK.log.error(`Room properties change failed: ${error}`);
     },
     onInstantMessageFailed(error: GOBERTS.GOBEError, args:GOBERTS.ActionArgs): void {
-        // do something
+        args.SDK.log.error(`Instant message failed: ${error}`);
     },
-}
-
-/**
- * 处理游戏初始化
- * @param gameData
- * @param args
- */
-function handleInitGame(gameData: any, args: GOBERTS.ActionArgs) {
-    // 初始化游戏信息，并以房间维度保存
-    let gameInitInfo = <GameInitInfo>gameData;
-    let game = new Game(gameInitInfo, args.SDK.log, 30, args.roomId);
-    for (let i = 0; i < gameInitInfo.playerArr.length; i++) {
-        game.initPlane(gameInitInfo.playerArr[i]);
-    }
-    gameManage.saveGame(args.roomId, game);
-    game.startFrameClock(args);
-}
-
-/**
- * 处理游戏结算
- * @param gameData
- * @param args
- * @param playerId
- */
-async function handleGameEnd(gameData: any, args: GOBERTS.ActionArgs, playerId: string) {
-    // 游戏结束  设置缓存
-    args.SDK.log.info('handleGameEnd begin, playerId: '+ playerId);
-    let game = gameManage.getGame(args.roomId);
-    if (game === undefined) {
-        args.SDK.log.error('handleGameEnd game not exist' + args.roomId);
-        return;
-    }
-    let endInfo = {};
-    if (game.gameEnd.isSend) {
-        return;
-    }
-    if (game.gameEnd.count === 0) {
-        game.gameEnd.count = 1;
-        game.gameEnd.value = gameData.value;
-        // 3秒后未收到所有玩家消息，则认为异常
-        setTimeout(() => {
-            if (!game.gameEnd?.isSend && game.gameEnd?.count !== game.planeInfo.size) {
-                endInfo = { type: "GameEnd", result: 1 };
-                args.SDK.sendData(JSON.stringify(endInfo)).then().catch(err => {
-                    args.SDK.log.error('roomId:' + args.roomId + 'handleGameEnd send GameEndData error:' + err);
-                });
-            }
-        }, 3000);
-    } else {
-        game.gameEnd.count++;
-        if (game.gameEnd.value !== gameData.value) {
-            game.gameEnd.isSend = true;
-            endInfo = {type: "GameEnd", result: 1};
-            args.SDK.sendData(JSON.stringify(endInfo)).then().catch(err => {
-                args.SDK.log.error('roomId:' + args.roomId + 'handleGameEnd send GameEndData error:' + err);
-            });
-        } else if (game.gameEnd.count === game.planeInfo.size) {
-            game.gameEnd.isSend = true;
-            endInfo = {type: "GameEnd", result: 0};
-            args.SDK.sendData(JSON.stringify(endInfo)).then().catch(err => {
-                args.SDK.log.error('roomId:' + args.roomId + 'handleGameEnd send GameEndData error:' + err);
-            });
-        }
-    }
-}
-
-/**
- * 处理加载进度
- * @param gameData
- * @param args
- */
-function handleProgress(gameData: any, args: GOBERTS.ActionArgs) {
-    // 广播游戏进度
-    args.SDK.sendData(JSON.stringify(gameData)).then().catch(err => {
-        args.SDK.log.error('sendProgressData ERROR' + err);
-    });
 }
 
 export const gobeDeveloperCode = {
     gameServer: gameServer,
-    appId: 'your appId',
+    appId: '5765880207855344723',
 };
