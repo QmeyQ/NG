@@ -18,6 +18,7 @@ interface GnetConfig {
   openId: string;
   appId: string;
   platform?: number;
+  appVersion?: string;
 }
 
 // 回调函数类型
@@ -70,26 +71,29 @@ export class Gnet {
       }
 
       this.config = config;
-      
+
       const gobeConfig = {
+        appVersion: config.appVersion || "0.0.0",
         clientId: config.clientId,
         openId: config.openId,
         appId: config.appId,
         clientSecret: config.clientSecret,
         platform: config.platform || (GOBE?.PlatformType?.WEB || 0)
       };
-      
+
       this.client = new GOBE.Client(gobeConfig);
-      
+
       this.client.init()
-        .then((client: any) => {
-          this.isInitialized = true;
-          callback(null, client);
-        })
         .catch((err: Error) => {
           this.isInitialized = false;
           callback(err);
         });
+      this.client.onInitResult((resultCode: number) => {
+        if (resultCode === GOBE.ErrorCode.COMMON_OK) {
+          this.isInitialized = true;
+          callback(null);
+        }
+      });
     } catch (err) {
       this.isInitialized = false;
       callback(err as Error);
@@ -124,7 +128,7 @@ export class Gnet {
       callback(new Error("Client not initialized"));
       return;
     }
-    
+
     const roomConfig = {
       roomName,
       maxPlayers,
@@ -132,8 +136,8 @@ export class Gnet {
       isPrivate: options.isPrivate ? 1 : 0,
       customRoomProperties: options.customProperties
     };
-    
-    this.client.createRoom(roomConfig)
+
+    this.client.createRoom(roomConfig, { customPlayerStatus: 0, customPlayerProperties: "111" })
       .then((room: any) => callback(null, room))
       .catch((err: Error) => callback(err));
   }
@@ -149,14 +153,14 @@ export class Gnet {
       callback(new Error("Client not initialized"));
       return;
     }
-    
+
     const playerConfig = options.playerId ? {
       playerId: options.playerId,
       customPlayerStatus: options.customPlayerStatus,
       customPlayerProperties: options.customPlayerProperties,
       teamId: options.teamId
     } : undefined;
-    
+
     this.client.joinRoom(roomId, playerConfig)
       .then((room: any) => callback(null, room))
       .catch((err: Error) => callback(err));
@@ -171,7 +175,7 @@ export class Gnet {
       callback(new Error("Client not initialized"));
       return;
     }
-    
+
     this.client.leaveRoom()
       .then((client: any) => callback(null, client))
       .catch((err: Error) => callback(err));
@@ -186,7 +190,7 @@ export class Gnet {
       callback(new Error("Client not initialized"));
       return;
     }
-    
+
     this.client.dismissRoom()
       .then((client: any) => callback(null, client))
       .catch((err: Error) => callback(err));
@@ -206,10 +210,10 @@ export class Gnet {
 
     // 构建匹配配置
     const matchRoomConfig: MatchConfig = typeof matchCode === 'string'
-      ? { 
-          matchParams: { level: matchCode }, 
-          maxPlayers: 4 
-        }
+      ? {
+        matchParams: { level: matchCode },
+        maxPlayers: 4
+      }
       : matchCode;
 
     const playerConfig: any = {
@@ -233,7 +237,7 @@ export class Gnet {
       callback(new Error("Client not initialized"));
       return;
     }
-    
+
     const matchPlayerConfig = { matchCode };
     const playerConfig = options.playerId ? {
       playerId: options.playerId,
@@ -241,7 +245,7 @@ export class Gnet {
       customPlayerProperties: options.customPlayerProperties,
       teamId: options.teamId
     } : undefined;
-    
+
     this.client.matchPlayer(matchPlayerConfig, playerConfig)
       .then((response: any) => callback(null, response))
       .catch((err: Error) => callback(err));
@@ -257,7 +261,7 @@ export class Gnet {
       callback(new Error("Client not initialized"));
       return;
     }
-    
+
     this.client.getAvailableRooms(config)
       .then((info: any) => callback(null, info))
       .catch((err: Error) => callback(err));
@@ -272,7 +276,7 @@ export class Gnet {
       callback(new Error("Client not initialized"));
       return;
     }
-    
+
     this.client.cancelMatch()
       .then((response: any) => callback(null, response))
       .catch((err: Error) => callback(err));
@@ -287,7 +291,7 @@ export class Gnet {
       callback(new Error("Room not available"));
       return;
     }
-    
+
     this.client.room.startFrameSync()
       .then(() => callback(null))
       .catch((err: Error) => callback(err));
@@ -302,7 +306,7 @@ export class Gnet {
       callback(new Error("Room not available"));
       return;
     }
-    
+
     this.client.room.stopFrameSync()
       .then(() => callback(null))
       .catch((err: Error) => callback(err));
@@ -317,7 +321,7 @@ export class Gnet {
       console.warn("Room not available, cannot send frame data");
       return;
     }
-    
+
     this.client.room.sendFrame(data);
   }
 
@@ -331,7 +335,7 @@ export class Gnet {
       console.warn("Room not available, cannot request frame data");
       return;
     }
-    
+
     this.client.room.requestFrame(beginFrameId, size);
   }
 
@@ -345,11 +349,11 @@ export class Gnet {
       console.warn("Room not available, cannot update room properties");
       return;
     }
-    
+
     const updateRoomInfo: any = {};
     if (roomName) updateRoomInfo.roomName = roomName;
     if (customProperties) updateRoomInfo.customRoomProperties = customProperties;
-    
+
     this.client.room.updateRoomProperties(updateRoomInfo);
   }
 
@@ -362,7 +366,7 @@ export class Gnet {
       console.warn("Room not available, cannot send message to server");
       return;
     }
-    
+
     this.client.room.sendToServer(msg);
   }
 
@@ -370,12 +374,12 @@ export class Gnet {
    * 广播消息到房间内玩家
    * @param info 消息信息
    */
-  static sendToClient(type: number, msg: string, recvPlayerIdList?: string[] ): void {
+  static sendToClient(type: number, msg: string, recvPlayerIdList?: string[]): void {
     if (!this.client?.room) {
       console.warn("Room not available, cannot send message to client");
       return;
     }
-    
+
     this.client.room.sendToClient({ type, msg, recvPlayerIdList });
   }
 
@@ -388,7 +392,7 @@ export class Gnet {
       callback(null);
       return;
     }
-    
+
     this.client.destroy()
       .then(() => {
         this.client = null;
