@@ -256,7 +256,7 @@ export class Gnet {
    * @param config 查询配置
    * @param callback 查询结果回调
    */
-  static getAvailableRooms(config: any, callback: (err: Error | null, info?: any) => void): void {
+  static getAvailableRooms(callback: (err: Error | null, info?: any) => void, config?: any): void {
     if (!this.checkInitialized()) {
       callback(new Error("Client not initialized"));
       return;
@@ -481,7 +481,7 @@ export class Gnet {
    * 监听房间解散事件
    * @param cb 回调函数
    */
-  static onDismiss(cb: () => any): void {
+  static onDismiss(cb: (roomId: string) => any): void {
     this.client?.room?.onDismiss(cb);
   }
 }
