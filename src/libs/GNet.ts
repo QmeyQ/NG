@@ -484,4 +484,100 @@ export class Gnet {
   static onDismiss(cb: (roomId: string) => any): void {
     this.client?.room?.onDismiss(cb);
   }
+
+  /**
+  * 分页获取房间列表（基于实际服务器响应修复）
+  * @param pageNumber 页码（从1开始）
+  * @param pageSize 每页显示的房间数量
+  * @param callback 回调函数
+  * @param options 额外配置参数
+  */
+  static getAvailableRoomsPaged(
+    pageNumber: number,
+    pageSize: number = 10,
+    callback: (err: Error | null, rooms: any[], hasNext: 0 | 1, serverTotalCount: number, extra?: any) => void,
+    options: any = {}
+  ): void {
+    if (!this.checkInitialized()) {
+      callback(new Error("Client not initialized"), [], 0, 0);
+      return;
+    }
+
+    // 根据实际服务器要求构建配置
+    const serverConfig = {
+      offset: options.serverOffset || "0", // 使用字符串类型的偏移量
+      limit: pageSize, // 每页数量
+      roomType: options.roomType,
+      sync: options.sync !== false
+    };
+
+    console.log(`获取房间列表: 偏移量${serverConfig.offset}, 限制${serverConfig.limit}`);
+
+    // 调用官方API
+    this.client.getAvailableRooms(serverConfig)
+      .then((info: any) => {
+        console.log("服务器返回的房间数据:", info);
+
+        if (info && info.rooms && Array.isArray(info.rooms)) {
+          // 格式化房间数据，匹配实际服务器返回的字段
+          const formattedRooms = info.rooms.map((room: any) => ({
+            roomName: room.roomName || `房间${room.roomCode || room.roomId}`,
+            roomId: room.roomId,
+            roomCode: room.roomCode, // 房间短码
+            playerCount: room.players ? room.players.length : 0,
+            maxPlayers: room.maxPlayers || 4,
+            roomType: room.roomType || "2",
+            isPrivate: room.isPrivate || 0,
+            isLock: room.isLock || 0,
+            createTime: room.createTime || Date.now(),
+            ownerId: room.ownerId,
+            roomStatus: room.roomStatus || 0,
+            appId: room.appId,
+            players: room.players || [] // 保留玩家列表
+          }));
+
+          // 使用服务器返回的hasNext字段
+          const hasNext = info.hasNext === 1 ? 1 : 0;
+          const serverTotalCount = info.count || 0;
+
+          // 下一个偏移量
+          const nextServerOffset = info.offset || "0";
+
+          console.log(`分页结果: 获取${formattedRooms.length}个房间, 总数: ${serverTotalCount}, 是否有下一页: ${hasNext}, 下一偏移: ${nextServerOffset}`);
+
+          callback(null, formattedRooms, hasNext, serverTotalCount, {
+            nextServerOffset,
+            serverTotalCount
+          });
+        } else {
+          console.log("服务器未返回房间数据或数据格式错误");
+          callback(null, [], 0, 0);
+        }
+      })
+      .catch((err: Error) => {
+        console.error("获取房间列表失败:", err);
+        callback(err, [], 0, 0);
+      });
+  }
+
+  /**
+   * 更新玩家属性（新增方法）
+   * @param options 玩家配置选项
+   * @param callback 回调函数
+   */
+  static updatePlayerProperties(options: PlayerOptions, callback: BaseCallback): void {
+    if (!this.client?.room) {
+      callback(new Error("Room not available"));
+      return;
+    }
+
+    const playerConfig: any = {};
+    if (options.customPlayerStatus !== undefined) playerConfig.customPlayerStatus = options.customPlayerStatus;
+    if (options.customPlayerProperties !== undefined) playerConfig.customPlayerProperties = options.customPlayerProperties;
+    if (options.teamId !== undefined) playerConfig.teamId = options.teamId;
+
+    this.client.room.updatePlayerProperties(playerConfig)
+      .then((response: any) => callback(null, response))
+      .catch((err: Error) => callback(err));
+  }
 }

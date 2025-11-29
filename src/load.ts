@@ -1,10 +1,9 @@
 import { Gnet } from "./libs/GNet";
-import { RoomItem } from "./roomItem";
 const { regClass, property } = Laya;
 
 @regClass()
 export class load extends Laya.Script {
-    // UI元素引用
+    //
     @property(Laya.List)
     public roomList: Laya.List;
     
@@ -43,7 +42,7 @@ export class load extends Laya.Script {
     
     // 分页相关数据
     private currentPage: number = 1;
-    private pageSize: number = 5;
+    private pageSize: number = 10;
     private totalPages: number = 1;
     
     // 服务器分页信息
@@ -51,54 +50,48 @@ export class load extends Laya.Script {
     private offset: string | number = "";
     private hasNext: 0 | 1 = 0;
     
+    private serverOffset: string | number | null = null; // 服务器偏移量
+
     // 显示的房间列表
     private displayRoomList: any[] = [];
+    private allRoomListData: any[] = []; // 所有从服务器获取的房间数据
+    
+    private nextServerOffset: string | null = null; // 服务器下次请求的offset
+
+    
+    private isLoading: boolean = false;
+
+    // 当前显示的房间列表
+    private currentRoomList: any[] = [];
+
 
     //组件被激活后执行，此时所有节点和组件均已创建完毕，此方法只执行一次
     onAwake(): void {
-        // 获取UI元素引用
-        const roomPanel = this.owner.getChildByName("roomPanel");
-        this.roomList = roomPanel.getChildByName("roomList") as Laya.List;
-        this.createRoomBtn = roomPanel.getChildByName("createRoomBtn") as Laya.Button;
-        this.refreshBtn = roomPanel.getChildByName("refreshBtn") as Laya.Button;
-        this.statusText = roomPanel.getChildByName("statusText") as Laya.Text;
-        
-        // 获取分页相关UI元素
-        const pagePanel = roomPanel.getChildByName("pagePanel");
-        this.prevPageBtn = pagePanel.getChildByName("prevPageBtn") as Laya.Button;
-        this.nextPageBtn = pagePanel.getChildByName("nextPageBtn") as Laya.Button;
-        this.pageInfoText = pagePanel.getChildByName("pageInfoText") as Laya.Text;
-        
-        // 获取ID加入房间相关UI元素
-        const joinByIdPanel = roomPanel.getChildByName("joinByIdPanel");
-        this.roomIdInput = joinByIdPanel.getChildByName("roomIdInput") as Laya.TextInput;
-        this.joinByIdBtn = joinByIdPanel.getChildByName("joinByIdBtn") as Laya.Button;
-        
-        // 获取一键匹配按钮
-        this.quickMatchBtn = roomPanel.getChildByName("quickMatchBtn") as Laya.Button;
+
+          // 初始化分页数据
+        this.currentPage = 1;
+        this.pageSize = 10;
+        this.totalPages = 1;
+        this.serverOffset = null;
+        this.allRoomListData = [];
 
         // 设置房间列表的项渲染器
         this.roomList.vScrollBarSkin = "";
-       //this.roomList.itemRender = Laya.loader.getRes("roomItem.ui");
+        // 确保正确设置项渲染器
+        // this.roomList.itemRender = Laya.loader.getRes("roomItem.ui"); // 如果使用预制件
         this.roomList.renderHandler = new Laya.Handler(this, this.onRoomItemRender);
+        this.roomList.selectEnable = true;
+        this.roomList.mouseHandler = new Laya.Handler(this, this.onRoomListMouse);
 
-        //   this.roomList.renderHandler = new Laya.Handler(this, this.onListRender);
-        // //绑定list选项改变的切换
-        // this.roomList.selectHandler = new Laya.Handler(this, this.onListSelect);
-        // //绑定单元格的鼠标事件
-        // this.roomList.mouseHandler = new Laya.Handler(this, this.onListMouse);
-
-        //不使用皮肤，但有滚动条效果
-        this.roomList.vScrollBarSkin = "";
-
-
-         //绑定list选项改变的切换
+        // 绑定list选项改变的切换
         this.roomList.selectHandler = new Laya.Handler(this, (index: number) => {
-            this.roomList.refresh();
+            if (index >= 0 && this.displayRoomList[index]) {
+                console.log("选中房间:", this.displayRoomList[index]);
+                // 可以在这里处理房间选择逻辑
+            }
         });
-
-        console.log("this.roomList", this.roomList);
         
+        console.log("this.roomList", this.roomList);
         // 绑定按钮事件
         this.createRoomBtn.on(Laya.Event.CLICK, this, this.onCreateRoomClick);
         this.refreshBtn.on(Laya.Event.CLICK, this, this.onRefreshClick);
@@ -106,7 +99,12 @@ export class load extends Laya.Script {
         this.nextPageBtn.on(Laya.Event.CLICK, this, this.onNextPageClick);
         this.joinByIdBtn.on(Laya.Event.CLICK, this, this.onJoinByIdClick);
         this.quickMatchBtn.on(Laya.Event.CLICK, this, this.onQuickMatchClick);
-        
+        if (this.pageInfoText) {
+            this.pageInfoText.on(Laya.Event.CLICK, this, () => {
+                this.createTestRooms(25);
+            });
+        }
+
         // 生成openId
         this.openId = Date.now().toString();
         
@@ -138,10 +136,13 @@ export class load extends Laya.Script {
             // 绑定房间相关事件
             this.bindRoomEvents();
             
-            // 刷新房间列表
             this.refreshRoomList();
+            Laya.timer.loop(5000, this, () => {
+                if (!Gnet.getRoom()) this.refreshRoomList();
+            });
         });
     }
+
     
     /**
      * 绑定房间相关事件
@@ -198,6 +199,7 @@ export class load extends Laya.Script {
      * 创建房间按钮点击事件
      */
     private onCreateRoomClick(): void {
+        console.log("this.createRoomBtn", this.createRoomBtn);
         const roomName = "房间" + this.openId.substring(8);
         this.statusText.text = "正在创建房间...";
         
@@ -221,9 +223,8 @@ export class load extends Laya.Script {
      */
     private onQuickMatchClick(): void {
         this.statusText.text = "正在匹配房间...";
-        
-        // 使用GNet的匹配策略，默认匹配码为"normal"
-        Gnet.matchRoom("normal", (err: Error | null, room: any) => {
+        const level = this.roomIdInput && this.roomIdInput.text.trim() ? this.roomIdInput.text.trim() : "1";
+        Gnet.matchRoom({ matchParams: { level }, maxPlayers: 4, roomType: "demo" }, (err: Error | null, room: any) => {
             if (err) {
                 console.error("匹配失败: " + err.message);
                 this.statusText.text = "匹配失败: " + err.message;
@@ -243,194 +244,338 @@ export class load extends Laya.Script {
         this.refreshRoomList();
     }
     
-    /**
-     * 刷新房间列表
+     /**
+     * 刷新房间列表（基于实际服务器响应重写）
      */
     private refreshRoomList(): void {
-        this.statusText.text = "正在刷新房间列表...";
-        
-        // 重置偏移量，获取第一页数据
-        this.offset = "";
-        
-        // 使用Gnet的真实接口获取可匹配房间列表
-        Gnet.getAvailableRooms((err: Error | null, info?: any) => {
-            if (err) {
-                console.error("获取房间列表失败: " + err.message);
-                this.statusText.text = "获取房间列表失败: " + err.message;
-                return;
-            }
-            console.log("获取房间列表成功", info);
-            
-            // 根据AvailableRoomsInfo接口处理数据
-            if (info) {
-                // 保存服务器分页信息
-                this.totalRooms = info.count || 0;
-                this.offset = info.offset || "";
-                this.hasNext = info.hasNext || 0;
-                
-                // 处理获取到的房间列表
-                if (info.rooms) {
-                    // 将获取到的房间数据转换为我们需要的格式
-                    this.roomListData = info.rooms.map((room: any) => ({
-                        roomName: room.roomName || `房间${room.roomId}`,
-                        roomId: room.roomId,
-                        playerCount: room.players ? room.players.length : 0,
-                        maxPlayers: room.maxPlayers || 2,
-                        roomType: room.roomType || "normal",
-                    }));
-                } else {
-                    this.roomListData = [];
-                }
-            } else {
-                this.roomListData = [];
-                this.totalRooms = 0;
-                this.offset = "";
-                this.hasNext = 0;
-            }
-            console.log("结算的房间", this.roomListData);
-            // 重置当前页为第一页
-            this.currentPage = 1;
-            
-            // 计算总页数（基于当前获取到的数据）
-            this.calculateTotalPages();
-            
-            this.updateRoomListUI();
-            this.statusText.text = `找到 ${this.totalRooms} 个房间（当前显示 ${this.roomListData.length} 个）`;
-        }, {});
-    }
-    
-    /**
-     * 加载下一页房间数据
-     */
-    private loadNextPage(): void {
-        if (this.hasNext === 0) {
-            this.statusText.text = "没有更多房间了";
+        if (this.isLoading) {
+            console.log("正在加载中，请稍候...");
             return;
         }
+
+        this.statusText.text = "正在刷新房间列表...";
+        this.currentPage = 1;
+        this.serverOffset = "0"; // 重置为初始偏移量
+        this.hasNext = 0;
+        this.totalRooms = 0;
+        this.currentRoomList = [];
         
-        this.statusText.text = "正在加载下一页...";
-        
-        // 使用偏移量获取下一页数据
-        Gnet.getAvailableRooms((err: Error | null, info?: any) => {
-            if (err) {
-                console.error("获取下一页房间列表失败: " + err.message);
-                this.statusText.text = "获取下一页失败: " + err.message;
-                return;
-            }
-            
-            if (info && info.rooms) {
-                // 更新服务器分页信息
-                this.totalRooms = info.count || this.totalRooms;
-                this.offset = info.offset || "";
-                this.hasNext = info.hasNext || 0;
-                
-                // 将新获取的房间数据添加到现有列表
-                const newRooms = info.rooms.map((room: any) => ({
-                    roomName: room.roomName || `房间${room.roomId}`,
-                    roomId: room.roomId,
-                    playerCount: room.players ? room.players.length : 0,
-                    maxPlayers: room.maxPlayers || 2,
-                    roomType: room.roomType || "normal",
-                }));
-                
-                this.roomListData = this.roomListData.concat(newRooms);
-                
-                // 重新计算总页数
-                this.calculateTotalPages();
-                
-                this.updateRoomListUI();
-                this.statusText.text = `已加载 ${this.roomListData.length}/${this.totalRooms} 个房间`;
-            } else {
-                this.statusText.text = "没有更多房间了";
-            }
-        }, { offset: this.offset });
+        this.loadRoomsFromServer(true);
     }
 
     /**
-     * 计算总页数
+     * 从服务器加载房间数据
+     * @param isRefresh 是否是刷新操作
+     */
+    private loadRoomsFromServer(isRefresh: boolean = false): void {
+        if (this.isLoading) {
+            console.log("正在加载中，请稍候...");
+            return;
+        }
+
+        this.isLoading = true;
+        const loadingText = isRefresh ? "正在刷新房间列表..." : "正在加载下一页...";
+        this.statusText.text = loadingText;
+        
+        console.log(`加载房间: 页码${this.currentPage}, 偏移量${this.serverOffset}, 每页${this.pageSize}`);
+
+        Gnet.getAvailableRoomsPaged(
+            this.currentPage,
+            this.pageSize,
+            (err: Error | null, rooms: any[], hasNext: 0 | 1, serverTotalCount: number, extra?: any) => {
+                this.isLoading = false;
+                
+                if (err) {
+                    console.error("获取房间列表失败: " + err.message);
+                    this.statusText.text = "获取房间列表失败: " + err.message;
+                    this.currentRoomList = [];
+                    this.updateRoomListUI();
+                    this.updatePageInfo();
+                    return;
+                }
+
+                console.log(`获取房间成功: ${rooms.length}个房间, 是否有下一页: ${hasNext}, 服务器总数: ${serverTotalCount}`);
+
+                // 更新服务器状态
+                this.hasNext = hasNext;
+                this.totalRooms = serverTotalCount;
+                
+                // 更新服务器偏移量
+                if (extra && extra.nextServerOffset) {
+                    this.serverOffset = extra.nextServerOffset;
+                    console.log(`更新服务器偏移量为: ${this.serverOffset}`);
+                }
+
+                // 更新当前显示的房间列表
+                if (isRefresh || this.currentPage === 1) {
+                    this.currentRoomList = rooms;
+                } else {
+                    // 如果是加载下一页，追加到现有列表
+                    this.currentRoomList = this.currentRoomList.concat(rooms);
+                }
+
+                // 计算总页数（基于服务器返回的总数）
+                this.calculateTotalPages();
+                
+                // 更新UI
+                this.updateRoomListUI();
+                this.updatePageInfo();
+                
+                // 更新状态文本
+                this.updateStatusText();
+            },
+            { 
+                serverOffset: this.serverOffset
+            }
+        );
+    }
+
+        /**
+     * 计算总页数（基于实际服务器数据修复）
      */
     private calculateTotalPages(): void {
-        // 基于当前已加载的数据计算分页
-        this.totalPages = Math.ceil(this.roomListData.length / this.pageSize);
-        if (this.totalPages < 1) {
+        if (this.totalRooms <= 0) {
             this.totalPages = 1;
+        } else {
+            this.totalPages = Math.max(1, Math.ceil(this.totalRooms / this.pageSize));
         }
+        
         // 确保当前页不超过总页数
         if (this.currentPage > this.totalPages) {
-            this.currentPage = this.totalPages;
+            this.currentPage = Math.max(1, this.totalPages);
+        }
+        
+        console.log(`计算总页数: 总数${this.totalRooms}, 每页${this.pageSize}, 总页数${this.totalPages}, 当前页${this.currentPage}`);
+    }
+
+    /**
+     * 更新状态文本
+     */
+    private updateStatusText(): void {
+        if (this.currentRoomList.length === 0 && this.currentPage === 1) {
+            this.statusText.text = "暂无房间，点击创建房间开始游戏";
+        } else {
+            const displayCount = this.currentRoomList.length;
+            if (this.totalRooms > 0) {
+                this.statusText.text = `第 ${this.currentPage}/${this.totalPages} 页，共 ${this.totalRooms} 个房间，显示 ${displayCount} 个`;
+            } else {
+                this.statusText.text = `第 ${this.currentPage} 页，显示 ${displayCount} 个房间`;
+            }
         }
     }
-    
-    /**
-     * 更新显示的房间列表
+
+     /**
+     * 更新房间列表UI
      */
-    private updateDisplayRoomList(): void {
-        const startIndex = (this.currentPage - 1) * this.pageSize;
-        const endIndex = startIndex + this.pageSize;
-        this.displayRoomList = this.roomListData.slice(startIndex, endIndex);
+    private updateRoomListUI(): void {
+        // 使用下一帧更新，确保数据已经准备好
+        Laya.timer.frameOnce(1, this, () => {
+            this.roomList.array = this.currentRoomList;
+            this.roomList.refresh();
+            
+            console.log(`更新UI: 显示${this.currentRoomList.length}个房间`);
+        });
     }
-    
+
     /**
-     * 更新分页信息显示
+     * 更新分页信息显示（基于实际服务器响应重写）
      */
     private updatePageInfo(): void {
+        // 确保总页数至少为1
+        const displayTotalPages = Math.max(1, this.totalPages);
+        const displayCurrentPage = Math.min(this.currentPage, displayTotalPages);
+        
+        // 更新页码显示
         if (this.pageInfoText) {
-            this.pageInfoText.text = `第 ${this.currentPage}/${this.totalPages} 页 (共 ${this.totalRooms} 个房间)`;
+            this.pageInfoText.text = `第 ${displayCurrentPage}/${displayTotalPages} 页`;
         }
         
         // 更新分页按钮状态
         if (this.prevPageBtn) {
-            this.prevPageBtn.disabled = this.currentPage <= 1;
+            this.prevPageBtn.disabled = (this.currentPage <= 1);
         }
+        
         if (this.nextPageBtn) {
-            // 下一页按钮状态：如果当前页是最后一页且有更多数据可加载，则启用
-            const hasMoreData = this.hasNext === 0 || this.currentPage < this.totalPages;
-            this.nextPageBtn.disabled = !hasMoreData;
+            // 下一页按钮状态：有下一页数据 且 不是正在加载
+            this.nextPageBtn.disabled = (this.hasNext === 0) || this.isLoading;
         }
+
+        console.log(`分页状态: 当前页${this.currentPage}, 总页数${this.totalPages}, 是否有下一页: ${this.hasNext}, 总房间数: ${this.totalRooms}`);
     }
-    
-    
-    /**
-     * 房间列表项渲染处理函数
+
+
+     /**
+     * 上一页按钮点击事件（基于实际分页逻辑重写）
      */
-    private onRoomItemRender(cell: Laya.Box, index: number): void {
-        if (cell && this.displayRoomList[index]) {
-             console.log("this.displayRoomList[index]", this.displayRoomList);
-            const name = cell.getChild("name") as Laya.Text;
-            const num = cell.getChild("num") as Laya.Text;
-            const game = cell.getChild("game") as Laya.Text;
-            const img = cell.getChild("img") as Laya.Image;
-            if (name) {
-                name.text = this.displayRoomList[index].roomName;
-                num.text = `${this.displayRoomList[index].playerCount}/${this.displayRoomList[index].maxPlayers}`;
-                game.text = this.displayRoomList[index].roomType;
-                //img.skin = this.displayRoomList[index].gameType === "chess" ? "chess.png" : "poker.png";
-                }
+    private onPrevPageClick(): void {
+        if (this.isLoading) {
+            this.statusText.text = "正在加载中，请稍候...";
+            return;
+        }
+
+        if (this.currentPage <= 1) {
+            this.statusText.text = "已经是第一页";
+            return;
+        }
+        
+        this.currentPage--;
+        
+        // 由于使用服务器偏移量，我们需要重新计算偏移量
+        // 简化处理：如果有缓存数据且数量足够，直接显示前一页
+        // 否则重新从服务器加载
+        
+        const startIndex = (this.currentPage - 1) * this.pageSize;
+        if (startIndex < this.currentRoomList.length) {
+            // 有缓存数据，直接显示
+            this.updatePageInfo();
+            this.updateStatusText();
+        } else {
+            // 没有缓存数据，需要从服务器重新加载
+            this.statusText.text = "重新加载数据...";
+            this.refreshRoomList();
         }
     }
 
     /**
-     * 更新房间列表UI
+     * 下一页按钮点击事件（基于实际分页逻辑重写）
      */
-    private updateRoomListUI(): void {
-        this.updateDisplayRoomList();
-        this.roomList.array = this.displayRoomList;
-        
-        // 更新分页信息
-        this.updatePageInfo();
+    private onNextPageClick(): void {
+        if (this.isLoading) {
+            this.statusText.text = "正在加载中，请稍候...";
+            return;
+        }
+
+        console.log("下一页点击，当前状态:", {
+            currentPage: this.currentPage,
+            totalPages: this.totalPages,
+            hasNext: this.hasNext,
+            serverOffset: this.serverOffset,
+            totalRooms: this.totalRooms
+        });
+
+        // 如果没有更多数据，禁用下一页
+        if (this.hasNext === 0) {
+            this.statusText.text = "已经是最后一页";
+            return;
+        }
+
+        this.currentPage++;
+        this.loadRoomsFromServer(false);
     }
-    
+
     /**
-     * 加入房间
+     * 跳转到指定页
+     */
+    private goToPage(pageNumber: number): void {
+        if (pageNumber < 1 || pageNumber > this.totalPages) {
+            this.statusText.text = `页码 ${pageNumber} 无效`;
+            return;
+        }
+        
+        this.currentPage = pageNumber;
+        
+        // 跳转页面不需要从服务器加载，直接从缓存中取数据
+        if (this.roomListData && this.roomListData.length > 0) {
+            this.totalPages = Math.ceil(this.roomListData.length / this.pageSize);
+            if (this.totalPages < 1) {
+                this.totalPages = 1;
+            }
+            
+            // 更新UI
+            this.updateRoomListUI();
+            // 更新状态文本
+            this.statusText.text = `第 ${this.currentPage}/${this.totalPages} 页，共 ${this.roomListData.length} 个房间`;
+        } else {
+            // 如果没有缓存数据，从服务器重新加载
+            this.refreshRoomList();
+        }
+    }
+
+     /**
+     * 房间列表项渲染处理函数（基于实际数据结构修复）
+     */
+    private onRoomItemRender(cell: Laya.Box, index: number): void {
+        if (!cell || !this.currentRoomList || index < 0 || index >= this.currentRoomList.length) {
+            console.log(`渲染项${index}无效:`, {cell: !!cell, list: !!this.currentRoomList, length: this.currentRoomList?.length});
+            return;
+        }
+
+        const roomData = this.currentRoomList[index];
+        if (!roomData) {
+            console.log(`房间数据${index}为空`);
+            return;
+        }
+
+        // 使用getChildByName获取组件
+        const nameLabel = cell.getChildByName("name") as Laya.Label;
+        const numLabel = cell.getChildByName("num") as Laya.Label;
+        const gameLabel = cell.getChildByName("game") as Laya.Label;
+        const img = cell.getChildByName("img") as Laya.Image;
+        
+        // 设置房间名称
+        if (nameLabel) {
+            nameLabel.text = roomData.roomName || `房间${roomData.roomCode || roomData.roomId.substring(0, 8)}`;
+        }
+        
+        // 设置玩家数量
+        if (numLabel) {
+            numLabel.text = `${roomData.playerCount || 0}/${roomData.maxPlayers || 4}`;
+        }
+        
+        // 设置房间类型
+        if (gameLabel) {
+            // 根据roomType显示不同的文本
+            let typeText = "普通房间";
+            if (roomData.roomType === "1") typeText = "竞技场";
+            else if (roomData.roomType === "2") typeText = "练习场";
+            else if (roomData.roomType === "3") typeText = "高手区";
+            
+            gameLabel.text = typeText;
+        }
+        
+        // 设置房间图标状态
+        if (img) {
+            // 根据房间状态设置颜色
+            if (roomData.playerCount >= roomData.maxPlayers) {
+                img.color = "#ff6b6b"; // 红色表示满员
+            } else if (roomData.isLock) {
+                img.color = "#ffa726"; // 橙色表示锁定
+            } else if (roomData.isPrivate) {
+                img.color = "#ab47bc"; // 紫色表示私有
+            } else {
+                img.color = "#66bb6a"; // 绿色表示可加入
+            }
+        }
+    }
+
+    private onRoomListMouse(e: Laya.Event, index: number): void {
+        if (e.type !== Laya.Event.CLICK) return;
+        if (!this.displayRoomList || index < 0 || index >= this.displayRoomList.length) return;
+        const roomId = this.displayRoomList[index].roomId;
+        this.joinRoom(roomId);
+    }
+
+    
+   /**
+     * 加入房间（增强版）
      */
     private joinRoom(roomId: string): void {
+        if (!roomId) {
+            this.statusText.text = "房间ID不能为空";
+            return;
+        }
+
         this.statusText.text = "正在加入房间...";
-        
         // 使用Gnet的真实joinRoom接口
         Gnet.joinRoom(roomId, (err: Error | null, room: any) => {
             if (err) {
                 console.error("加入房间失败: " + err.message);
                 this.statusText.text = "加入房间失败: " + err.message;
+                
+                // 如果是房间已满或其他原因，刷新列表
+                if (err.message.includes("满") || err.message.includes("不存在")) {
+                    Laya.timer.once(1000, this, this.refreshRoomList);
+                }
                 return;
             }
             
@@ -440,42 +585,64 @@ export class load extends Laya.Script {
         });
     }
     
-    /**
-     * 处理成功加入房间
+      /**
+     * 处理成功加入房间（增强版）
      */
     private handleRoomJoined(room: any): void {
-        // 这里可以跳转到游戏场景或房间详情页面
-        console.log("进入房间:", room.id);
-        this.statusText.text = "已进入房间，准备游戏...";
+        console.log("进入房间:", room);
+        this.statusText.text = `已进入房间: ${room.roomName || room.roomId}`;
         
-        // 示例：3秒后自动跳转
+        // 显示房间信息
+        if (room.players) {
+            this.statusText.text += `, 玩家: ${room.players.length}/${room.maxPlayers}`;
+        }
+        
+        // 绑定键盘事件
+        this.bindRoomKeyboardEvents();
+        
+        // 示例：可以在这里跳转到游戏场景
         Laya.timer.once(3000, this, () => {
-            // 这里可以添加跳转逻辑
-            console.log("跳转到游戏场景");
+            console.log("准备跳转到游戏场景...");
+            // 实际跳转逻辑
+            // Laya.Scene.open("game.scene");
         });
     }
-    
+
     /**
-     * 上一页按钮点击事件
+     * 绑定房间键盘事件
      */
-    private onPrevPageClick(): void {
-        if (this.currentPage > 1) {
-            this.currentPage--;
-            this.updateRoomListUI();
-        }
-    }
-    
-    /**
-     * 下一页按钮点击事件
-     */
-    private onNextPageClick(): void {
-        if (this.currentPage < this.totalPages) {
-            this.currentPage++;
-            this.updateRoomListUI();
-        } else if (this.hasNext === 0) {
-            // 当前页是最后一页且有更多数据可加载
-            this.loadNextPage();
-        }
+    private bindRoomKeyboardEvents(): void {
+        // 移除之前的监听器，避免重复绑定
+        Laya.stage.offAll(Laya.Event.KEY_DOWN);
+        
+        Laya.stage.on(Laya.Event.KEY_DOWN, this, (evt: any) => {
+            const code = evt.keyCode;
+            console.log("按键:", code);
+            
+            if (code === 76) { // L键 - 离开房间
+                Gnet.leaveRoom((err) => {
+                    if (!err) {
+                        this.statusText.text = "已离开房间";
+                        this.refreshRoomList();
+                    }
+                });
+            } else if (code === 68) { // D键 - 解散房间
+                Gnet.dismissRoom((err) => {
+                    if (!err) {
+                        this.statusText.text = "房间已解散";
+                        this.refreshRoomList();
+                    }
+                });
+            } else if (code === 70) { // F键 - 开始帧同步
+                Gnet.startFrameSync((err) => {
+                    this.statusText.text = err ? "开始帧同步失败" : "帧同步已开始";
+                });
+            } else if (code === 83) { // S键 - 停止帧同步
+                Gnet.stopFrameSync((err) => {
+                    this.statusText.text = err ? "停止帧同步失败" : "帧同步已停止";
+                });
+            }
+        });
     }
     
     /**
@@ -494,6 +661,58 @@ export class load extends Laya.Script {
         }
         
         this.joinRoom(roomId);
+    }
+
+        /**
+     * 创建测试房间（修复版）
+     */
+    private createTestRooms(count: number): void {
+        this.statusText.text = `正在创建${count}个测试房间...`;
+        
+        let createdCount = 0;
+        const failedCount = 0;
+        const maxRetry = 2;
+        
+        const createNext = () => {
+            if (createdCount >= count) {
+                this.statusText.text = `创建完成: 成功${createdCount}个, 失败${failedCount}个`;
+                this.refreshRoomList();
+                return;
+            }
+            
+            const roomName = "测试房间" + (createdCount + 1);
+            const roomType = (createdCount % 3 + 1).toString(); // 1,2,3循环
+            
+            Gnet.createRoom(roomName, 4, (err: Error | null, room: any) => {
+                if (err) {
+                    console.error(`创建房间${createdCount + 1}失败:`, err.message);
+                } else {
+                    console.log(`创建房间${createdCount + 1}成功`);
+                    createdCount++;
+                    
+                    // 创建成功后立即离开，以便创建下一个房间
+                    Gnet.leaveRoom((leaveErr: Error | null) => {
+                        if (leaveErr) {
+                            console.error(`离开房间失败:`, leaveErr.message);
+                            // 如果离开失败，尝试解散房间
+                            Gnet.dismissRoom(() => {
+                                Laya.timer.once(200, this, createNext);
+                            });
+                        } else {
+                            Laya.timer.once(200, this, createNext);
+                        }
+                    });
+                    return;
+                }
+                
+                // 继续创建下一个
+                Laya.timer.once(200, this, createNext);
+            }, {
+                roomType: roomType,
+            });
+        };
+        
+        createNext();
     }
 
     //组件被启用后执行，例如节点被添加到舞台后
