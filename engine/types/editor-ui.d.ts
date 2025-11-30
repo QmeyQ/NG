@@ -348,6 +348,7 @@ declare namespace gui {
     }
     interface ILoadOptions {
         type?: string;
+        maybeType?: string;
         priority?: number;
         group?: string;
         cache?: boolean;
@@ -479,7 +480,7 @@ declare namespace gui {
         private queueToDownload;
         private download;
         private completeItem;
-        getURLInfo(url: string, type?: string): URLInfo;
+        getURLInfo(url: string, type?: string, maybeType?: string): URLInfo;
         warnFailed(url: string, err?: any, initiatorUrl?: string): void;
         warn(msg: string, err?: any): void;
         getRes(url: string, type?: string): any;
@@ -1627,6 +1628,7 @@ declare namespace gui {
         private _srcWidth;
         private _srcHeight;
         private _loadId;
+        readonly loadOptions: ILoadOptions;
         constructor();
         get src(): string;
         set src(value: string);

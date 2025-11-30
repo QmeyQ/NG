@@ -1,0 +1,7 @@
+{
+  "name": "axios",
+  "version": "0.21.1",
+  "description": "模拟axios包，用于解决GOBE.js依赖问题",
+  "main": "index.js",
+  "license": "MIT"
+}

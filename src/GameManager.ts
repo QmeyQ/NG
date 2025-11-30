@@ -31,10 +31,10 @@
  * - touchConfig: {clickTimeThreshold, touchMoveThreshold, forceAdjustSensitivity, angleAdjustSensitivity}
  */
 
-import { Res } from "./lib/res";
+import { Res } from "./libs/res";
 import { Cha } from "./cha";
-import { TimeManager } from "./lib/time";
-import { MapManager } from "./lib/mpm";
+import { TimeManager } from "./libs/time";
+import { MapManager } from "./libs/mpm";
 import { EffectTrigger } from "./EffectManager";
 
 // 类型别名简化
@@ -416,6 +416,15 @@ export class GameManager {
         this.callbacks.onResourceLoaded();
         
         // 可以在这里创建默认的角色或执行其他初始化逻辑
+    }
+
+    public loadGameResources(resourceUrl: string): void {
+        if (!resourceUrl) return;
+        Res.init();
+        Res.url(resourceUrl);
+        this.setResourceManager(Res as any);
+        Res.downRes();
+        this.monitorResourceLoading();
     }
 
 
