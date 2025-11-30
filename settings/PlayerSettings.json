@@ -10,7 +10,9 @@
   "modules": {
     "laya.ui": true,
     "laya.d3": true,
-    "laya.physics2D": true
+    "laya.physics2D": true,
+    "laya.legacyParser": true,
+    "laya.blueprint": true
   },
   "splash": {
     "enabled": false,

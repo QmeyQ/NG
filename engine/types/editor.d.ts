@@ -1284,6 +1284,28 @@ declare global {
             push?(keys?: ReadonlyArray<string>): Promise<void>;
         }
 
+        export interface ICreateSettingsOptions {
+            /**
+             * The location of the configuration file. The default is "project".
+             * - application: Saved to the user data directory of the application. On Windows, it is generally C:\Users\{user}\AppData\Local\{appname}, and on Mac, it is generally ~/Library/Application Support/{appname}. This means that this configuration needs to be shared across different projects.
+             * - project: Saved to the `settings` directory of the project. This means that this configuration is specific to the current project.
+             * - local: Saved to the `local` directory of the project. This means that this configuration is specific to the current project but does not need to be tracked by the version control system.
+             * - memory: Maintained only in memory and not saved to a file.
+             * - other value: specify the storage path of the configuration file by yourself. It is a relative path to the assets directory.
+             */
+            location?: SettingsLocation | string;
+
+            /**
+             * The data type corresponding to the configuration. If it is a string, it means that this type has been registered through typeRegistry. If it is FTypeDescriptor, it will be automatically registered when created. If it is a Function, it means that this is a class decorated with ＠IEditor.regClass.
+             */
+            type?: string | FTypeDescriptor | Function;
+
+            /**
+             * In general, custom configuration files are only used in the editor environment. If the configuration data also needs to be read at runtime, this parameter can be set to true, and then accessed at runtime through `Laya.PlayerConfig.XXX`, where `XXX` is the name of the configuration file.
+             */
+            contributeToPlayerConfig?: boolean;
+        }
+
         export interface ISettingsService {
             /**
              * Create a built-in configuration file. This method is only available in the UI process. User should call this method directly.
@@ -1304,6 +1326,13 @@ declare global {
              * @param typeName The data type corresponding to the configuration.
              */
             enableSettings(name: string, pathToAsset: string, typeName?: string): void;
+
+            /**
+             * Create a built-in configuration file. This method is only available in the UI process. User should call this method directly.
+             * @param name The name of the configuration. It should be unique within the editor and use characters that conform to file name specifications.
+             * @param options Options to create the settings.
+             */
+            enableSettings(name: string, options?: ICreateSettingsOptions): void;
             /**
              * Query the settings by name.
              * @param name The name of the settings.
@@ -4662,6 +4691,20 @@ declare global {
             createSettings(name: string, pathToAsset: string, type?: string | FTypeDescriptor | Function): void;
 
             /**
+             * Create a new settings. It usually corresponds to a configuration file and may be saved to different locations depending on the value of location.
+             * 
+             * In different processes, developers can access the configuration data through Editor.getSettings. If you want to modify the configuration data, it is generally done in the UI process. The data will be automatically saved to the file after modification.
+             * 
+             * Each configuration has a corresponding data type, which can be manually written and registered through typeRegistry, or it can be a class decorated with @IEditor.regClass.
+             * 
+             * This method is only allowed to be called in ＠IEditor.onLoad.
+             * 
+             * @param name The name of the configuration. It should be unique within the editor and use characters that conform to file name specifications. The file name of the configuration file will automatically be prefixed with "plugin-" to help users understand that this is a configuration file created by a plugin.
+             * @param options Options for creating settings.
+             */
+            createSettings(name: string, options?: ICreateSettingsOptions): void;
+
+            /**
              * Create a custom build target.
              * 
              * This method is only allowed to be called in ＠IEditor.onLoad.
@@ -6263,6 +6306,12 @@ declare global {
              * @param group The group ID. If this ID is provided, the change will be added to the specified group. A DataHistory can be seperated into multiple groups, and undo/redo operations can be performed in each group separately.
              */
             addChange(target: any, datapath: string | string[], value: any, oldvalue: any, extInfo?: any, transient?: boolean, batchId?: number, group?: number): number;
+
+            /**
+             * Get the most recent batch ID. If there are no changes or the lastest batch is too old, it will return null.
+             * @returns The most recent batch ID, or null.
+             */
+            getRecentBatchId(): number | null;
 
             /**
              * If there are changes pending, flush them immediately.
@@ -8777,6 +8826,7 @@ declare global {
             startEditing(): void;
             cancelEditing(): void;
             onConstruct(): void;
+            protected onNativeDragStart(evt: gui.Event): void;
             private onClickHandler;
             getFullWidth(): number;
         }
