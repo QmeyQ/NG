@@ -411,7 +411,7 @@ export class Res {
     static load(
         key: string,
         subKey: string,
-        success: (atlas: Laya.AtlasResource) => void,
+        success: (atlas: Laya.AtlasResource | Laya.SpineTemplet) => void,
         error?: (errMsg: string) => void
     ): void {
         if (Res._atlasCache[`${key}_${subKey}`]) {
@@ -423,6 +423,7 @@ export class Res {
 
         const imageBlob = this.get(key, subKey, 0) as Blob;
         const atlasBlob = this.get(key, subKey, 1) as Blob;
+        const skBlob = this.get(key, subKey, 2) as Blob;
         
         if (!imageBlob || !atlasBlob) {
             const errMsg = `资源[${key}_${subKey}]缺失：图像Blob=${!!imageBlob}，Atlas Blob=${!!atlasBlob}`;
@@ -441,7 +442,11 @@ export class Res {
             name: `${key}_${subKey}_image`
         }).then((loadedTexture: Laya.Texture) => {
             texture = loadedTexture;
-            this._readAtlasBlob(key, subKey, atlasBlob, imageUrl, texture, success, error);
+            if (skBlob) {
+                this._readSkBlob(key, subKey, skBlob, atlasBlob, success, error);
+            } else {
+                this._readAtlasBlob(key, subKey, atlasBlob, imageUrl, texture, success, error);
+            }
         }).catch((err) => {
             const errMsg = `加载图像失败：${err.message}`;
             if (imageUrl) URL.revokeObjectURL(imageUrl);
@@ -449,6 +454,8 @@ export class Res {
             error?.(errMsg);
         });
     }
+
+
 
     /**
      * 加载Texture资源
@@ -634,5 +641,155 @@ export class Res {
             subTextures.push(subTexture);
         }
         return subTextures;
+    }
+
+    private static _readSkBlob(
+        key: string,
+        subKey: string,
+        skBlob: Blob,
+        asBlob: Blob,
+        success: (tpl: Laya.SpineTemplet) => void,
+        error?: (errMsg: string) => void
+    ): void {
+         let atlasUrl = Utils.replaceFileExtension(task.url, "atlas");
+
+        return Promise.all([
+            task.loader.fetch(task.url, task.ext == "skel" ? "arraybuffer" : "json", task.progress.createCallback()),
+            task.loader.fetch(atlasUrl, "text", task.progress.createCallback())
+        ]).then(res => {
+            if (!res[0] || !res[1])
+                return null;
+
+            let templet = new SpineTemplet();
+            let version = SpineTemplet.RuntimeVersion;
+            // debugger
+           let atlasPages: Array<Laya.ILoadURL> = [];
+        let basePath = URL.getPath(task.url);//skel所里路径
+        //@ts-ignore
+        let atlas = new spine.TextureAtlas(new TextDecoder().decode(asBlob), (path: string) => {
+            let url = basePath + path;
+            atlasPages.push({
+                url, type: Loader.TEXTURE2D,
+                propertyParams: {
+                    premultiplyAlpha: _premultipliedAlpha
+                },
+                constructParams: [0, 0, TextureFormat.R8G8B8A8, false, false, _srgb, _premultipliedAlpha]
+            });
+            return new SpineTexture(null);
+        });
+
+        return Laya.loader.load(atlasPages, null, task.progress?.createCallback()).then((res: Array<Texture2D>) => {
+            let textures: Record<string, Texture2D> = {}
+            let premultipliedAlpha = true;
+
+            for (var i = 0; i < res.length; i++) {
+                let tex = res[i];
+                if (tex) tex._addReference();
+                let pages = atlas.pages;
+                // 默认长度 = 1
+                let page = pages[i];
+                premultipliedAlpha = page.pma || (tex && tex._premultiplyAlpha && premultipliedAlpha);
+
+                //@ts-ignore
+                page.texture.realTexture = tex;
+                page.texture.setFilters(page.minFilter, page.magFilter);
+                page.texture.setWraps(page.uWrap, page.vWrap);
+                page.width = page.texture.getImage().width;
+                page.height = page.texture.getImage().height;
+                textures[page.name] = tex;
+            }
+
+
+            let regions = atlas.regions;
+            for (const region of regions) {
+                let page = region.page;
+                region.u = region.x / page.width;
+                region.v = region.y / page.height;
+                //@ts-ignore
+                if (region.rotate) {
+                    region.u2 = (region.x + region.height) / page.width;
+                    region.v2 = (region.y + region.width) / page.height;
+                }
+                else {
+                    region.u2 = (region.x + region.width) / page.width;
+                    region.v2 = (region.y + region.height) / page.height;
+                }
+            }
+
+            templet._parse(desc, atlas, textures, premultipliedAlpha);
+            return templet;
+        });
+        });
+
+
+
+
+
+
+        const cacheKey = `${key}_${subKey}`;
+        const atlasBlob = this.get(key, subKey, 1) as Blob;
+        if (!atlasBlob) {
+            const errMsg = `资源[${cacheKey}]缺失：Spine Atlas Blob不存在`;
+            Res.onLoadError(cacheKey, errMsg);
+            error?.(errMsg);
+            return;
+        }
+
+        const atlasReader = new FileReader();
+        atlasReader.readAsText(atlasBlob, "utf-8");
+
+        atlasReader.onload = () => {
+            try {
+                const atlasText = atlasReader.result as string;
+                if (!atlasText) throw new Error("Atlas内容为空");
+
+                const atlas = new (window as any).spine.TextureAtlas(atlasText);
+
+                const tex2d = (texture.bitmap as any);
+                const textures: Record<string, any> = {};
+                if (atlas.pages && atlas.pages.length > 0) {
+                    for (const p of atlas.pages) {
+                        textures[p.name] = tex2d;
+                    }
+                }
+
+                const skReader = new FileReader();
+                // 根据类型选择读取方式
+                const isText = skBlob.type && (skBlob.type.includes("json") || skBlob.type.includes("text"));
+                if (isText) skReader.readAsText(skBlob, "utf-8");
+                else skReader.readAsArrayBuffer(skBlob);
+
+                skReader.onload = () => {
+                    try {
+                        const desc = isText ? (skReader.result as string) : (skReader.result as ArrayBuffer);
+                        const templet = new Laya.SpineTemplet();
+                        const pma = atlas.pages && atlas.pages[0] ? !!atlas.pages[0].pma : true;
+                        (templet as any)._parse(desc, atlas, textures, pma);
+                        success(templet);
+                        Res.onLoadComplete(cacheKey, templet);
+                    } catch (e) {
+                        const errMsg = `解析Spine失败：${(e as Error).message}`;
+                        Res.onLoadError(cacheKey, errMsg);
+                        error?.(errMsg);
+                    }
+                };
+
+                skReader.onerror = () => {
+                    const errMsg = `读取Spine Blob失败：${skReader.error?.message}`;
+                    Res.onLoadError(cacheKey, errMsg);
+                    error?.(errMsg);
+                };
+            } catch (e) {
+                const errMsg = `解析Spine Atlas失败：${(e as Error).message}`;
+                Res.onLoadError(cacheKey, errMsg);
+                error?.(errMsg);
+            }
+        };
+
+        atlasReader.onerror = () => {
+            const errMsg = `读取Atlas Blob失败：${atlasReader.error?.message}`;
+            Res.onLoadError(cacheKey, errMsg);
+            error?.(errMsg);
+        };
     }
 }
