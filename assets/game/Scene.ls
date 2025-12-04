@@ -13,12 +13,14 @@
     {
       "_$type": "e8a95ca0-651f-48bc-b47e-0f93d6b7f3c3",
       "scriptPath": "../src/NewScript.ts",
-      "text": ""
+      "Sprite": null,
+      "linyueru": null
     }
   ],
   "_$child": [
     {
       "_$id": "cr374emg",
+      "_$var": true,
       "_$type": "Sprite",
       "name": "Sprite",
       "x": 324,
@@ -30,6 +32,30 @@
         {
           "_$type": "DrawRectCmd",
           "fillColor": "#ffffff"
+        }
+      ]
+    },
+    {
+      "_$id": "n4ldplsi",
+      "_$var": true,
+      "_$type": "Sprite",
+      "name": "linyueru",
+      "x": 138,
+      "y": 571,
+      "width": 131,
+      "height": 182,
+      "anchorX": 0.45,
+      "anchorY": 0.994,
+      "_$comp": [
+        {
+          "_$type": "Spine2DRenderNode",
+          "layer": 0,
+          "useFastRender": false,
+          "source": "res://ea3d5118-b568-49a6-b385-051210cc6057",
+          "animationName": "death",
+          "preview": true,
+          "physicsUpdate": 2,
+          "premultipliedAlpha": true
         }
       ]
     }
