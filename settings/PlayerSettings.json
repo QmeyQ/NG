@@ -4,6 +4,18 @@
     "designHeight": 2532,
     "scaleMode": "fixedwidth"
   },
+  "light2D": {
+    "lightDirection": {},
+    "ambientColor": {}
+  },
+  "3D": {
+    "lightClusterCount": {}
+  },
+  "physics2D": {
+    "defaultConfig": {
+      "gravity": {}
+    }
+  },
   "UI": {
     "alwaysIncludeDefaultSkin": false
   },
@@ -12,7 +24,8 @@
     "laya.d3": true,
     "laya.physics2D": true,
     "laya.legacyParser": true,
-    "laya.blueprint": true
+    "laya.blueprint": true,
+    "laya.spine": true
   },
   "splash": {
     "enabled": false,

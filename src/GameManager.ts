@@ -399,7 +399,7 @@ export class GameManager {
 
                         console.log(`🎬 创建资源[${key}]`);
                         Res.load( "role",key,
-                            (atlas: Laya.AtlasResource) => {
+                            (atlas: Laya.AtlasResource | Laya.SpineTemplet) => {
 
                             });
                     }
