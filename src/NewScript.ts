@@ -1,17 +1,79 @@
-const { regClass, property } = Laya;
+import { Res } from "./libs/res";
+import { TimeManager } from "./libs/time";
+const { regClass, property, Browser } = Laya;
+
 
 @regClass()
 export class NewScript extends Laya.Script {
     //declare owner : Laya.Sprite3D;
     //declare owner : Laya.Sprite;
 
-    @property(String)
-    public text: string = "";
+  private skeleton: Laya.Spine2DRenderNode;
+    private index: number = -1;
+
+    @property(Laya.Sprite)
+    public Sprite!: Laya.Sprite;
+   @property(Laya.Sprite)
+    public linyueru!: Laya.Sprite;
+    
 
     //组件被激活后执行，此时所有节点和组件均已创建完毕，此方法只执行一次
     onAwake(): void {
-        Laya.Scene.open("game/trace.ls");
+        console.log("SpineTemplet:", Laya.SpineTemplet);
+        Res.init();
+        Laya.init(Browser.width, Browser.height).then(() => {
+        Res._net.on('downloadProgress', (key: string, percent: number) => {
+            console.log('progress', key, percent + '%');
+        });
+        Res._net.on('downloadError', (key: string, mes: string) => {
+            console.error('error', key, mes);
+        });
+        Res._net.on('downloadComplete', (key: string, blob: Blob, fromCache: boolean) => {
+            console.log('complete', key, fromCache);
+        });
+        const dl = (url: string) => new Promise<Blob>((resolve, reject) => {
+            Res._net.download(url, {
+                key: url,
+                force: true,
+                onProgress: (p: number) => console.log('dl', url, p + '%'),
+                onComplete: (b: Blob) => resolve(b),
+                onError: (e: any) => reject(e)
+            });
+        });
+        (async () => {
+                const sk = await dl('http://normalgame.cn/1/linyueru.json');
+                const at = await dl('http://normalgame.cn/1/linyueru.atlas');
+                const img = await dl('http://normalgame.cn/1/linyueru.png');
+                console.log(img, sk, at);
+                Res.lo(img, at, sk, (temp) => {
+                    console.log(temp);
+                console.log(this.linyueru)
+                this.skeleton = new Laya.Spine2DRenderNode();
+                
+                this.Sprite.addComponentInstance(this.skeleton);
+                this.skeleton.templet = temp as Laya.SpineTemplet;
+                this.skeleton.animationName = this.skeleton.templet.skeletonData.animations[0].name;
+                this.Sprite.pos(Browser.width / 2, Browser.height / 2 + 100);
+                this.Sprite.scale(0.5, 0.5);
+                this.Sprite.on(Laya.Event.STOPPED, this, this.play);
+                this.skeleton.useFastRender = false;
+                this.play();
+                });
+        })();
+        });
     }
+
+    private frame(){
+    }
+
+    private play(): void {
+		this.index++;
+		if (this.index >= this.skeleton.getAnimNum()) {
+			this.index = 0;
+		}
+		this.skeleton.play(this.index, false);
+
+	}
 
     //组件被启用后执行，例如节点被添加到舞台后
     //onEnable(): void {}
