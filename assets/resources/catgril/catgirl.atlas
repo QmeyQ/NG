@@ -1,0 +1,180 @@
+catgirl.png
+size: 1736,533
+format: RGBA8888
+filter: Linear,Linear
+repeat: none
+Shadow
+  rotate: false
+  xy: 261, 32
+  size: 150, 30
+  orig: 150, 30
+  offset: 0, 0
+  index: -1
+attackfire
+  rotate: false
+  xy: 2, 3
+  size: 53, 59
+  orig: 500, 500
+  offset: 223, 221
+  index: -1
+body
+  rotate: false
+  xy: 1276, 219
+  size: 264, 312
+  orig: 500, 500
+  offset: 120, 100
+  index: -1
+fire
+  rotate: false
+  xy: 1542, 300
+  size: 143, 135
+  orig: 500, 500
+  offset: 179, 183
+  index: -1
+fire1
+  rotate: true
+  xy: 848, 2
+  size: 173, 181
+  orig: 500, 500
+  offset: 163, 149
+  index: -1
+fire2
+  rotate: false
+  xy: 656, 8
+  size: 190, 158
+  orig: 500, 500
+  offset: 136, 164
+  index: -1
+footl
+  rotate: true
+  xy: 1542, 437
+  size: 94, 147
+  orig: 500, 500
+  offset: 203, 180
+  index: -1
+footr
+  rotate: false
+  xy: 1031, 22
+  size: 109, 153
+  orig: 500, 500
+  offset: 195, 181
+  index: -1
+hair
+  rotate: false
+  xy: 2, 64
+  size: 417, 467
+  orig: 600, 600
+  offset: 89, 57
+  index: -1
+hair1
+  rotate: true
+  xy: 770, 177
+  size: 354, 309
+  orig: 500, 500
+  offset: 74, 95
+  index: -1
+handl1
+  rotate: true
+  xy: 1418, 3
+  size: 85, 89
+  orig: 500, 500
+  offset: 207, 205
+  index: -1
+handl2
+  rotate: true
+  xy: 1280, 80
+  size: 137, 136
+  orig: 500, 500
+  offset: 180, 182
+  index: -1
+head
+  rotate: true
+  xy: 421, 168
+  size: 363, 347
+  orig: 365, 347
+  offset: 2, 0
+  index: -1
+layer_09
+  rotate: false
+  xy: 421, 5
+  size: 74, 161
+  orig: 75, 162
+  offset: 0, 1
+  index: -1
+layer_11
+  rotate: true
+  xy: 497, 7
+  size: 159, 157
+  orig: 161, 158
+  offset: 1, 1
+  index: -1
+layer_15
+  rotate: false
+  xy: 57, 8
+  size: 104, 54
+  orig: 104, 56
+  offset: 0, 1
+  index: -1
+layer_16
+  rotate: false
+  xy: 163, 11
+  size: 96, 51
+  orig: 98, 53
+  offset: 1, 1
+  index: -1
+layer_20
+  rotate: false
+  xy: 1081, 217
+  size: 193, 314
+  orig: 194, 314
+  offset: 0, 0
+  index: -1
+layer_21
+  rotate: true
+  xy: 1142, 31
+  size: 184, 136
+  orig: 185, 138
+  offset: 1, 1
+  index: -1
+layer_22
+  rotate: false
+  xy: 1627, 182
+  size: 107, 116
+  orig: 107, 118
+  offset: 0, 1
+  index: -1
+layer_23
+  rotate: false
+  xy: 1418, 90
+  size: 118, 127
+  orig: 119, 129
+  offset: 1, 1
+  index: -1
+offeyes
+  rotate: true
+  xy: 1542, 20
+  size: 278, 83
+  orig: 365, 347
+  offset: 74, 86
+  index: -1
+palml
+  rotate: true
+  xy: 1627, 2
+  size: 91, 93
+  orig: 500, 500
+  offset: 204, 204
+  index: -1
+palmr
+  rotate: true
+  xy: 1627, 95
+  size: 85, 101
+  orig: 86, 102
+  offset: 0, 0
+  index: -1
+shoulderl
+  rotate: false
+  xy: 1280, 6
+  size: 114, 72
+  orig: 500, 500
+  offset: 193, 214
+  index: -1
