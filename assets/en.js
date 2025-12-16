@@ -21,7 +21,7 @@ class OptimalCompressor {
     dp[0] = 0;
     
     // 预计算所有可能的压缩块
-    console.log('正在预计算所有可能的压缩块...');
+    // console.log('正在预计算所有可能的压缩块...');
     const allBlocks = [];
     
     // 遍历所有起始位置
@@ -60,7 +60,7 @@ class OptimalCompressor {
       }
     }
     
-    console.log(`计算了 ${allBlocks.length} 个压缩块，开始动态规划...`);
+    // console.log(`计算了 ${allBlocks.length} 个压缩块，开始动态规划...`);
     
     // 按起始位置排序，方便查找
     allBlocks.sort((a, b) => a.start - b.start || a.end - b.end);
@@ -91,7 +91,7 @@ class OptimalCompressor {
       }
     }
     
-    console.log(`动态规划完成，最优压缩大小: ${dp[n]} 字节`);
+    // console.log(`动态规划完成，最优压缩大小: ${dp[n]} 字节`);
     
     // 重建最优路径
     const compressedBlocks = [];
@@ -382,43 +382,100 @@ class OptimalCompressor {
   // 7. 压缩单个文件
   compressFile(filePath) {
     const data = fs.readFileSync(filePath);
-    console.log(`\n压缩文件: ${filePath} (${data.length} 字节)`);
+    // console.log(`\n压缩文件: ${filePath} (${data.length} 字节)`);
     
     const startTime = Date.now();
     
     // 尝试两种压缩方法，选择更好的
-    console.log('尝试贪心算法压缩...');
+    // console.log('尝试贪心算法压缩...');
     const greedyResult = this.compressGreedy(data);
     
-    console.log(`贪心压缩结果: ${greedyResult.length} 字节`);
+    // console.log(`贪心压缩结果: ${greedyResult.length} 字节`);
     
     // 如果文件不是特别大，尝试DP算法
     let finalResult = greedyResult;
     
     if (data.length <= 10000) { // 只对小文件使用DP
-      console.log('尝试动态规划算法压缩...');
+      // console.log('尝试动态规划算法压缩...');
       try {
         const dpResult = this.compressWithDP(data);
-        console.log(`动态规划结果: ${dpResult.length} 字节`);
+        // console.log(`动态规划结果: ${dpResult.length} 字节`);
         
         if (dpResult.length < finalResult.length) {
-          console.log(`选择动态规划结果，节省 ${finalResult.length - dpResult.length} 字节`);
+          // console.log(`选择动态规划结果，节省 ${finalResult.length - dpResult.length} 字节`);
           finalResult = dpResult;
         } else {
-          console.log(`选择贪心算法结果`);
+          // console.log(`选择贪心算法结果`);
         }
       } catch (error) {
-        console.log(`动态规划失败，使用贪心算法: ${error.message}`);
+        // console.log(`动态规划失败，使用贪心算法: ${error.message}`);
       }
     }
     
     const endTime = Date.now();
-    console.log(`压缩完成，耗时: ${endTime - startTime}ms`);
-    console.log(`压缩比: ${(finalResult.length / data.length * 100).toFixed(2)}%`);
+    
+    // 简单的内容分析
+    const analysis = this.analyzeContent(data);
+    
+    // 输出简洁的记录
+    const ratio = (finalResult.length / data.length * 100).toFixed(2);
+    console.log(`文件: ${path.basename(filePath)} | 原始: ${data.length}B -> 压缩: ${finalResult.length}B (${ratio}%) | 耗时: ${endTime - startTime}ms`);
+    if (analysis) {
+        console.log(`  └─ 分析: ${analysis}`);
+    }
     
     return finalResult;
   }
   
+  // 分析内容的可压缩性
+  analyzeContent(bytes) {
+      let issues = [];
+      const n = bytes.length;
+      if (n < 10) return null;
+      
+      // 检查是否有长段连续重复字节（比如连续0x00）
+      let maxRun = 0;
+      let maxRunByte = -1;
+      let currentRun = 1;
+      for(let i=0; i<n-1; i++) {
+          if(bytes[i] === bytes[i+1]) {
+              currentRun++;
+          } else {
+              if(currentRun > maxRun) {
+                  maxRun = currentRun;
+                  maxRunByte = bytes[i];
+              }
+              currentRun = 1;
+          }
+      }
+      if(maxRun > 20) {
+          issues.push(`发现长重复字节(0x${maxRunByte.toString(16)})长度${maxRun}`);
+      }
+      
+      // 检查是否有周期性重复（简单采样）
+      // 仅检查开头部分
+      const sampleLen = Math.min(n, 200);
+      const sample = bytes.slice(0, sampleLen);
+      // ... 简单检查
+      
+      if(issues.length > 0) return issues.join(', ');
+      return null;
+  }
+  
+  // 7.5 设置嵌套值
+  setNestedValue(obj, path, value) {
+    const parts = path.split('/');
+    let current = obj;
+    for (let i = 0; i < parts.length - 1; i++) {
+      const part = parts[i];
+      if (!current[part]) {
+        current[part] = {};
+      }
+      current = current[part];
+    }
+    current[parts[parts.length - 1]] = value;
+  }
+
   // 8. 打包目录
   packDirectory(inputDir, outputFile) {
     console.log(`\n开始打包目录: ${inputDir}`);
@@ -427,7 +484,7 @@ class OptimalCompressor {
     const files = this.collectAllFiles(inputDir);
     console.log(`找到 ${files.length} 个文件`);
     
-    const fileEntries = [];
+    const filesMap = {};
     const bodyChunks = [];
     let offset = 0;
     
@@ -435,27 +492,22 @@ class OptimalCompressor {
     for (const file of files) {
       const compressed = this.compressFile(file.abs);
       
-      fileEntries.push({
-        name: file.rel,
-        offset: offset,
-        size: compressed.length,
-        originalSize: fs.statSync(file.abs).size
-      });
+      this.setNestedValue(filesMap, file.rel, [offset, compressed.length]);
       
       bodyChunks.push(compressed);
       offset += compressed.length;
       
-      console.log(`文件: ${file.rel}`);
-      console.log(`  原始: ${fileEntries[fileEntries.length-1].originalSize} 字节`);
-      console.log(`  压缩: ${compressed.length} 字节`);
-      console.log(`  压缩比: ${(compressed.length / fileEntries[fileEntries.length-1].originalSize * 100).toFixed(2)}%`);
+      // console.log(`文件: ${file.rel}`);
+      // console.log(`  原始: ${fs.statSync(file.abs).size} 字节`);
+      // console.log(`  压缩: ${compressed.length} 字节`);
+      // console.log(`  压缩比: ${(compressed.length / fs.statSync(file.abs).size * 100).toFixed(2)}%`);
     }
     
     // 构建头部
     const header = {
       version: 'DP-OPTIMAL',
       fileCount: files.length,
-      files: fileEntries
+      files: filesMap
     };
     
     const headerJson = JSON.stringify(header);

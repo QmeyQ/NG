@@ -1,4 +1,5 @@
 import { Gnet } from "./libs/GNet";
+import { Res } from "./libs/res";
 const { regClass, property } = Laya;
 
 @regClass()
@@ -67,6 +68,15 @@ export class load extends Laya.Script {
 
     //组件被激活后执行，此时所有节点和组件均已创建完毕，此方法只执行一次
     onAwake(): void {
+
+
+
+        Res.url("http://normalgame.cn/res.res", (res:any)=>{
+            console.log(res)
+        Res.load(res);
+        Laya.Scene.open("game/select.ls");
+        })
+        return;
 
           // 初始化分页数据
         this.currentPage = 1;
