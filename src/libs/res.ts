@@ -1,713 +1,954 @@
-/**res.ts 全局static
- * - init(): 初始化IDBStorage和Net实例
- * - url(url: string, force: boolean = false): 加载资源配置文件，url为res.json地址，force为是否强制重新下载
- * - down(key: string, force: boolean = false): 下载单个资源组，key为资源标识，force为是否强制重新下载
- * - downRes(): 下载所有包含url属性的资源组
- * - get(name: string, subkey?:string, index?: number): 获取已加载资源，name为资源组名，index为可选资源索引
- * - getList(): 获取资源配置信息
- * - setNet(netInstance: Net): 设置网络实例
- * - getProcess(): 获取下载进度信息，返回{process: number, err: number, count: number}
- * - load(key, subkey, suc(AtlasResource), err?(msg)): 加载atlas资源
- * - loadTexture(key, suc(Texture), err?(msg)): 加载texture资源
- * - 支持复杂JSON结构，自动识别包含url属性的资源组进行下载
- * - onUrl(list): 配置文件加载完成事件
- * - onDownComplete(key, success): 单个资源下载完成事件
- * - onDownResComplete(successCount, errorCount, totalCount): 所有资源下载完成事件
- * - onProcessUpdate(process, err, count): 下载进度更新事件
- * - onLoadComplete(key, resource): 资源加载完成事件
- * - onLoadError(key, msg): 资源加载失败事件
-*/
+// Res.ts
 import { IDBStorage } from "./IDBStorage";
 import { Net } from "./net";
-const { AtlasResource, Texture, Loader } = Laya;
+import { Code, PackInfo, DecompressResult } from "./code";
+import { fileManager } from "./file";
+
+interface LoadProgress {
+    process: number;
+    err: number;
+    count: number;
+}
 
 export class Res {
-    static storage?: IDBStorage;
-    static _net?: Net;
-    private static _list: any | null = null;
-    private static _img: { [key: string]: any } = {};
+    private static _storage: IDBStorage;
+    private static _net: Net;
+    private static _initialized: boolean = false;
+    
+    private static _packInfo: PackInfo | null = null;
+    private static _packBlob: Blob | null = null;
+    private static _packUrl: string = '';
+    private static _files: any = null; // 存储原始文件结构
+    
+    // 缓存
+    private static _blobCache: Map<string, Blob> = new Map();
+    private static _textureCache: Map<string, Laya.Texture> = new Map();
+    private static _atlasCache: Map<string, Laya.AtlasResource> = new Map();
+    private static _spineCache: Map<string, Laya.SpineTemplet> = new Map();
+    
+    // 进度
     private static _process: number = 0;
-    private static _atlasCache: { [key: string]: Laya.AtlasResource } = {};
-    public static _textureCache: { [key: string]: Laya.Texture } = {};
     private static _err: number = 0;
     private static _count: number = 0;
-    private static _loadingKeys: Set<string> = new Set();
-    private static _isInitialized: boolean = false;
+    
+    // Promise 支持
+    private static _urlPromise: Promise<any> | null = null;
+    private static _urlResolve: ((packInfo: any) => void) | null = null;
+    private static _urlReject: ((error: string) => void) | null = null;
 
-    // ==================== 事件回调函数 ====================
-
-    static onUrl(list: any): void {
-        console.log('res.json加载完成', list);
-    }
-
-    static onUrlError(error: string): void {
-        console.error('res.json加载失败:', error);
-    }
-
-    static onDownComplete(key: string, success: boolean): void {
-        console.log(`资源[${key}]下载${success ? '成功' : '失败'}`);
-    }
-
-    static onDownResComplete(successCount: number, errorCount: number, totalCount: number): void {
-        console.log(`所有资源下载完成: 成功${successCount}个, 失败${errorCount}个, 总计${totalCount}个`);
-    }
-
-    static onProcessUpdate(process: number, err: number, count: number): void {
-        const progress = count > 0 ? (process / count * 100).toFixed(2) : '0.00';
-        console.log(`下载进度: ${process}/${count} (${progress}%), 错误: ${err}`);
-    }
-
-    static onLoadComplete(key: string, resource: any): void {
-        console.log(`资源[${key}]加载完成`, resource);
-    }
-
-    static onLoadError(key: string, error: string): void {
-        console.error(`资源[${key}]加载失败:`, error);
-    }
-
-    // ==================== 核心方法 ====================
-
-    static init() {
-        if (Res.storage) return;
-        Res.storage = new IDBStorage();
+    /**
+     * 初始化
+     */
+    static init(): void {
+        if (Res._initialized) return;
+        
+        Res._storage = new IDBStorage();
         Res._net = new Net();
-        Res._isInitialized = true;
+        Res._initialized = true;
     }
 
-    static url(url: string, forceOrsuc: boolean | Function = false, force2: boolean = false): void {
-        if (!Res._isInitialized) {
-            this.init();
-            //初始失败，返回
-            if (!Res._isInitialized) {
-                console.error('Res初始化失败');
-                return;
-            }
+    /**
+     * 加载.res文件
+     */
+    static url(url: string, forceOrCallback?: boolean | ((packInfo: any) => void), callback?: (packInfo: any) => void): void {
+        Res.init();
+        
+        // 解析参数
+        let force = false;
+        let onComplete: ((packInfo: any) => void) | undefined;
+        
+        if (typeof forceOrCallback === 'boolean') {
+            force = forceOrCallback;
+            onComplete = callback;
+        } else if (typeof forceOrCallback === 'function') {
+            onComplete = forceOrCallback;
         }
-        if (url.endsWith('.res')) {
-            Res._net.download(url, {
-                key: url,
-                force: typeof forceOrsuc == "boolean" ? forceOrsuc : force2,
-                onComplete: async (blob: Blob) => {
+        
+        if (!url.endsWith('.res')) {
+            console.warn('仅支持.res格式文件');
+            if (onComplete) onComplete(null as any);
+            return;
+        }
+        
+        Res._packUrl = url;
+        console.log(`加载.res文件: ${url}`);
+        
+        // 创建 Promise 用于 .then 支持
+        Res._urlPromise = new Promise((resolve, reject) => {
+            Res._urlResolve = resolve;
+            Res._urlReject = reject;
+        });
+        
+        // 检查缓存
+        if (!force) {
+            Res._storage.get(`res_pack_${url}`, (cached: string) => {
+                if (cached) {
                     try {
-                        const ab = await blob.arrayBuffer();
-                        const dv = new DataView(ab);
-                        const magic = new TextDecoder('utf-8').decode(new Uint8Array(ab.slice(0, 4)));
-                        if (magic !== 'RES1') throw new Error('RES magic 不匹配');
-                        const headerLen = dv.getUint32(4, true);
-                        const headerText = new TextDecoder('utf-8').decode(new Uint8Array(ab.slice(8, 8 + headerLen)));
-                        const header = JSON.parse(headerText);
-                        (Res as any)._pack = { blob, header };
-                        Res._list = header.groups || {};
-                        Res.storage.set('resJson', JSON.stringify(Res._list), () => { });
-                        Res.onUrl(Res._list);
-                        if (typeof forceOrsuc == 'function') (forceOrsuc as Function)(Res._list);
-                    } catch (e) {
-                        console.error('解析.res失败:', e);
-                        Res.onUrlError(`解析.res失败: ${(e as Error).message}`);
-                        if (typeof forceOrsuc == 'function') (forceOrsuc as Function)(undefined);
-                    }
-                },
-                onError: (mes: any) => {
-                    Res.onUrlError(`下载.res失败: ${mes}`);
-                    if (typeof forceOrsuc == 'function') (forceOrsuc as Function)(undefined);
-                }
-            });
-            return;
-        }
-        Res.storage.get('resJson', (cachedData: any) => {
-            if (cachedData === null || forceOrsuc || force2) {
-                console.log('加载res.json（远程）');
-                Res._net.download(url, {
-                    key: 'resJson',
-                    force: typeof forceOrsuc == "boolean" ? forceOrsuc : force2,
-                    onComplete: (blob: Blob) => {
-                        if (blob) {
-                            const reader = new Laya.Browser.window.FileReader();
-                            reader.onload = () => {
-                                try {
-                                    Res._list = JSON.parse(reader.result as string);
-                                    Res.storage.set('resJson', JSON.stringify(Res._list), () => { });
-                                    Res.onUrl(Res._list);
-                                    if (typeof forceOrsuc == 'function') forceOrsuc(Res._list);
-                                } catch (e) {
-                                    console.error('解析res.json失败:', e);
-                                    Res.storage.delete('resJson', () => { });
-                                    Res.onUrlError(`解析res.json失败: ${e}`);
-                                    if (typeof forceOrsuc == 'function') forceOrsuc(undefined);
-                                }
-                            };
-                            reader.readAsText(blob);
-                        } else {
-                            Res.storage.delete('resJson', () => { });
-                            Res.onUrlError('下载的res.json为空');
-                            if (typeof forceOrsuc == 'function') forceOrsuc(undefined);
+                        const config = JSON.parse(cached);
+                        if (config.url === url && Date.now() - config.timestamp < 24 * 60 * 60 * 1000) {
+                            console.log('使用缓存的包信息');
+                            Res._packInfo = config.packInfo;
+                            Res._files = config.files;
+                            
+                            // 回调
+                            if (onComplete) onComplete(config);
+                            if (Res._urlResolve) Res._urlResolve(config);
+                            return;
                         }
-                    },
-                    onError: (mes: any) => {
-                        console.log('下载json文件失败: ' + mes);
-                        Res.storage.delete('resJson', () => { });
-                        Res.onUrlError(`下载res.json失败: ${mes}`);
-                        if (typeof forceOrsuc == 'function') forceOrsuc(undefined);
+                    } catch (error) {
+                        console.warn('解析缓存配置失败:', error);
                     }
-                });
-            } else {
-                try {
-                    Res._list = JSON.parse(cachedData);
-                    Res.onUrl(Res._list);
-                } catch (e) {
-                    console.error('解析缓存的res.json失败:', e);
-                    Res.storage.delete('resJson', () => {
-                        this.url(url, true);
-                    });
                 }
-            }
-        });
-    }
-
-    /**
-     * 下载单个资源组
-     */
-    static down(key: string, force?: boolean, callback?: (success: boolean) => void): void {
-        if (!this._list) {
-            console.error('请先通过url()加载资源包');
-            callback?.(false);
-            Res.onDownComplete(key, false);
-            return;
-        }
-
-        if (this._loadingKeys.has(key)) {
-            console.log(`资源[${key}]正在加载中，已忽略重复请求`);
-            return;
-        }
-
-        const resourceGroup = this._list[key];
-        if (!resourceGroup) {
-            console.error(`资源键${key}不存在`);
-            callback?.(false);
-            Res.onDownComplete(key, false);
-            return;
-        }
-        this._count = 0;
-        for (const sk in resourceGroup) if (Array.isArray(resourceGroup[sk])) this._count += resourceGroup[sk].length;
-
-        // 判断资源组类型并下载
-        // 从包内解压并填充 _img
-        this._loadingKeys.add(key);
-        if (!this._img[key] || force) this._img[key] = {};
-        let completed = 0, successCount = 0, errorCount = 0;
-        const check = () => {
-            if (completed === this._count) {
-                this._loadingKeys.delete(key);
-                const ok = errorCount === 0;
-                callback?.(ok);
-                Res.onDownComplete(key, ok);
-            }
-        };
-        for (const subKey in resourceGroup) {
-            if (!Array.isArray(resourceGroup[subKey])) continue;
-            const list = resourceGroup[subKey];
-            this._img[key][subKey] = [];
-            list.forEach(async (fileName: string, index: number) => {
-                try {
-                    const blob = await Res._decompressFileByName(fileName);
-                    this._img[key][subKey][index] = blob;
-                    successCount++;
-                } catch (e) {
-                    console.error('解压失败', fileName, e);
-                    errorCount++; Res._err++;
-                } finally {
-                    completed++; Res._process++;
-                    Res.onProcessUpdate(Res._process, Res._err, Res._count);
-                    check();
-                }
+                Res._downloadAndParse(url, onComplete);
             });
+        } else {
+            Res._downloadAndParse(url, onComplete);
         }
     }
 
     /**
-     * 下载所有包含url属性的资源组
+     * 支持 Promise 风格的链式调用
      */
-    static downRes(): void {
-        if (!Res._list) {
-            console.error('请先通过url()加载res.json');
+    static then(onFulfilled: (packInfo: any) => void, onRejected?: (error: string) => void): void {
+        if (Res._urlPromise) {
+            Res._urlPromise.then(onFulfilled).catch(onRejected || (() => {}));
+        } else {
+            console.warn('请先调用 Res.url() 方法');
+        }
+    }
+
+    /**
+     * 获取原始文件（同步版本）
+     * 注意：此方法同步返回，但如果文件未缓存会返回null，实际文件会异步加载
+     */
+    static get(group: string, subKey?: string, index: number = 0): Blob | null {
+        // 如果没有subKey，返回组内第一个文件
+        if (subKey === undefined) {
+            const filePath = Res._findFirstFileInGroup(group);
+            if (!filePath) return null;
+            return Res._blobCache.get(filePath) || null;
+        }
+        
+        // 根据组、子键和索引构建可能的文件名模式
+        const fileName = Res._buildFileName(group, subKey, index);
+        if (!fileName) return null;
+        
+        // 查找匹配的文件
+        const filePath = Res._findMatchingFile(fileName);
+        if (!filePath) return null;
+        
+        return Res._blobCache.get(filePath) || null;
+    }
+
+    /**
+     * 获取原始文件（异步版本）
+     */
+    static getAsync(filePath: string, onComplete?: (blob: Blob) => void, onError?: (error: string) => void): void {
+        // 检查缓存
+        if (Res._blobCache.has(filePath)) {
+            onComplete?.(Res._blobCache.get(filePath)!);
             return;
         }
+        
+        // 从包中解压
+        Code.decompressFileByName(
+            Res._packBlob!,
+            Res._packInfo!,
+            filePath,
+            (result: DecompressResult) => {
+                // 缓存
+                Res._blobCache.set(filePath, result.blob);
+                
+                // 保存到文件管理器
+                fileManager.writeFile(filePath, result.blob, result.mimeType);
+                
+                onComplete?.(result.blob);
+            },
+            (error: string) => {
+                onError?.(error);
+            }
+        );
+    }
 
-        Res._err = 0;
-        Res._process = 0;
-        Res._img = {};
-        Res._count = 0;
+    /**
+     * 加载图集资源
+     * 自动查找组内的图片和atlas文件
+     */
+    static load(
+        group: string,
+        atlasName: string,
+        onComplete: (resource: Laya.AtlasResource | Laya.SpineTemplet) => void,
+        onError?: (error: string) => void
+    ): void {
+        // 查找组内所有文件
+        const files = Res._findFilesByPattern(group, atlasName);
+        
+        // 判断是Atlas还是Spine
+        const hasSkel = files.some(f => f.endsWith('.skel') || f.endsWith('.sk'));
+        
+        if (hasSkel) {
+            Res._loadSpineByFiles(files, onComplete, onError);
+        } else {
+            Res._loadAtlasByFiles(files, onComplete, onError);
+        }
+    }
 
-        // 获取所有可下载的资源组
-        const downloadableGroups = this._getDownloadableResourceGroups();
-
-        if (downloadableGroups.length === 0) {
-            console.log('没有找到可下载的资源组');
-            Res.onDownResComplete(0, 0, 0);
+    /**
+     * 加载纹理资源
+     */
+    static loadTexture(
+        group: string,
+        textureName: string,
+        onComplete?: (texture: Laya.Texture) => void,
+        onError?: (error: string) => void
+    ): void {
+        // 查找匹配的图片文件
+        const imageFiles = Res._findFilesByPattern(group, textureName, ['.png', '.jpg', '.jpeg']);
+        
+        if (imageFiles.length === 0) {
+            onError?.(`未找到匹配的图片文件: ${group}/${textureName}`);
             return;
         }
-
-        // 计算总资源数量
-        downloadableGroups.forEach(({ key, group }) => {
-            Res._count += this._getResourceCount(group);
-        });
-
-        console.log(`开始下载 ${downloadableGroups.length} 个资源组，共 ${Res._count} 个资源`);
-
-        let completedGroups = 0;
-        const totalGroups = downloadableGroups.length;
-        let totalSuccessCount = 0;
-        let totalErrorCount = 0;
-
-        downloadableGroups.forEach(({ key, group }) => {
-            this._downResourceGroup(key, group, false, (success: boolean) => {
-                completedGroups++;
-
-                // 统计成功和失败数量
-                const groupResourceCount = this._getResourceCount(group);
-                if (success) {
-                    totalSuccessCount += groupResourceCount;
-                } else {
-                    totalErrorCount += groupResourceCount;
-                }
-
-                // 所有组完成
-                if (completedGroups === totalGroups) {
-                    Res.onDownResComplete(totalSuccessCount, totalErrorCount, Res._count);
-                }
+        
+        // 加载第一个匹配的图片
+        Res.getAsync(imageFiles[0], (blob: Blob) => {
+            const url = URL.createObjectURL(blob);
+            
+            Laya.loader.load({
+                url,
+                type: Laya.Loader.IMAGE
+            }).then((texture: Laya.Texture) => {
+                URL.revokeObjectURL(url);
+                onComplete?.(texture);
+            }).catch((error: any) => {
+                URL.revokeObjectURL(url);
+                onError?.(`加载纹理失败: ${error}`);
             });
-        });
-    }
-
-    /**
-     * 判断是否为可下载的资源组
-     */
-    private static _isDownloadableResourceGroup(group: any): boolean {
-        // 包含url属性且不是版本信息的对象
-        return group && typeof group === 'object' &&
-            group.url && typeof group.url === 'string'
-    }
-
-    /**
-     * 获取所有可下载的资源组
-     */
-    private static _getDownloadableResourceGroups(): Array<{ key: string, group: any }> {
-        const groups: Array<{ key: string, group: any }> = [];
-
-        for (const key in this._list) {
-            const group = this._list[key];
-            if (this._isDownloadableResourceGroup(group)) {
-                groups.push({ key, group });
-            }
-        }
-
-        return groups;
-    }
-
-    /**
-     * 获取资源组中的资源数量
-     */
-    private static _getResourceCount(group: any): number {
-        let count = 0;
-        for (const subKey in group) {
-            if (subKey !== 'url' && subKey !== 'v' && Array.isArray(group[subKey])) {
-                count += group[subKey].length;
-            }
-        }
-        return count;
+        }, onError);
     }
 
     /**
      * 下载资源组
      */
-    private static _downResourceGroup(
-        groupKey: string,
-        resourceGroup: any,
-        force: boolean = false,
-        callback?: (success: boolean) => void
+    static down(
+        group: string,
+        force?: boolean,
+        onComplete?: (success: boolean) => void
     ): void {
-        const baseUrl = resourceGroup.url;
-        if (!baseUrl) {
-            console.error(`资源组[${groupKey}]缺少baseUrl`);
-            callback?.(false);
-            return;
-        }
-
-        this._loadingKeys.add(groupKey);
-
-        // 初始化存储对象
-        if (!this._img[groupKey] || force) {
-            this._img[groupKey] = {};
-        }
-
-        let completedCount = 0;
-        let successCount = 0;
-        let errorCount = 0;
-        const totalResources = this._getResourceCount(resourceGroup);
-
-        if (totalResources === 0) {
-            console.log(`资源组[${groupKey}]没有可下载资源`);
-            this._loadingKeys.delete(groupKey);
-            callback?.(true);
-            return;
-        }
-
-        const checkCompletion = () => {
-            if (completedCount === totalResources) {
-                this._loadingKeys.delete(groupKey);
-                const overallSuccess = errorCount === 0;
-                callback?.(overallSuccess);
-                Res.onDownComplete(groupKey, overallSuccess);
-                console.log(`资源组[${groupKey}]下载完成: 成功${successCount}个, 失败${errorCount}个, 总计${totalResources}个`);
-            }
-        };
-
-        // 遍历资源组中的所有子资源
-        for (const subKey in resourceGroup) {
-            if (subKey !== 'url' && subKey !== 'v' && Array.isArray(resourceGroup[subKey])) {
-                const fileList = resourceGroup[subKey];
-
-                if (!this._img[groupKey][subKey]) {
-                    this._img[groupKey][subKey] = [];
+        // 查找组内所有文件
+        const filePaths = Res._getAllFilesInGroup(group);
+        
+        Res._process = 0;
+        Res._err = 0;
+        Res._count = filePaths.length;
+        
+        console.log(`下载资源组 ${group}, 文件数: ${filePaths.length}`);
+        
+        Code.decompressFiles(
+            Res._packBlob!,
+            Res._packInfo!,
+            filePaths,
+            (loaded: number, total: number) => {
+                Res._process = loaded;
+            },
+            (results: { [path: string]: DecompressResult }) => {
+                // 缓存所有文件
+                for (const filePath in results) {
+                    const result = results[filePath];
+                    Res._blobCache.set(filePath, result.blob);
+                    fileManager.writeFile(filePath, result.blob, result.mimeType);
                 }
-
-                // 下载子资源组中的每个文件
-                fileList.forEach((filePath: string, index: number) => {
-                    const fullUrl = `${baseUrl}${filePath}`;
-                    const storageKey = `${groupKey}_${subKey}_${index}`;
-
-                    this.storage.getFile(storageKey, (cachedBlob: Blob | null) => {
-                        if (cachedBlob && !force) {
-                            this._img[groupKey][subKey][index] = cachedBlob;
-                            successCount++;
-                            completedCount++;
-                            Res._process++;
-                            Res.onProcessUpdate(Res._process, Res._err, Res._count);
-                            checkCompletion();
-                            return;
-                        }
-
-                        // 从远程下载
-                        this._net.download(fullUrl, {
-                            key: storageKey,
-                            force,
-                            onComplete: (blob: Blob) => {
-                                if (blob) {
-                                    this.storage.setFile(storageKey, blob, (success: boolean) => {
-                                        if (success) {
-                                            this._img[groupKey][subKey][index] = blob;
-                                            successCount++;
-                                        } else {
-                                            errorCount++;
-                                            Res._err++;
-                                        }
-                                        completedCount++;
-                                        Res._process++;
-                                        Res.onProcessUpdate(Res._process, Res._err, Res._count);
-                                        checkCompletion();
-                                    });
-                                } else {
-                                    errorCount++;
-                                    Res._err++;
-                                    completedCount++;
-                                    Res._process++;
-                                    Res.onProcessUpdate(Res._process, Res._err, Res._count);
-                                    checkCompletion();
-                                }
-                            },
-                            onError: (message: string) => {
-                                console.error(`资源[${storageKey}]下载失败: ${message}`);
-                                errorCount++;
-                                Res._err++;
-                                completedCount++;
-                                Res._process++;
-                                Res.onProcessUpdate(Res._process, Res._err, Res._count);
-                                checkCompletion();
-                            }
-                        });
-                    });
-                });
+                
+                onComplete?.(true);
+            },
+            (errors: { [path: string]: string }) => {
+                Res._err = Object.keys(errors).length;
+                console.error(`下载资源组 ${group} 失败:`, errors);
+                onComplete?.(false);
             }
-        }
-    }
-
-    // ==================== 资源获取和方法 ====================
-
-    static get(name: string, subKey?: string, index: number = 0): any {
-        // 优先返回缓存资源
-        if (Res._atlasCache[`${name}_${subKey}_${index}`]) return Res._atlasCache[`${name}_${subKey}_${index}`];
-        if (Res._textureCache[`${name}_${subKey}_${index}`]) return Res._textureCache[`${name}_${subKey}_${index}`];
-
-        if (!Res._img[name]) return null;
-
-        if (subKey !== undefined) {
-            const subGroup = Res._img[name][subKey];
-            if (!subGroup) return null;
-            return index !== undefined ? subGroup[index] : subGroup;
-        }
-
-        return Res._img[name];
-    }
-
-    static getList(): any {
-        return Res._list;
-    }
-
-    static setNet(netInstance: Net): void {
-        Res._net = netInstance;
-    }
-
-    static getProcess(): { process: number, err: number, count: number } {
-        return { process: Res._process, err: Res._err, count: Res._count };
+        );
     }
 
     /**
-     * 加载Atlas资源
+     * 下载所有资源
      */
-    static load(
-        key: string,
-        subKey: string,
-        success: (atlas: Laya.AtlasResource | Laya.SpineTemplet) => void,
-        error?: (errMsg: string) => void
-    ): void {
-        if (Res._atlasCache[`${key}_${subKey}`]) {
-            console.log(`资源[${key}_${subKey}]使用缓存的Atlas`);
-            success(Res._atlasCache[`${key}_${subKey}`]);
-            Res.onLoadComplete(`${key}_${subKey}`, Res._atlasCache[`${key}_${subKey}`]);
+    static downRes(onComplete?: (successCount: number, errorCount: number, totalCount: number) => void): void {
+        if (!Res._packInfo) {
+            console.error('请先通过url()加载资源配置');
+            onComplete?.(0, 0, 0);
             return;
         }
-
-        const imageBlob = this.get(key, subKey, 0) as Blob;
-        const atlasBlob = this.get(key, subKey, 1) as Blob;
-        const skBlob = this.get(key, subKey, 2) as Blob;
-
-        if (!imageBlob || !atlasBlob) {
-            const errMsg = `资源[${key}_${subKey}]缺失：图像Blob=${!!imageBlob}，Atlas Blob=${!!atlasBlob}`;
-            console.warn(errMsg);
-            Res.onLoadError(`${key}_${subKey}`, errMsg);
-            error?.(errMsg);
-            return;
-        }
-
-        const imageUrl = URL.createObjectURL(imageBlob);
-        let texture: Laya.Texture | null = null;
-
-        Laya.loader.load({
-            url: imageUrl,
-            type: Loader.IMAGE,
-            name: `${key}_${subKey}_image`
-        }).then((loadedTexture: Laya.Texture) => {
-            texture = loadedTexture;
-            if (skBlob) {
-                this._readSkBlob(skBlob, atlasBlob, imageUrl, success, error);
-            } else {
-                this._readAtlasBlob(key, subKey, atlasBlob, imageUrl, texture, success, error);
+        
+        const allFilePaths = Res._getAllFiles();
+        Res._process = 0;
+        Res._err = 0;
+        Res._count = allFilePaths.length;
+        
+        console.log(`下载所有资源, 文件数: ${allFilePaths.length}`);
+        
+        Code.decompressFiles(
+            Res._packBlob!,
+            Res._packInfo!,
+            allFilePaths,
+            (loaded: number, total: number) => {
+                Res._process = loaded;
+            },
+            (results: { [path: string]: DecompressResult }) => {
+                // 缓存所有文件
+                for (const filePath in results) {
+                    const result = results[filePath];
+                    Res._blobCache.set(filePath, result.blob);
+                    fileManager.writeFile(filePath, result.blob, result.mimeType);
+                }
+                
+                onComplete?.(allFilePaths.length, 0, allFilePaths.length);
+            },
+            (errors: { [path: string]: string }) => {
+                Res._err = Object.keys(errors).length;
+                const successCount = allFilePaths.length - Object.keys(errors).length;
+                onComplete?.(successCount, Object.keys(errors).length, allFilePaths.length);
             }
-        }).catch((err) => {
-            const errMsg = `加载图像失败：${err.message}`;
-            if (imageUrl) URL.revokeObjectURL(imageUrl);
-            Res.onLoadError(`${key}_${subKey}`, errMsg);
-            error?.(errMsg);
+        );
+    }
+
+    /**
+     * 获取包信息
+     */
+    static getList(): any {
+        return {
+            packInfo: Res._packInfo,
+            files: Res._files
+        };
+    }
+
+    /**
+     * 获取加载进度
+     */
+    static getProcess(): LoadProgress {
+        return {
+            process: Res._process,
+            err: Res._err,
+            count: Res._count
+        };
+    }
+
+    /**
+     * 清除缓存
+     */
+    static clearCache(onComplete?: () => void): void {
+        Res._blobCache.clear();
+        Res._textureCache.clear();
+        Res._atlasCache.clear();
+        Res._spineCache.clear();
+        
+        Res._storage.clear(() => {
+            fileManager.clearCache(() => {
+                onComplete?.();
+            });
         });
     }
 
     /**
-   * 加载Atlas资源
-   */
-    static lo(imageBlob: Blob,
+     * 设置网络实例
+     */
+    static setNet(net: Net): void {
+        Res._net = net;
+    }
+
+    /**
+     * 兼容原有的 lo 方法（直接加载资源）
+     */
+    static lo(
+        imageBlob: Blob,
         atlasBlob: Blob,
         skBlob: Blob,
-        success: (atlas: Laya.AtlasResource | Laya.SpineTemplet) => void,
-        error?: (errMsg: string) => void
+        onComplete: (resource: Laya.AtlasResource | Laya.SpineTemplet) => void,
+        onError?: (error: string) => void
     ): void {
-
         const imageUrl = URL.createObjectURL(imageBlob);
-        let texture: Laya.Texture | null = null;
-        console.log("加载图像");
-        Laya.loader.load({
-            url: imageUrl,
-            type: Loader.IMAGE,
-            name: `image`
-        }).then((loadedTexture: Laya.Texture) => {
-            console.log("加载图像成功");
-            texture = loadedTexture;
-            if (skBlob) {
-                console.log("加载Spine资源");
-                this._readSkBlob(skBlob, atlasBlob, imageUrl, success, error);
-            }
-        }).catch((err) => {
-            const errMsg = `加载图像失败：${err.message}`;
-            error?.(errMsg);
-        });
+        
+        if (skBlob && skBlob.size > 0) {
+            // 加载 Spine 资源
+            const skUrl = URL.createObjectURL(skBlob);
+            
+            // 读取skel文件
+            const skReader = new FileReader();
+            skReader.readAsText(skBlob, "utf-8");
+            
+            skReader.onload = () => {
+                const rawSkText = skReader.result as string;
+                
+                // 读取atlas文件内容
+                const asReader = new FileReader();
+                asReader.readAsText(atlasBlob, "utf-8");
+                
+                asReader.onload = () => {
+                    const rawAsText = asReader.result as string;
+                    
+                    if (!rawAsText) {
+                        URL.revokeObjectURL(imageUrl);
+                        URL.revokeObjectURL(skUrl);
+                        onError?.("Spine atlas内容为空");
+                        return;
+                    }
+
+                    if (!rawSkText) {
+                        URL.revokeObjectURL(imageUrl);
+                        URL.revokeObjectURL(skUrl);
+                        onError?.("Spine骨架内容为空");
+                        return;
+                    }
+                    
+                    const atlasPages: Array<Laya.ILoadURL> = [];
+                    let templet = new Laya.SpineTemplet();
+                    
+                    // @ts-ignore
+                    let atlas = new spine.TextureAtlas(rawAsText, (path: string) => {
+                        atlasPages.push({
+                            url: imageUrl, 
+                            type: Laya.Loader.TEXTURE2D,
+                            propertyParams: {
+                                premultiplyAlpha: false
+                            },
+                            constructParams: [0, 0, Laya.TextureFormat.R8G8B8A8, false, false, true, false]
+                        });
+                        return new Laya.SpineTexture(null);
+                    });
+
+                    Laya.loader.load(atlasPages, null).then((res: Array<Laya.Texture2D>) => {
+                        let textures: Record<string, Laya.Texture2D> = {};
+                        let premultipliedAlpha = true;
+
+                        for (var i = 0; i < res.length; i++) {
+                            let tex = res[i];
+                            if (tex) tex._addReference();
+                            let pages = atlas.pages;
+                            let page = pages[i];
+                            premultipliedAlpha = page.pma || (tex && tex._premultiplyAlpha && premultipliedAlpha);
+
+                            // @ts-ignore
+                            page.texture.realTexture = tex;
+                            page.texture.setFilters(page.minFilter, page.magFilter);
+                            page.texture.setWraps(page.uWrap, page.vWrap);
+                            page.width = page.texture.getImage().width;
+                            page.height = page.texture.getImage().height;
+                            textures[page.name] = tex;
+                        }
+
+                        let regions = atlas.regions;
+                        for (const region of regions) {
+                            let page = region.page;
+                            region.u = region.x / page.width;
+                            region.v = region.y / page.height;
+                            // @ts-ignore
+                            if (region.rotate) {
+                                region.u2 = (region.x + region.height) / page.width;
+                                region.v2 = (region.y + region.width) / page.height;
+                            } else {
+                                region.u2 = (region.x + region.width) / page.width;
+                                region.v2 = (region.y + region.height) / page.height;
+                            }
+                        }
+
+                        // @ts-ignore
+                        templet._parse(rawSkText, atlas, textures, premultipliedAlpha);
+                        
+                        URL.revokeObjectURL(imageUrl);
+                        URL.revokeObjectURL(skUrl);
+                        onComplete(templet);
+                    }).catch((error: any) => {
+                        URL.revokeObjectURL(imageUrl);
+                        URL.revokeObjectURL(skUrl);
+                        onError?.(`加载纹理失败: ${error}`);
+                    });
+                };
+                
+                asReader.onerror = () => {
+                    URL.revokeObjectURL(imageUrl);
+                    URL.revokeObjectURL(skUrl);
+                    onError?.('读取atlas文件失败');
+                };
+            };
+            
+            skReader.onerror = () => {
+                URL.revokeObjectURL(imageUrl);
+                URL.revokeObjectURL(skUrl);
+                onError?.('读取骨骼文件失败');
+            };
+        } else {
+            // 加载 Atlas 资源
+            Laya.loader.load({
+                url: imageUrl,
+                type: Laya.Loader.IMAGE
+            }).then((texture: Laya.Texture) => {
+                // 读取atlas文件
+                const reader = new FileReader();
+                reader.onload = () => {
+                    try {
+                        const atlasText = reader.result as string;
+                        const atlasJson = JSON.parse(atlasText);
+                        
+                        // 创建子纹理
+                        const subTextures = Res._createSubTextures(atlasJson, texture);
+                        
+                        // 创建AtlasResource
+                        const atlasResource = new Laya.AtlasResource(
+                            'direct_atlas',
+                            [texture],
+                            subTextures
+                        );
+                        
+                        if (atlasJson.animation) {
+                            atlasResource.animation = atlasJson.animation;
+                        }
+                        
+                        URL.revokeObjectURL(imageUrl);
+                        onComplete(atlasResource);
+                    } catch (error: any) {
+                        URL.revokeObjectURL(imageUrl);
+                        onError?.(`创建图集失败: ${error.message}`);
+                    }
+                };
+                
+                reader.onerror = () => {
+                    URL.revokeObjectURL(imageUrl);
+                    onError?.('读取atlas文件失败');
+                };
+                
+                reader.readAsText(atlasBlob);
+            }).catch((error: any) => {
+                URL.revokeObjectURL(imageUrl);
+                onError?.(`加载图像失败: ${error}`);
+            });
+        }
     }
 
+    // ==================== 私有方法 ====================
 
+    private static _downloadAndParse(url: string, onComplete?: (packInfo: any) => void): void {
+        Res._net.download(url, {
+            key: url,
+            force: true,
+            onComplete: (blob: Blob) => {
+                if (!blob) {
+                    const error = '下载的包为空';
+                    console.error(error);
+                    if (onComplete) onComplete(null as any);
+                    if (Res._urlReject) Res._urlReject(error);
+                    return;
+                }
+                
+                Res._packBlob = blob;
+                
+                // 解析包头部
+                Code.parsePack(
+                    blob,
+                    (packInfo: PackInfo) => {
+                        Res._packInfo = packInfo;
+                        Res._files = packInfo.files;
+                        
+                        console.log('包信息:', packInfo);
+                        console.log('文件结构:', packInfo.files);
+                        
+                        // 保存配置
+                        const config = {
+                            url: url,
+                            packInfo: packInfo,
+                            files: packInfo.files,
+                            timestamp: Date.now()
+                        };
+                        Res._storage.set(`res_pack_${url}`, JSON.stringify(config), () => {
+                            console.log('包信息已保存');
+                        });
+                        
+                        // 回调
+                        if (onComplete) onComplete(config);
+                        if (Res._urlResolve) Res._urlResolve(config);
+                    },
+                    (error: string) => {
+                        console.error('解析包失败:', error);
+                        if (onComplete) onComplete(null as any);
+                        if (Res._urlReject) Res._urlReject(error);
+                    }
+                );
+            },
+            onError: (msg: string) => {
+                console.error('下载失败:', msg);
+                if (onComplete) onComplete(null as any);
+                if (Res._urlReject) Res._urlReject(`下载失败: ${msg}`);
+            }
+        });
+    }
 
     /**
-     * 加载Texture资源
-     * 当不传入subkey时，会自动列举list下主key的所有子key并加载对应的texture
+     * 在组内查找第一个文件
      */
-    static loadTexture(
-        key: string,
-        subKey: string,
-        index: number = 0,
-        success?: (texture: Laya.Texture, subKey?: string, index?: number) => void,
-        error?: (errMsg: string, subKey?: string, index?: number) => void
+    private static _findFirstFileInGroup(group: string): string | null {
+        if (!Res._files || !Res._files[group]) return null;
+        
+        // 递归查找第一个文件
+        const findFirstFile = (obj: any, path: string = ''): string | null => {
+            for (const key in obj) {
+                const value = obj[key];
+                
+                if (Array.isArray(value) && value.length === 2) {
+                    // 找到文件
+                    return path ? `${path}/${key}` : key;
+                } else if (typeof value === 'object') {
+                    // 继续递归
+                    const result = findFirstFile(value, path ? `${path}/${key}` : key);
+                    if (result) return result;
+                }
+            }
+            return null;
+        };
+        
+        return findFirstFile(Res._files[group], group);
+    }
+
+    /**
+     * 构建可能的文件名
+     */
+    private static _buildFileName(group: string, subKey: string, index: number): string {
+        // 简单的实现：假设子键是基础文件名，例如 "archer.png"
+        return `${group}/${subKey}`;
+    }
+
+    /**
+     * 查找匹配的文件
+     */
+    private static _findMatchingFile(fileName: string): string | null {
+        if (!Res._files) return null;
+        
+        // 将文件名拆分为路径部分
+        const parts = fileName.split('/');
+        
+        // 递归查找
+        const findFile = (obj: any, pathParts: string[]): string | null => {
+            if (pathParts.length === 0) return null;
+            
+            const currentKey = pathParts[0];
+            
+            if (pathParts.length === 1) {
+                // 查找直接匹配的文件
+                if (obj[currentKey] && Array.isArray(obj[currentKey]) && obj[currentKey].length === 2) {
+                    // 构建完整路径
+                    let fullPath = currentKey;
+                    let parent = obj;
+                    while (parent !== Res._files) {
+                        for (const key in parent) {
+                            if (parent[key] === obj) {
+                                fullPath = `${key}/${fullPath}`;
+                                parent = Res._files;
+                                // 继续向上查找
+                                let temp = Res._files;
+                                for (const k in temp) {
+                                    if (temp[k] === parent) {
+                                        fullPath = `${k}/${fullPath}`;
+                                        break;
+                                    }
+                                }
+                                break;
+                            }
+                        }
+                    }
+                    return fullPath;
+                }
+                return null;
+            }
+            
+            // 继续向下查找
+            if (obj[currentKey] && typeof obj[currentKey] === 'object') {
+                return findFile(obj[currentKey], pathParts.slice(1));
+            }
+            
+            return null;
+        };
+        
+        return findFile(Res._files, parts);
+    }
+
+    /**
+     * 按模式查找文件
+     */
+    private static _findFilesByPattern(group: string, pattern: string, extensions?: string[]): string[] {
+        const result: string[] = [];
+        
+        if (!Res._files || !Res._files[group]) return result;
+        
+        // 递归查找所有文件
+        const findAllFiles = (obj: any, basePath: string = ''): void => {
+            for (const key in obj) {
+                const value = obj[key];
+                
+                if (Array.isArray(value) && value.length === 2) {
+                    // 这是一个文件
+                    const fullPath = basePath ? `${basePath}/${key}` : key;
+                    
+                    // 检查是否匹配模式和扩展名
+                    let match = true;
+                    
+                    // 检查模式匹配（简单包含匹配）
+                    if (pattern && !key.includes(pattern)) {
+                        match = false;
+                    }
+                    
+                    // 检查扩展名
+                    if (extensions && extensions.length > 0) {
+                        const ext = this._getFileExtension(key);
+                        if (!extensions.find((e) => e === ext)) {
+                            match = false;
+                        }
+                    }
+                    
+                    if (match) {
+                        result.push(`${group}/${fullPath}`);
+                    }
+                } else if (typeof value === 'object') {
+                    // 继续递归
+                    findAllFiles(value, basePath ? `${basePath}/${key}` : key);
+                }
+            }
+        };
+        
+        findAllFiles(Res._files[group]);
+        return result;
+    }
+
+    /**
+     * 获取组内所有文件
+     */
+    private static _getAllFilesInGroup(group: string): string[] {
+        const result: string[] = [];
+        
+        if (!Res._files || !Res._files[group]) return result;
+        
+        // 递归收集所有文件
+        const collectAllFiles = (obj: any, basePath: string = ''): void => {
+            for (const key in obj) {
+                const value = obj[key];
+                
+                if (Array.isArray(value) && value.length === 2) {
+                    // 这是一个文件
+                    const fullPath = basePath ? `${basePath}/${key}` : key;
+                    result.push(`${group}/${fullPath}`);
+                } else if (typeof value === 'object') {
+                    // 继续递归
+                    collectAllFiles(value, basePath ? `${basePath}/${key}` : key);
+                }
+            }
+        };
+        
+        collectAllFiles(Res._files[group]);
+        return result;
+    }
+
+    /**
+     * 获取所有文件
+     */
+    private static _getAllFiles(): string[] {
+        const result: string[] = [];
+        
+        if (!Res._files) return result;
+        
+        // 递归收集所有文件
+        const collectAllFiles = (obj: any, basePath: string = ''): void => {
+            for (const key in obj) {
+                const value = obj[key];
+                
+                if (Array.isArray(value) && value.length === 2) {
+                    // 这是一个文件
+                    const fullPath = basePath ? `${basePath}/${key}` : key;
+                    result.push(fullPath);
+                } else if (typeof value === 'object') {
+                    // 继续递归
+                    collectAllFiles(value, basePath ? `${basePath}/${key}` : key);
+                }
+            }
+        };
+        
+        collectAllFiles(Res._files);
+        return result;
+    }
+
+    private static _getFileExtension(fileName: string): string {
+        const parts = fileName.split('.');
+        if (parts.length <= 1) return '';
+        return '.' + parts[parts.length - 1].toLowerCase();
+    }
+
+    /**
+     * 根据文件列表加载Atlas
+     */
+    private static _loadAtlasByFiles(
+        files: string[],
+        onComplete: (atlas: Laya.AtlasResource) => void,
+        onError?: (error: string) => void
     ): void {
-        // 如果没有传入subKey，则列举list下主key的所有子key并加载
-        if (subKey === undefined) {
-            // 确保资源列表已加载
-            if (!Res._list || !Res._list[key]) {
-                const errMsg = `资源键${key}不存在于res.json中`;
-                console.warn(errMsg);
-                Res.onLoadError(key, errMsg);
-                error?.(errMsg);
-                return;
-            }
-
-            const resourceGroup = Res._list[key];
-            const subKeys: string[] = [];
-
-            // 收集所有非url和非v属性的子key
-            for (const sk in resourceGroup) {
-                if (sk !== 'url' && sk !== 'v' && Array.isArray(resourceGroup[sk])) {
-                    subKeys.push(sk);
-                }
-            }
-
-            if (subKeys.length === 0) {
-                const errMsg = `资源键${key}下没有找到可加载的子资源`;
-                console.warn(errMsg);
-                Res.onLoadError(key, errMsg);
-                error?.(errMsg);
-                return;
-            }
-
-            console.log(`自动加载资源[${key}]下的${subKeys.length}个子资源：${subKeys.join(', ')}`);
-
-            // 为每个子key加载texture
-            subKeys.forEach((sk) => {
-                // 获取该子key下的资源数量
-                const resourceCount = resourceGroup[sk].length;
-
-                // 加载该子key下的每个资源（默认加载索引为0的资源，如果需要加载所有索引可扩展）
-                for (let i = 0; i < resourceCount; i++) {
-                    Res.loadTexture(key, sk, i, success, error);
-                }
-            });
-
+        // 筛选出图片和atlas文件
+        const imageFiles = files.filter(f => f.endsWith('.png') || f.endsWith('.jpg') || f.endsWith('.jpeg'));
+        const atlasFiles = files.filter(f => f.endsWith('.atlas') || f.endsWith('.json'));
+        
+        if (imageFiles.length === 0 || atlasFiles.length === 0) {
+            onError?.('缺少图集所需的图片或atlas文件');
             return;
         }
-
-        // 原有逻辑：加载指定的subKey和index的texture
-        const cacheKey = `${key}_${subKey}_${index}`;
-
-        if (Res._textureCache[cacheKey]) {
-            console.log(`资源[${cacheKey}]使用缓存的Texture`);
-            success?.(Res._textureCache[cacheKey], subKey, index);
-            Res.onLoadComplete(cacheKey, Res._textureCache[cacheKey]);
-            return;
-        }
-
-        const textureBlob = this.get(key, subKey, index) as Blob;
-        if (!textureBlob) {
-            const errMsg = `资源[${cacheKey}]缺失：Texture Blob不存在`;
-            console.warn(errMsg);
-            Res.onLoadError(cacheKey, errMsg);
-            error?.(errMsg, subKey, index);
-            return;
-        }
-
-        const textureUrl = URL.createObjectURL(textureBlob);
-
-        Laya.loader.load({
-            url: textureUrl,
-            type: Loader.IMAGE,
-            name: cacheKey
-        }).then((loadedTexture: Laya.Texture) => {
-            Res._textureCache[cacheKey] = loadedTexture;
-            Laya.loader.cacheRes(cacheKey, loadedTexture);
-            success?.(loadedTexture, subKey, index);
-            Res.onLoadComplete(cacheKey, loadedTexture);
-            URL.revokeObjectURL(textureUrl);
-        }).catch((err) => {
-            const errMsg = `加载Texture失败：${err.message}`;
-            URL.revokeObjectURL(textureUrl);
-            Res.onLoadError(cacheKey, errMsg);
-            error?.(errMsg, subKey, index);
+        
+        // 加载第一个图片和第一个atlas文件
+        let imageBlob: Blob | null = null;
+        let atlasBlob: Blob | null = null;
+        let completed = 0;
+        
+        const checkComplete = () => {
+            if (completed === 2 && imageBlob && atlasBlob) {
+                Res._createAtlas(imageBlob, atlasBlob, 'atlas', onComplete, onError);
+            }
+        };
+        
+        // 加载图片
+        Res.getAsync(imageFiles[0], (blob: Blob) => {
+            imageBlob = blob;
+            completed++;
+            checkComplete();
+        }, (error: string) => {
+            onError?.(`加载图片失败: ${error}`);
+        });
+        
+        // 加载atlas文件
+        Res.getAsync(atlasFiles[0], (blob: Blob) => {
+            atlasBlob = blob;
+            completed++;
+            checkComplete();
+        }, (error: string) => {
+            onError?.(`加载atlas文件失败: ${error}`);
         });
     }
 
-    // ==================== 私有辅助方法 ====================
-
-    private static _readAtlasBlob(
-        key: string,
-        subKey: string,
-        atlasBlob: Blob,
-        imageUrl: string,
-        texture: Laya.Texture,
-        success: (atlas: Laya.AtlasResource) => void,
-        error?: (errMsg: string) => void
+    /**
+     * 根据文件列表加载Spine
+     */
+    private static _loadSpineByFiles(
+        files: string[],
+        onComplete: (spine: Laya.SpineTemplet) => void,
+        onError?: (error: string) => void
     ): void {
-        const cacheKey = `${key}_${subKey}`;
-        const atlasReader = new FileReader();
-        atlasReader.readAsText(atlasBlob, "utf-8");
-
-        atlasReader.onload = () => {
-            try {
-                const rawAtlasText = atlasReader.result as string;
-                if (!rawAtlasText) throw new Error("Atlas内容为空");
-
-                const atlasJson = JSON.parse(rawAtlasText);
-                this._fixAtlasFormat(atlasJson, imageUrl);
-
-                const subTextures = this._createSubTextures(atlasJson, texture, cacheKey);
-                const atlasResource = new AtlasResource(
-                    `${cacheKey}_atlas`,
-                    [texture],
-                    subTextures
-                );
-                atlasResource.animation = atlasJson.animation;
-
-                Res._atlasCache[cacheKey] = atlasResource;
-                Laya.loader.cacheRes(`${cacheKey}_atlas`, atlasResource, Loader.ATLAS);
-                success(atlasResource);
-                Res.onLoadComplete(cacheKey, atlasResource);
-
-                URL.revokeObjectURL(imageUrl);
-            } catch (parseErr) {
-                const errMsg = `解析Atlas失败：${(parseErr as Error).message}`;
-                if (imageUrl) URL.revokeObjectURL(imageUrl);
-                Res.onLoadError(cacheKey, errMsg);
-                error?.(errMsg);
+        // 筛选出图片、atlas和骨骼文件
+        const imageFiles = files.filter(f => f.endsWith('.png') || f.endsWith('.jpg') || f.endsWith('.jpeg'));
+        const atlasFiles = files.filter(f => f.endsWith('.atlas') || f.endsWith('.json'));
+        const skelFiles = files.filter(f => f.endsWith('.skel') || f.endsWith('.sk'));
+        
+        if (imageFiles.length === 0 || atlasFiles.length === 0 || skelFiles.length === 0) {
+            onError?.('缺少Spine所需的图片、atlas或骨骼文件');
+            return;
+        }
+        
+        // 加载所有必需文件
+        let imageBlob: Blob | null = null;
+        let atlasBlob: Blob | null = null;
+        let skelBlob: Blob | null = null;
+        let completed = 0;
+        
+        const checkComplete = () => {
+            if (completed === 3 && imageBlob && atlasBlob && skelBlob) {
+                Res._createSpine(imageBlob, atlasBlob, skelBlob, 'spine', onComplete, onError);
             }
         };
-
-        atlasReader.onerror = () => {
-            const errMsg = `读取Atlas Blob失败：${atlasReader.error?.message}`;
-            if (imageUrl) URL.revokeObjectURL(imageUrl);
-            Res.onLoadError(cacheKey, errMsg);
-            error?.(errMsg);
-        };
+        
+        // 加载图片
+        Res.getAsync(imageFiles[0], (blob: Blob) => {
+            imageBlob = blob;
+            completed++;
+            checkComplete();
+        }, (error: string) => {
+            onError?.(`加载图片失败: ${error}`);
+        });
+        
+        // 加载atlas文件
+        Res.getAsync(atlasFiles[0], (blob: Blob) => {
+            atlasBlob = blob;
+            completed++;
+            checkComplete();
+        }, (error: string) => {
+            onError?.(`加载atlas文件失败: ${error}`);
+        });
+        
+        // 加载骨骼文件
+        Res.getAsync(skelFiles[0], (blob: Blob) => {
+            skelBlob = blob;
+            completed++;
+            checkComplete();
+        }, (error: string) => {
+            onError?.(`加载骨骼文件失败: ${error}`);
+        });
     }
 
-    private static _fixAtlasFormat(atlasJson: any, imageUrl: string): void {
-        if (!atlasJson.meta) atlasJson.meta = {};
-        atlasJson.meta.image = imageUrl;
-        if (!atlasJson.meta.format) atlasJson.meta.format = "png";
-        if (atlasJson.meta.scale === undefined) atlasJson.meta.scale = 1;
+    private static _createAtlas(
+        imageBlob: Blob,
+        atlasBlob: Blob,
+        cacheKey: string,
+        onComplete: (atlas: Laya.AtlasResource) => void,
+        onError?: Function
+    ): void {
+        const imageUrl = URL.createObjectURL(imageBlob);
+        
+        Laya.loader.load({
+            url: imageUrl,
+            type: Laya.Loader.IMAGE
+        }).then((texture: Laya.Texture) => {
+            // 读取atlas文件
+            const reader = new FileReader();
+            reader.onload = () => {
+                try {
+                    const atlasText = reader.result as string;
+                    const atlasJson = JSON.parse(atlasText);
+                    
+                    // 创建子纹理
+                    const subTextures = Res._createSubTextures(atlasJson, texture);
+                    
+                    // 创建AtlasResource
+                    const atlasResource = new Laya.AtlasResource(
+                        `${cacheKey}_atlas`,
+                        [texture],
+                        subTextures
+                    );
+                    
+                    if (atlasJson.animation) {
+                        atlasResource.animation = atlasJson.animation;
+                    }
+                    
+                    Res._atlasCache.set(cacheKey, atlasResource);
+                    Laya.loader.cacheRes(`${cacheKey}_atlas`, atlasResource, Laya.Loader.ATLAS);
+                    
+                    URL.revokeObjectURL(imageUrl);
+                    onComplete(atlasResource);
+                } catch (error: any) {
+                    URL.revokeObjectURL(imageUrl);
+                    onError?.(`创建图集失败: ${error.message}`);
+                }
+            };
+            
+            reader.onerror = () => {
+                URL.revokeObjectURL(imageUrl);
+                onError?.('读取atlas文件失败');
+            };
+            
+            reader.readAsText(atlasBlob);
+        }).catch((error: any) => {
+            URL.revokeObjectURL(imageUrl);
+            onError?.(`加载图像失败: ${error}`);
+        });
     }
 
-    private static _createSubTextures(atlasJson: any, texture: Laya.Texture, key: string): Laya.Texture[] {
+    private static _createSubTextures(atlasJson: any, texture: Laya.Texture): Laya.Texture[] {
         const subTextures: Laya.Texture[] = [];
-        const scaleRate = parseFloat(atlasJson.meta.scale);
+        const scaleRate = parseFloat(atlasJson.meta?.scale || "1");
         texture.scaleRate = scaleRate;
 
         for (const frameName in atlasJson.frames) {
             const frameData = atlasJson.frames[frameName];
             const frame = frameData.frame;
 
-            const subTexture = Texture.create(
+            const subTexture = Laya.Texture.create(
                 texture,
                 frame.x,
                 frame.y,
@@ -721,45 +962,65 @@ export class Res {
 
             subTexture._sizeGrid = frameData.sizeGrid;
             subTexture._stateNum = frameData.stateNum;
-            const subTextureKey = `${key}_frame_${frameName}`;
-            subTexture.url = subTextureKey;
-            Laya.loader.cacheRes(subTextureKey, subTexture);
+            subTexture.url = `${texture.url}_${frameName}`;
+            
+            Laya.loader.cacheRes(subTexture.url, subTexture);
             subTextures.push(subTexture);
         }
+
         return subTextures;
     }
 
-    private static _readSkBlob(
-        skBlob: Blob,
-        asBlob: Blob,
-        imageUrl: string,
-        success: (tpl: Laya.SpineTemplet) => void,
-        error?: (errMsg: string) => void
+    /**
+     * 创建Spine资源（保持原有的逻辑）
+     */
+    private static _createSpine(
+        imageBlob: Blob,
+        atlasBlob: Blob,
+        skelBlob: Blob,
+        cacheKey: string,
+        onComplete: (spine: Laya.SpineTemplet) => void,
+        onError?: Function
     ): void {
-        console.log("read Spine资源");
-        let templet = new Laya.SpineTemplet();
-        console.log("SpineTemplet:", templet);
-        // debugger
-        let atlasPages: Array<Laya.ILoadURL> = [];
-        const skUrl = URL.createObjectURL(skBlob)
-        //读取skBlob内容
+        const imageUrl = URL.createObjectURL(imageBlob);
+        const skelUrl = URL.createObjectURL(skelBlob);
+        
+        // 读取skel文件
         const skReader = new FileReader();
-        skReader.readAsText(skBlob, "utf-8");
-        console.log("加载sk内容");
+        skReader.readAsText(skelBlob, "utf-8");
+        
         skReader.onload = () => {
             const rawSkText = skReader.result as string;
-            //读取asBlob内容
+            
+            // 读取atlas文件内容
             const asReader = new FileReader();
-            asReader.readAsText(asBlob, "utf-8");
+            asReader.readAsText(atlasBlob, "utf-8");
+            
             asReader.onload = () => {
                 const rawAsText = asReader.result as string;
-                if (!rawAsText) throw new Error("Spine内容为空");
+                
+                if (!rawAsText) {
+                    URL.revokeObjectURL(imageUrl);
+                    URL.revokeObjectURL(skelUrl);
+                    onError?.("Spine atlas内容为空");
+                    return;
+                }
 
-                if (!rawSkText) throw new Error("Spine内容为空");
-                //@ts-ignore
+                if (!rawSkText) {
+                    URL.revokeObjectURL(imageUrl);
+                    URL.revokeObjectURL(skelUrl);
+                    onError?.("Spine骨架内容为空");
+                    return;
+                }
+                
+                const atlasPages: Array<Laya.ILoadURL> = [];
+                let templet = new Laya.SpineTemplet();
+                
+                // @ts-ignore
                 let atlas = new spine.TextureAtlas(rawAsText, (path: string) => {
                     atlasPages.push({
-                        url: imageUrl, type: Loader.TEXTURE2D,
+                        url: imageUrl, 
+                        type: Laya.Loader.TEXTURE2D,
                         propertyParams: {
                             premultiplyAlpha: false
                         },
@@ -767,21 +1028,19 @@ export class Res {
                     });
                     return new Laya.SpineTexture(null);
                 });
-                console.log("加载as内容" + skUrl, atlas);
 
                 Laya.loader.load(atlasPages, null).then((res: Array<Laya.Texture2D>) => {
-                    let textures: Record<string, Laya.Texture2D> = {}
+                    let textures: Record<string, Laya.Texture2D> = {};
                     let premultipliedAlpha = true;
 
                     for (var i = 0; i < res.length; i++) {
                         let tex = res[i];
                         if (tex) tex._addReference();
                         let pages = atlas.pages;
-                        // 默认长度 = 1
                         let page = pages[i];
                         premultipliedAlpha = page.pma || (tex && tex._premultiplyAlpha && premultipliedAlpha);
 
-                        //@ts-ignore
+                        // @ts-ignore
                         page.texture.realTexture = tex;
                         page.texture.setFilters(page.minFilter, page.magFilter);
                         page.texture.setWraps(page.uWrap, page.vWrap);
@@ -790,69 +1049,48 @@ export class Res {
                         textures[page.name] = tex;
                     }
 
-
                     let regions = atlas.regions;
                     for (const region of regions) {
                         let page = region.page;
                         region.u = region.x / page.width;
                         region.v = region.y / page.height;
-                        //@ts-ignore
+                        // @ts-ignore
                         if (region.rotate) {
                             region.u2 = (region.x + region.height) / page.width;
                             region.v2 = (region.y + region.width) / page.height;
-                        }
-                        else {
+                        } else {
                             region.u2 = (region.x + region.width) / page.width;
                             region.v2 = (region.y + region.height) / page.height;
                         }
                     }
 
+                    // @ts-ignore
                     templet._parse(rawSkText, atlas, textures, premultipliedAlpha);
-                    success(templet);
+                    
+                    // 缓存
+                    Res._spineCache.set(cacheKey, templet);
+                    
+                    URL.revokeObjectURL(imageUrl);
+                    URL.revokeObjectURL(skelUrl);
+                    onComplete(templet);
+                }).catch((error: any) => {
+                    URL.revokeObjectURL(imageUrl);
+                    URL.revokeObjectURL(skelUrl);
+                    onError?.(`加载纹理失败: ${error}`);
                 });
-            }
-        }
-    }
-
-    private static async _decompressFromPack(offset: number, compSize: number): Promise<Blob> {
-        const pack = (Res as any)._pack;
-        const slice = pack.blob.slice(offset, offset + compSize);
-        const ab = new Uint8Array(await slice.arrayBuffer());
-        const out: number[] = [];
-        let i = 0;
-        while (i < ab.length) {
-            const code = ab[i++];
-            if (code === 0x00) {
-                const len = ab[i] | (ab[i + 1] << 8); i += 2;
-                for (let k = 0; k < len; k++) out.push(ab[i++]);
-            } else if (code >= 0x01 && code <= 0xDF) {
-                const seqLen = code;
-                const run = ab[i++];
-                const seq = ab.slice(i, i + seqLen); i += seqLen;
-                for (let r = 0; r < run; r++) for (let k = 0; k < seqLen; k++) out.push(seq[k]);
-            } else if ((code >= 0x51 && code <= 0x62) || (code >= 0xE0 && code <= 0xF2)) {
-                const stride = code >= 0xE0 ? (code - 0xE0) : (code - 0x50);
-                const repeatByte = ab[i++];
-                const repeatTotal = ab[i++];
-                const groups = repeatTotal + 1;
-                const tailLen = (stride - 1) * groups;
-                const tail = ab.slice(i, i + tailLen); i += tailLen;
-                for (let g = 0; g < groups; g++) {
-                    out.push(repeatByte);
-                    const start = g * (stride - 1);
-                    for (let k = 0; k < (stride - 1); k++) out.push(tail[start + k]);
-                }
-            } else {
-                throw new Error('未知块类型: ' + code);
-            }
-        }
-        return new Blob([new Uint8Array(out)]);
-    }
-
-    private static async _decompressFileByName(name: string): Promise<Blob> {
-        const pack = (Res as any)._pack;
-        const f = pack.header.files.find((x: any) => x.name === name);
-        if (!f) throw new Error('文件未找到: ' + name);
-        return this._decompressFromPack(f.offset, f.compSize);
+            };
+            
+            asReader.onerror = () => {
+                URL.revokeObjectURL(imageUrl);
+                URL.revokeObjectURL(skelUrl);
+                onError?.('读取atlas文件失败');
+            };
+        };
+        
+        skReader.onerror = () => {
+            URL.revokeObjectURL(imageUrl);
+            URL.revokeObjectURL(skelUrl);
+            onError?.('读取骨骼文件失败');
+        };
     }
 }

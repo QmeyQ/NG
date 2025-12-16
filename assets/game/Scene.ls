@@ -58,6 +58,28 @@
           "premultipliedAlpha": true
         }
       ]
+    },
+    {
+      "_$id": "1y2a6a51",
+      "_$type": "Sprite",
+      "name": "catgirl",
+      "x": 211,
+      "y": 1886,
+      "width": 3724,
+      "height": 3724,
+      "anchorX": 0.538,
+      "anchorY": 0.569,
+      "_$comp": [
+        {
+          "_$type": "Spine2DRenderNode",
+          "layer": 0,
+          "source": "res://c7386572-8b1d-4a44-8642-649c8841135f",
+          "animationName": "stand",
+          "preview": true,
+          "physicsUpdate": 2,
+          "premultipliedAlpha": true
+        }
+      ]
     }
   ]
 }

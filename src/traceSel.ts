@@ -13,8 +13,9 @@ export class traceSel extends Laya.Script {
     private lastIndex: number = -1;
     private res: Res;
     onStart() {
-        console.log(Res.get("card", "catgirl"));
-        console.log(Res._textureCache);
+
+
+        console.log(Res.get("card"));
         //列举attrbute下的所有key并以{name:key}的形式存储
         console.log("attribute" + Res.getList().attribute["catgirl"]);
         console.log(Res.getList().attribute);
@@ -40,9 +41,10 @@ export class traceSel extends Laya.Script {
         this.timer = new TimeManager();
 
         // 初始化游戏管理器
-        //this.initializeGameManager();
+        this.initializeGameManager();
 
         // 加载游戏资源
+        
     }
 
     /** 列表单元的渲染处理 */
@@ -118,7 +120,7 @@ export class traceSel extends Laya.Script {
         this.setupGameCallbacks();
 
         // 初始化游戏场景
-        this.initializeGameScene();
+        //this.initializeGameScene();
     }
 
     /** 设置游戏回调 */
