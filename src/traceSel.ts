@@ -20,21 +20,30 @@ export class traceSel extends Laya.Script {
         console.log("Res.get('card') result:", Res.get("card"));
         
         // 注意：根据资源包结构，catgirl 在 catgril 目录下
-        // 尝试获取 catgril/catgirl (模糊匹配 catgirl.*)
-        const catgirlRes = Res.get("catgril/catgirl");
-        console.log("Res.get('catgril/catgirl') result:", catgirlRes);
+        // 尝试获取 catgirl 资源组 (自动识别为Spine动画模板)
+        const catgirlRes = Res.get("catgirl/catgirl");
+        console.log("Res.get('catgirl/catgirl') result:", catgirlRes);
         
         if (catgirlRes) {
-            // 如果返回的是字典（因为匹配到了 .png, .json, .atlas 等多个文件）
-            if (catgirlRes["jie.png"]) {
-                this.catimg.texture = catgirlRes["jie.png"] as Laya.Texture;
+            // 如果返回的是 SpineTemplet (因为识别为资源组)
+            if (catgirlRes instanceof Laya.SpineTemplet) {
+                 // 这里演示获取资源，实际使用可能需要创建 skeleton
+                 console.log("获取到 SpineTemplet:", catgirlRes);
+                 // 也可以获取纹理 (指定 'auto' 类型以获取 Texture，否则默认返回 Blob)
+                 const tex = Res.get("catgirl/catgirl.png", "auto");
+                 if (tex instanceof Laya.Texture) {
+                     this.catimg.texture = tex;
+                 }
+            }
+            // 兼容旧逻辑
+            else if (catgirlRes["catgirl.png"]) {
+                this.catimg.texture = catgirlRes["catgirl.png"] as Laya.Texture;
             } 
-            // 如果直接返回了资源（理论上模糊匹配多个文件会返回字典）
             else if (catgirlRes instanceof Laya.Texture) {
                 this.catimg.texture = catgirlRes;
             }
         } else {
-            console.warn("未找到 catgril/catgirl 资源");
+            console.warn("未找到 catgirl 资源");
         }
         
         return;
