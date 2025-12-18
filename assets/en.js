@@ -5,7 +5,7 @@ const path = require('path');
 class OptimalCompressor {
   constructor() {
     // 最大参数定义
-    this.MAX_SEQ_LEN = 0xDF;      // 最大重复序列长度
+    this.MAX_SEQ_LEN = 0xE0;      // 最大重复序列长度 (0xDF -> 0xE0 以利用空闲 opcode)
     this.MAX_STRIDE = 0x12;        // 最大间隔步长
     this.MAX_RUN = 255;           // 最大重复次数
   }
@@ -205,6 +205,9 @@ class OptimalCompressor {
     if (stride > remaining) return null;
     
     const repeatByte = bytes[start];
+    const tailLen = stride - 1;
+    const firstTailStart = start + 1;
+
     let groups = 1;
     const maxGroups = Math.min(this.MAX_RUN, Math.floor(remaining / stride));
     
@@ -214,14 +217,26 @@ class OptimalCompressor {
       if (bytePos >= bytes.length || bytes[bytePos] !== repeatByte) {
         break;
       }
+
+      // 检查尾部一致性
+      if (tailLen > 0) {
+        let tailMatch = true;
+        for (let k = 0; k < tailLen; k++) {
+          if (bytes[bytePos + 1 + k] !== bytes[firstTailStart + k]) {
+            tailMatch = false;
+            break;
+          }
+        }
+        if (!tailMatch) break;
+      }
+
       groups++;
     }
     
     // 需要至少4组才有收益
     if (groups >= 4) {
       const rawSize = stride * groups;
-      const tailSize = (stride - 1) * groups;
-      const compressedSize = 3 + tailSize; // opcode + byte + count + tail
+      const compressedSize = 3 + tailLen; // opcode + byte + count + ONE tail
       
       if (compressedSize < rawSize) {
         return {
@@ -259,12 +274,8 @@ class OptimalCompressor {
           
         case 'INTERVAL':
           const opcode = 0xE0 + block.stride;
-          // 构建尾数据
-          const tail = Buffer.alloc(block.stride - 1);
-          for (let g = 0; g < block.repeatCount + 1; g++) {
-            const base = block.start + g * block.stride + 1;
-            bytes.copy(tail, 0, base, base + (block.stride - 1));
-          }
+          // 构建尾数据 (既然所有尾部都一致，只取第一个即可)
+          const tail = bytes.slice(block.start + 1, block.start + block.stride);
           chunks.push(
             Buffer.from([opcode, block.repeatByte, block.repeatCount]),
             tail
@@ -276,7 +287,7 @@ class OptimalCompressor {
           const len = data.length;
           const header = Buffer.alloc(3);
           header[0] = 0x00;
-          header.writeUInt16LE(len, 1);
+          header.writeUInt16BE(len, 1);
           chunks.push(header, data);
           break;
       }
@@ -369,7 +380,7 @@ class OptimalCompressor {
         const data = bytes.slice(best.start, best.end);
         const header = Buffer.alloc(3);
         header[0] = 0x00;
-        header.writeUInt16LE(data.length, 1);
+        header.writeUInt16BE(data.length, 1);
         chunks.push(header, data);
       }
       
@@ -516,7 +527,9 @@ class OptimalCompressor {
     // 写入文件
     const magic = Buffer.from('DPR1'); // DP压缩标识
     const headerLen = Buffer.alloc(4);
-    headerLen.writeUInt32LE(headerBuffer.length, 0);
+    // 头部大小 = Magic(4) + Length(4) + JSON
+    const totalHeaderSize = 8 + headerBuffer.length;
+    headerLen.writeUInt32BE(totalHeaderSize, 0);
     
     const body = Buffer.concat(bodyChunks);
     const result = Buffer.concat([magic, headerLen, headerBuffer, body]);

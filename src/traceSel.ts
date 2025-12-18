@@ -11,15 +11,35 @@ export class traceSel extends Laya.Script {
     private timer: TimeManager;
     private bagList: Laya.List;
     private lastIndex: number = -1;
-    private res: Res;
+
+    @property(Image)
+    catimg: Laya.Image;
     onStart() {
 
 
-        console.log(Res.get("card"));
-        //列举attrbute下的所有key并以{name:key}的形式存储
-        console.log("attribute" + Res.getList().attribute["catgirl"]);
-        console.log(Res.getList().attribute);
-        let attributeKeys = Object.keys(Res.getList().attribute).map(key => ({ name: Res.getList().attribute[key].name, hero: Res.get("card", key) }));
+        console.log("Res.get('card') result:", Res.get("card"));
+        
+        // 注意：根据资源包结构，catgirl 在 catgril 目录下
+        // 尝试获取 catgril/catgirl (模糊匹配 catgirl.*)
+        const catgirlRes = Res.get("catgril/catgirl");
+        console.log("Res.get('catgril/catgirl') result:", catgirlRes);
+        
+        if (catgirlRes) {
+            // 如果返回的是字典（因为匹配到了 .png, .json, .atlas 等多个文件）
+            if (catgirlRes["jie.png"]) {
+                this.catimg.texture = catgirlRes["jie.png"] as Laya.Texture;
+            } 
+            // 如果直接返回了资源（理论上模糊匹配多个文件会返回字典）
+            else if (catgirlRes instanceof Laya.Texture) {
+                this.catimg.texture = catgirlRes;
+            }
+        } else {
+            console.warn("未找到 catgril/catgirl 资源");
+        }
+        
+        return;
+
+        let attributeKeys = Object.keys(Res.getList().attribute).map(key => ({ name: Res.getList().attribute[key].name, hero: Res.get("card/" + key) }));
         console.log(attributeKeys);
 
         const jsonPath = "resources/UI/json/bag.json";
