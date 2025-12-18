@@ -1,22 +1,52 @@
 /**net.ts
- * Net(url: string=null, pingInterval: number = 30000) - 初始化网络连接，url为WebSocket服务器地址，pingInterval为心跳间隔时间(毫秒)，默认30000。
- * connect(callback: (isSuc: boolean, errorMES: string) => void, url = undefined) - 建立WebSocket连接，isSuc返回连接是否成功，errorMES返回错误信息(连接失败时)。
- * disconnect(code: number = 1000, reason: string = '') - 断开WebSocket连接，code为断开状态码(默认1000正常关闭)，reason为断开原因描述。
- * send(type: any, data: any): boolean - 发送消息到服务器，type为消息类型(使用MSG_TYPE常量)，data为消息数据，返回发送是否成功。
- * on(event: string, callback: Function) - 注册事件监听器，event为事件名称('connect', 'message', 'error'等)，callback为事件回调函数。
- * off(event: string, callback: Function) - 移除事件监听器，event为事件名称，callback为要移除的回调函数。
- * download(url: string, options: any = {}) - 下载文件，url为文件下载地址，options为下载选项{key: 文件标识(默认使用url), force: 是否强制重新下载(忽略缓存), onProgress: 进度回调函数(percent: number), onComplete: 完成回调函数(blob: Blob, fromCache: boolean), onError: 错误回调函数(error: string)}。
- * pauseDownload(key: string) - 暂停下载任务，key为下载任务标识。
- * resumeDownload(key: string) - 恢复下载任务，key为下载任务标识。
- * cacheGet(key: string, callback: (blob: any) => void) - 从缓存获取文件，key为文件标识，callback回调函数参数为文件数据(Blob)。
- * cacheClear(callback: (success: boolean) => void) - 清空所有缓存，callback回调函数参数为操作是否成功。
- * cacheInfo(callback: (info: { used: number, quota: number, percentage: number }) => void) - 获取缓存信息，callback回调函数参数包含used: 已使用字节数, quota: 总配额字节数, percentage: 使用百分比。
- * destroy() - 销毁实例，清理所有连接和定时器。
- * 消息类型常量MSG_TYPE: CONNECTED:0(连接成功), JOIN_ROOM:1(加入房间), LEAVE_ROOM:2(离开房间), MESSAGE:3(普通消息), ZONE_UPDATE:4(区域更新), ZONE_REMOVE:5(区域移除), ZONE_QUERY:6(区域查询), ZONE_RESULT:7(区域查询结果), PING:8(心跳请求), PONG:9(心跳响应), ERROR:10(错误消息)。
+ * 优化版本：增强断点续传、进度追踪和下载管理
  */
 
 import { IDBStorage } from "./IDBStorage";
 import { TimeManager } from "./time";
+
+// 下载状态常量
+const DOWNLOAD_STATE = {
+  PENDING: 'pending',
+  DOWNLOADING: 'downloading',
+  PAUSED: 'paused',
+  COMPLETED: 'completed',
+  ERROR: 'error',
+  CANCELLED: 'cancelled'
+} as const;
+
+// 断点续传数据接口
+interface ResumableData {
+  url: string;
+  loaded: number;
+  total: number;
+  lastModified: number;
+  etag: string;
+  mimeType?: string;
+  fileName?: string;
+}
+
+// 下载任务接口
+interface DownloadTask {
+  id: string;
+  url: string;
+  key: string;
+  state: typeof DOWNLOAD_STATE[keyof typeof DOWNLOAD_STATE];
+  loaded: number;
+  total: number;
+  resumable: boolean;
+  startTime: number;
+  retries: number;
+  xhr: XMLHttpRequest | null;
+  controller: AbortController | null;
+  onProgress?: (percent: number, speed: number, loaded: number, total: number) => void;
+  onComplete?: (blob: Blob, fromCache: boolean) => void;
+  onError?: (error: string) => void;
+  onStateChange?: (state: string) => void;
+  resumableData?: ResumableData;
+  lastProgressUpdate: number;
+  lastLoaded: number;
+}
 
 export class Net {
   private storage: IDBStorage;
@@ -33,13 +63,13 @@ export class Net {
   private maxReconnectAttempts: number = 5;
   private autoReconnect: boolean = true;
 
-  private downloadQueue: any[] = [];
-  private downloadTaskMap: Map<string, any> = new Map();
-  private concurrentDownloads: Set<string> = new Set();
-  private pausedTasks: Map<string, any> = new Map();
+  private downloadTasks: Map<string, DownloadTask> = new Map();
+  private activeDownloads: Set<string> = new Set();
   private maxConcurrent: number = 3;
-  private downloadTimeout: number = 30000;
-  private maxRetries: number = 2;
+  private downloadTimeout: number = 60000;
+  private maxRetries: number = 3;
+  private chunkSize: number = 1024 * 1024; // 1MB chunk size for resumable download
+  private downloadQueue: string[] = [];
 
   private pingTimer: string = "";
   private reconnectTimer: string = "";
@@ -54,9 +84,9 @@ export class Net {
 
   /* ======================== WebSocket 核心功能 ======================== */
 
-  connect(callback: (isSuc: boolean, errorMES: string) => void, url:string = undefined): void {
-    if(url){
-        this.url = url;
+  connect(callback: (isSuc: boolean, errorMES: string) => void, url: string = undefined): void {
+    if (url) {
+      this.url = url;
     }
     this._cleanupConnection();
 
@@ -109,67 +139,11 @@ export class Net {
     }
   }
 
-  /* ======================== 简化消息接口 ======================== */
-  sendP2P(targetId: string, data: any): boolean {
-    return this.send(MSG_TYPE.MESSAGE, { target: targetId, data });
-  }
+  /* ======================== 增强版下载管理 ======================== */
 
-  join(roomId: string): boolean {
-    const success = this.send(MSG_TYPE.JOIN_ROOM, { roomId });
-    if (success) {
-      this.roomId = roomId;
-    }
-    return success;
-  }
-
-  leave(): boolean {
-    const success = this.send(MSG_TYPE.LEAVE_ROOM, {});
-    if (success) {
-      this.roomId = null;
-    }
-    return success;
-  }
-
-  zoneUpdate(rect: number[], layout: any): boolean {
-    return this.send(MSG_TYPE.ZONE_UPDATE, { rect, layout });
-  }
-
-  zoneRemove(rect: number[]): boolean {
-    return this.send(MSG_TYPE.ZONE_REMOVE, { rect });
-  }
-
-  zoneQuery(rect: number[]): boolean {
-    return this.send(MSG_TYPE.ZONE_QUERY, { rect });
-  }
-
-  /* ======================== 状态获取 ======================== */
-  isConnected(): boolean {
-    return this.connected && this.ws && Laya.Socket.prototype.connected;
-  }
-
-  getId(): string | null {
-    return this.clientId;
-  }
-
-  getRoom(): string | null {
-    return this.roomId;
-  }
-
-  /* ======================== 事件管理 ======================== */
-  on(event: string, callback: Function): void {
-    if (typeof callback === 'function') {
-      (this.events[event] || (this.events[event] = [])).push(callback);
-    }
-  }
-
-  off(event: string, callback: Function): void {
-    const listeners = this.events[event];
-    if (listeners) {
-      this.events[event] = listeners.filter(cb => cb !== callback);
-    }
-  }
-
-  /* ======================== 下载管理 ======================== */
+  /**
+   * 下载文件（支持断点续传）
+   */
   download(url: string, options: any = {}): void {
     const {
       key = url,
@@ -179,87 +153,179 @@ export class Net {
       onError
     } = options;
 
-    if (this.downloadQueue.some(t => t.key === key) ||
-      this.concurrentDownloads.has(key) ||
-      this.pausedTasks.has(key)) {
-      this._emit('downloadError', key, '任务已存在');
-      onError?.('任务已存在');
-      return;
+    // 检查任务是否已存在
+    const existingTask = this.downloadTasks.get(key);
+    if (existingTask) {
+      if (existingTask.state === DOWNLOAD_STATE.DOWNLOADING) {
+        this._emit('downloadError', key, '任务已在进行中');
+        onError?.('任务已在进行中');
+        return;
+      }
+      // 如果是暂停状态，恢复它
+      if (existingTask.state === DOWNLOAD_STATE.PAUSED) {
+        this.resumeDownload(key);
+        return;
+      }
     }
 
-    const task = {
+    // 创建下载任务
+    const task: DownloadTask = {
+      id: key,
       url,
       key,
+      state: DOWNLOAD_STATE.PENDING,
+      loaded: 0,
+      total: 0,
+      resumable: true,
+      startTime: this.timeManager.getCurrentTime(),
       retries: 0,
+      xhr: null,
+      controller: null,
       onProgress,
       onComplete,
       onError,
-      lastProgress: 0,
-      progressTime: 0,
-      xhr: new XMLHttpRequest()
+      lastProgressUpdate: 0,
+      lastLoaded: 0
     };
 
+    this.downloadTasks.set(key, task);
+
+    // 检查缓存
     if (!force) {
       this.cacheGet(key, (cached: any) => {
         if (cached) {
+          // 缓存命中，直接返回
           this._emit('downloadComplete', key, cached, true);
           onComplete?.(cached, true);
+          this.downloadTasks.delete(key);
         } else {
-          this._addDownloadTask(task);
+          // 没有缓存，检查断点数据
+          this._loadResumableData(key, (resumableData: ResumableData | null) => {
+            if (resumableData && resumableData.url === url) {
+              // 恢复断点下载
+              task.loaded = resumableData.loaded;
+              task.total = resumableData.total;
+              task.resumableData = resumableData;
+            }
+            this._startDownload(task);
+          });
         }
       });
     } else {
-      this._addDownloadTask(task);
+      this._startDownload(task);
     }
   }
 
+  /**
+   * 暂停下载
+   */
   pauseDownload(key: string): void {
-    if (this.concurrentDownloads.has(key)) {
-      const task = this.downloadTaskMap.get(key);
-      if (task?.xhr) {
-        task.xhr.abort();
-        this.concurrentDownloads.delete(key);
-        this.pausedTasks.set(key, task);
-        this.downloadTaskMap.delete(key);
-        this._emit('downloadError', key, '已暂停');
-      }
+    const task = this.downloadTasks.get(key);
+    if (!task || task.state !== DOWNLOAD_STATE.DOWNLOADING) return;
+
+    // 保存断点数据
+    if (task.resumable && task.total > 0) {
+      this._saveResumableData(task);
     }
+
+    // 停止下载
+    if (task.xhr) {
+      task.xhr.abort();
+      task.xhr = null;
+    }
+    if (task.controller) {
+      task.controller.abort();
+      task.controller = null;
+    }
+
+    task.state = DOWNLOAD_STATE.PAUSED;
+    this.activeDownloads.delete(key);
+    
+    this._emit('downloadPaused', key, task.loaded, task.total);
+    task.onStateChange?.(DOWNLOAD_STATE.PAUSED);
+    
+    this._processDownloadQueue();
   }
 
+  /**
+   * 恢复下载
+   */
   resumeDownload(key: string): void {
-    const task = this.pausedTasks.get(key);
-    if (task) {
-      this.pausedTasks.delete(key);
-      this.downloadQueue.push(task);
-      this.downloadTaskMap.set(key, task);
-      this._processDownloadQueue();
-    }
+    const task = this.downloadTasks.get(key);
+    if (!task || task.state !== DOWNLOAD_STATE.PAUSED) return;
+
+    // 检查是否有断点数据
+    this._loadResumableData(key, (resumableData: ResumableData | null) => {
+      if (resumableData && resumableData.url === task.url) {
+        task.loaded = resumableData.loaded;
+        task.total = resumableData.total;
+        task.resumableData = resumableData;
+      } else {
+        // 没有断点数据，从头开始
+        task.loaded = 0;
+        task.total = 0;
+      }
+      
+      task.state = DOWNLOAD_STATE.PENDING;
+      task.retries = 0;
+      this._startDownload(task);
+    });
   }
 
+  /**
+   * 暂停所有下载
+   */
   pauseAllDownloads(): void {
-    this.concurrentDownloads.forEach(key => this.pauseDownload(key));
+    this.downloadTasks.forEach((task, key) => {
+      if (task.state === DOWNLOAD_STATE.DOWNLOADING) {
+        this.pauseDownload(key);
+      }
+    });
   }
 
+  /**
+   * 恢复所有下载
+   */
   resumeAllDownloads(): void {
-    this.pausedTasks.forEach((_, key) => this.resumeDownload(key));
+    this.downloadTasks.forEach((task, key) => {
+      if (task.state === DOWNLOAD_STATE.PAUSED) {
+        this.resumeDownload(key);
+      }
+    });
   }
 
+  /**
+   * 清除下载队列
+   */
   clearDownloadQueue(): void {
     this.pauseAllDownloads();
+    this.downloadTasks.clear();
+    this.activeDownloads.clear();
     this.downloadQueue = [];
-    this.downloadTaskMap.clear();
-    this.pausedTasks.clear();
   }
+
+  /* ======================== 缓存管理 ======================== */
 
   cacheGet(key: string, callback: (blob: any) => void): void {
     this.storage.getFile(key, callback);
   }
 
   cacheClear(callback: (success: boolean) => void): void {
+    // 清理所有断点数据
+    this.storage.getKeys((keys: {dataKeys: string[], fileKeys: string[]}) => {
+      keys.dataKeys.forEach(key => {
+        if (key.endsWith('_resume')) {
+          this.storage.deleteFile(key, () => {});
+        }
+      });
+    });
+    // 清理缓存
     this.storage.clear(callback);
   }
 
   cacheRemove(key: string, callback: (success: boolean) => void): void {
+    // 同时清理断点数据
+    this.storage.deleteFile(`${key}_resume`, () => {});
     this.storage.deleteFile(key, callback);
   }
 
@@ -268,115 +334,270 @@ export class Net {
   }
 
   /* ======================== 内部方法 ======================== */
-  private _addDownloadTask(task: any): void {
-    this.downloadQueue.push(task);
-    this.downloadTaskMap.set(task.key, task);
-    this._processDownloadQueue();
+
+  private _startDownload(task: DownloadTask): void {
+    if (this.activeDownloads.size >= this.maxConcurrent) {
+      // 加入等待队列
+      if (this.downloadQueue.indexOf(task.id) === -1) {
+        this.downloadQueue.push(task.id);
+      }
+      return;
+    }
+
+    this.activeDownloads.add(task.id);
+    task.state = DOWNLOAD_STATE.DOWNLOADING;
+    task.startTime = this.timeManager.getCurrentTime();
+    
+    task.onStateChange?.(DOWNLOAD_STATE.DOWNLOADING);
+    this._executeDownload(task);
   }
 
   private _processDownloadQueue(): void {
-    while (this.concurrentDownloads.size < this.maxConcurrent && this.downloadQueue.length > 0) {
-      const task = this.downloadQueue.shift();
-      const key = task.key;
-
-      this.concurrentDownloads.add(key);
-      this._executeDownload(task, (error: string | null, blob: any) => {
-        this.concurrentDownloads.delete(key);
-
-        if (error) {
-          if (task.retries < this.maxRetries) {
-            task.retries++;
-            this.downloadQueue.push(task);
-          } else {
-            this._emit('downloadError', key, error);
-            task.onError?.(error);
-            this.downloadTaskMap.delete(key);
-          }
-        } else {
-          this.storage.setFile(key, blob, () => {
-            this._emit('downloadComplete', key, blob, false);
-            task.onComplete?.(blob, false);
-            this.downloadTaskMap.delete(key);
-          });
-        }
-        this._processDownloadQueue();
-      });
+    while (this.activeDownloads.size < this.maxConcurrent && this.downloadQueue.length > 0) {
+      const taskId = this.downloadQueue.shift()!;
+      const task = this.downloadTasks.get(taskId);
+      
+      if (task && task.state === DOWNLOAD_STATE.PENDING) {
+        this._startDownload(task);
+      }
     }
   }
 
-    private _executeDownload(task: any, done: (error: string | null, blob: any) => void): void {
-        let timedOut = false;
-        let hasCompleted = false;
-
-        const timer = setTimeout(() => {
-            if (hasCompleted) return;
-            timedOut = true;
-            
-            if (task.xhr) {
-                task.xhr.abort();
-            }
-            
-            done('下载超时', null);
-        }, this.downloadTimeout);
-
-        // 创建原生XHR对象
-        task.xhr = new XMLHttpRequest();
-        task.xhr.responseType = 'blob';
+  private _executeDownload(task: DownloadTask): void {
+    const startByte = task.loaded;
+    const useRange = task.resumable && startByte > 0;
+    
+    task.xhr = new XMLHttpRequest();
+    task.controller = new AbortController();
+    
+    const xhr = task.xhr;
+    xhr.open('GET', task.url, true);
+    xhr.responseType = 'blob';
+    
+    if (useRange) {
+      // 断点续传，发送Range头
+      if (task.total > 0) {
+        xhr.setRequestHeader('Range', `bytes=${startByte}-${task.total - 1}`);
+      } else {
+        xhr.setRequestHeader('Range', `bytes=${startByte}-`);
+      }
+    }
+    
+    // 设置超时
+    xhr.timeout = this.downloadTimeout;
+    
+    // 进度事件
+    xhr.onprogress = (e: ProgressEvent) => {
+      if (e.lengthComputable) {
+        const loaded = startByte + e.loaded;
+        const total = startByte + e.total;
         
-        // 进度事件处理
-        task.xhr.addEventListener('progress', (e: ProgressEvent) => {
-            if (timedOut) return;
-            if (e.lengthComputable) {
-                const percent = Math.round((e.loaded / e.total) * 100);
-                this._updateProgress(task, percent);
-            }
+        task.loaded = loaded;
+        task.total = total;
+        
+        this._updateProgress(task, loaded, total);
+      }
+    };
+    
+    // 加载完成
+    xhr.onload = () => {
+      if (xhr.status === 200 || xhr.status === 206) {
+        const blob = xhr.response;
+        
+        // 获取文件信息
+        const contentType = xhr.getResponseHeader('Content-Type') || '';
+        const contentLength = xhr.getResponseHeader('Content-Length');
+        const lastModified = xhr.getResponseHeader('Last-Modified');
+        
+        // 存储文件
+        this.storage.setFile(task.key, blob, (success: boolean) => {
+          if (success) {
+            // 清理断点数据
+            this.storage.deleteFile(`${task.key}_resume`, () => {});
+            
+            this.activeDownloads.delete(task.id);
+            task.state = DOWNLOAD_STATE.COMPLETED;
+            
+            this._emit('downloadComplete', task.id, blob, false);
+            task.onComplete?.(blob, false);
+            task.onStateChange?.(DOWNLOAD_STATE.COMPLETED);
+            
+            this.downloadTasks.delete(task.id);
+            this._processDownloadQueue();
+          } else {
+            this._handleDownloadError(task, '存储失败');
+          }
         });
-
-        // 加载完成事件处理
-        task.xhr.addEventListener('load', () => {
-            hasCompleted = true;
-            clearTimeout(timer);
-            if (timedOut) return;
-
-            if (task.xhr && task.xhr.status >= 200 && task.xhr.status < 300) {
-                try {
-                    const blob = task.xhr.response;
-                    done(null, blob);
-                } catch (e) {
-                    done(`Blob创建失败: ${(e as Error).message}`, null);
-                }
-            } else {
-                done(`HTTP错误: ${task.xhr?.status}`, null);
-            }
+      } else if (xhr.status === 416) {
+        // Range Not Satisfiable - 可能文件已完全下载
+        this.storage.getFile(task.key, (cached: any) => {
+          if (cached) {
+            this.activeDownloads.delete(task.id);
+            task.state = DOWNLOAD_STATE.COMPLETED;
+            
+            this._emit('downloadComplete', task.id, cached, true);
+            task.onComplete?.(cached, true);
+            task.onStateChange?.(DOWNLOAD_STATE.COMPLETED);
+            
+            this.downloadTasks.delete(task.id);
+            this._processDownloadQueue();
+          } else {
+            this._handleDownloadError(task, `HTTP错误: ${xhr.status}`);
+          }
         });
+      } else {
+        this._handleDownloadError(task, `HTTP错误: ${xhr.status}`);
+      }
+    };
+    
+    // 错误处理
+    xhr.onerror = () => this._handleDownloadError(task, '网络错误');
+    xhr.ontimeout = () => this._handleDownloadError(task, '请求超时');
+    xhr.onabort = () => {
+      // 如果是暂停，已经在pauseDownload中处理
+      if (task.state !== DOWNLOAD_STATE.PAUSED) {
+        this._handleDownloadError(task, '下载中止');
+      }
+    };
+    
+    // 发送请求
+    xhr.send();
+  }
 
-        // 错误事件处理
-        task.xhr.addEventListener('error', () => {
-            hasCompleted = true;
-            clearTimeout(timer);
-            if (!timedOut) done('网络错误', null);
-        });
-
-        // 中止事件处理
-        task.xhr.addEventListener('abort', () => {
-            hasCompleted = true;
-            clearTimeout(timer);
-            if (!timedOut) done('下载中止', null);
-        });
-
-        // 发送请求
-        task.xhr.open('GET', task.url, true);
-        task.xhr.send();
-    }
-
-  private _updateProgress(task: any, percent: number): void {
+  private _updateProgress(task: DownloadTask, loaded: number, total: number): void {
     const now = this.timeManager.getCurrentTime();
-    if (now - task.progressTime > 100 || Math.abs(percent - task.lastProgress) > 5) {
-      task.lastProgress = percent;
-      task.progressTime = now;
-      this._emit('downloadProgress', task.key, percent);
-      task.onProgress?.(percent);
+    
+    // 限制进度更新频率（至少100ms更新一次）
+    if (now - task.lastProgressUpdate < 100) {
+      return;
     }
+    
+    const percent = total > 0 ? Math.round((loaded / total) * 100) : 0;
+    
+    // 计算下载速度
+    let speed = 0;
+    if (task.lastLoaded > 0 && task.lastProgressUpdate > 0) {
+      const timeDiff = now - task.lastProgressUpdate;
+      const loadedDiff = loaded - task.lastLoaded;
+      speed = timeDiff > 0 ? (loadedDiff / timeDiff) * 1000 : 0; // bytes per second
+    }
+    
+    task.lastLoaded = loaded;
+    task.lastProgressUpdate = now;
+    
+    this._emit('downloadProgress', task.id, percent, speed, loaded, total);
+    task.onProgress?.(percent, speed, loaded, total);
+    
+    // 定期保存断点数据（每5秒或进度变化超过1MB）
+    if (task.resumable && (now % 5000 < 100 || loaded - (task.resumableData?.loaded || 0) > 1024 * 1024)) {
+      this._saveResumableData(task);
+    }
+  }
+
+  private _handleDownloadError(task: DownloadTask, error: string): void {
+    task.xhr = null;
+    task.controller = null;
+    this.activeDownloads.delete(task.id);
+    
+    if (task.retries < this.maxRetries && task.state !== DOWNLOAD_STATE.PAUSED) {
+      task.retries++;
+      task.state = DOWNLOAD_STATE.PENDING;
+      
+      // 保存当前进度
+      if (task.resumable) {
+        this._saveResumableData(task);
+      }
+      
+      // 延迟重试
+      this.timeManager.setTimeout(1000 * task.retries, () => {
+        this._startDownload(task);
+      });
+    } else {
+      task.state = DOWNLOAD_STATE.ERROR;
+      
+      this._emit('downloadError', task.id, error);
+      task.onError?.(error);
+      task.onStateChange?.(DOWNLOAD_STATE.ERROR);
+      
+      this._processDownloadQueue();
+    }
+  }
+
+  private _saveResumableData(task: DownloadTask): void {
+    if (!task.resumable || task.total <= 0) return;
+    
+    const resumableData: ResumableData = {
+      url: task.url,
+      loaded: task.loaded,
+      total: task.total,
+      lastModified: Date.now(),
+      etag: '',
+      mimeType: task.xhr?.getResponseHeader('Content-Type') || undefined
+    };
+    
+    // 将断点数据转换为JSON字符串，再转换为Blob存储
+    const jsonStr = JSON.stringify(resumableData);
+    const blob = new Blob([jsonStr], { type: 'application/json' });
+    
+    this.storage.setFile(`${task.key}_resume`, blob, (success: boolean) => {
+      if (!success) {
+        console.warn('保存断点数据失败:', task.key);
+      }
+    });
+  }
+
+  private _loadResumableData(key: string, callback: (data: ResumableData | null) => void): void {
+    this.storage.getFile(`${key}_resume`, (data: any) => {
+      if (!data) {
+        callback(null);
+        return;
+      }
+      
+      try {
+        // 数据是Base64格式，需要解码
+        if (typeof data === 'string') {
+          // 如果是Base64字符串，尝试解析JSON
+          try {
+            // 尝试直接解析（可能是JSON字符串）
+            const jsonData = JSON.parse(data);
+            callback(jsonData);
+          } catch {
+            // 如果是Base64，需要解码
+            try {
+              const jsonStr = atob(data); // Base64解码
+              const jsonData = JSON.parse(jsonStr);
+              callback(jsonData);
+            } catch (e) {
+              console.error('解析断点数据失败:', e);
+              callback(null);
+            }
+          }
+        } else if (data instanceof Blob) {
+          // 如果是Blob，读取为文本
+          const reader = new FileReader();
+          reader.onload = () => {
+            try {
+              const jsonData = JSON.parse(reader.result as string);
+              callback(jsonData);
+            } catch (e) {
+              console.error('解析断点数据失败:', e);
+              callback(null);
+            }
+          };
+          reader.onerror = () => {
+            console.error('读取断点数据失败');
+            callback(null);
+          };
+          reader.readAsText(data);
+        } else {
+          console.error('未知的断点数据格式:', typeof data);
+          callback(null);
+        }
+      } catch (e) {
+        console.error('加载断点数据失败:', e);
+        callback(null);
+      }
+    });
   }
 
   /* ======================== WebSocket 消息处理 ======================== */
@@ -503,11 +724,74 @@ export class Net {
     });
   }
 
+  // 事件管理
+  on(event: string, callback: Function): void {
+    if (typeof callback === 'function') {
+      (this.events[event] || (this.events[event] = [])).push(callback);
+    }
+  }
+
+  off(event: string, callback: Function): void {
+    const listeners = this.events[event];
+    if (listeners) {
+      this.events[event] = listeners.filter(cb => cb !== callback);
+    }
+  }
+
+  // 简化消息接口
+  sendP2P(targetId: string, data: any): boolean {
+    return this.send(MSG_TYPE.MESSAGE, { target: targetId, data });
+  }
+
+  join(roomId: string): boolean {
+    const success = this.send(MSG_TYPE.JOIN_ROOM, { roomId });
+    if (success) {
+      this.roomId = roomId;
+    }
+    return success;
+  }
+
+  leave(): boolean {
+    const success = this.send(MSG_TYPE.LEAVE_ROOM, {});
+    if (success) {
+      this.roomId = null;
+    }
+    return success;
+  }
+
+  zoneUpdate(rect: number[], layout: any): boolean {
+    return this.send(MSG_TYPE.ZONE_UPDATE, { rect, layout });
+  }
+
+  zoneRemove(rect: number[]): boolean {
+    return this.send(MSG_TYPE.ZONE_REMOVE, { rect });
+  }
+
+  zoneQuery(rect: number[]): boolean {
+    return this.send(MSG_TYPE.ZONE_QUERY, { rect });
+  }
+
+  // 状态检查
+  isConnected(): boolean {
+    return this.connected && this.ws && Laya.Socket.prototype.connected;
+  }
+
+  getId(): string | null {
+    return this.clientId;
+  }
+
+  getRoom(): string | null {
+    return this.roomId;
+  }
+
   // 销毁方法
   destroy(): void {
     this._stopHeartbeat();
     this._stopReconnect();
     this.timeManager.destroy();
+    
+    // 暂停所有下载
+    this.pauseAllDownloads();
     
     if (this.ws) {
       this.ws.close();
