@@ -73,8 +73,10 @@ export class load extends Laya.Script {
 
         Res.url("http://normalgame.cn/res.res", (res:any)=>{
             console.log(res)
-        Res.load(res);
-        Laya.Scene.open("game/select.ls");
+            Res.downRes((suc, err, total) => {
+                console.log("下载资源成功", suc, err, total);
+                Laya.Scene.open("game/select.ls");
+            });
         })
         return;
 

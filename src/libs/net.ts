@@ -46,6 +46,7 @@ interface DownloadTask {
   resumableData?: ResumableData;
   lastProgressUpdate: number;
   lastLoaded: number;
+  cache?: boolean;
 }
 
 export class Net {
@@ -148,6 +149,7 @@ export class Net {
     const {
       key = url,
       force = false,
+      cache = true,
       onProgress,
       onComplete,
       onError
@@ -185,7 +187,8 @@ export class Net {
       onComplete,
       onError,
       lastProgressUpdate: 0,
-      lastLoaded: 0
+      lastLoaded: 0,
+      cache
     };
 
     this.downloadTasks.set(key, task);
@@ -410,11 +413,27 @@ export class Net {
         const lastModified = xhr.getResponseHeader('Last-Modified');
         
         // 存储文件
-        this.storage.setFile(task.key, blob, (success: boolean) => {
-          if (success) {
-            // 清理断点数据
-            this.storage.deleteFile(`${task.key}_resume`, () => {});
-            
+        if (task.cache) {
+            this.storage.setFile(task.key, blob, (success: boolean) => {
+              if (success) {
+                // 清理断点数据
+                this.storage.deleteFile(`${task.key}_resume`, () => {});
+                
+                this.activeDownloads.delete(task.id);
+                task.state = DOWNLOAD_STATE.COMPLETED;
+                
+                this._emit('downloadComplete', task.id, blob, false);
+                task.onComplete?.(blob, false);
+                task.onStateChange?.(DOWNLOAD_STATE.COMPLETED);
+                
+                this.downloadTasks.delete(task.id);
+                this._processDownloadQueue();
+              } else {
+                this._handleDownloadError(task, '存储失败');
+              }
+            });
+        } else {
+            // 不缓存，直接完成
             this.activeDownloads.delete(task.id);
             task.state = DOWNLOAD_STATE.COMPLETED;
             
@@ -424,10 +443,7 @@ export class Net {
             
             this.downloadTasks.delete(task.id);
             this._processDownloadQueue();
-          } else {
-            this._handleDownloadError(task, '存储失败');
-          }
-        });
+        }
       } else if (xhr.status === 416) {
         // Range Not Satisfiable - 可能文件已完全下载
         this.storage.getFile(task.key, (cached: any) => {
@@ -524,7 +540,7 @@ export class Net {
   }
 
   private _saveResumableData(task: DownloadTask): void {
-    if (!task.resumable || task.total <= 0) return;
+    if (!task.resumable || task.total <= 0 || !task.cache) return;
     
     const resumableData: ResumableData = {
       url: task.url,
