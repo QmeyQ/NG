@@ -1,4 +1,22 @@
-// Res.ts
+/**Res.ts
+ * Res - 资源管理类，负责.res格式资源包的加载、解析、缓存和资源获取，支持纹理、图集(Atlas)、Spine骨骼动画等资源类型。
+ * init() - 初始化资源管理器，创建IDBStorage和Net实例，确保仅初始化一次。
+ * url(url: string, forceOrCallback?: boolean | ((info: PackInfo) => void), callback?: (info: PackInfo) => void) - 加载远程.res格式资源包，url为资源包地址；forceOrCallback为boolean时表示是否强制重新下载(忽略缓存)，为function时作为加载完成回调；callback为加载完成回调函数，返回PackInfo资源包信息(失败时返回null)。
+ * then(onFulfilled: (info: PackInfo) => void, onRejected?: (error: string) => void) - Promise链式调用支持，onFulfilled为加载成功回调，onRejected为加载失败回调。
+ * get(path: string, callback: (resources: any[]) => void) - 获取指定路径的资源，path支持"group"(资源组)、"group/subgroup"(二级组)、"group/filename"(具体文件)格式；callback返回资源数组(失败时返回空数组)。
+ * down(group: string, force: boolean = false, callback?: (success: boolean) => void) - 下载指定资源组的所有文件，group为资源组名；force是否强制重新下载；callback返回下载是否成功(全部文件下载完成且无错误则为true)。
+ * downRes(callback?: (successCount: number, errorCount: number, totalCount: number) => void) - 下载所有资源，callback返回成功数、错误数、总数。
+ * getList(): any - 获取已加载的资源包配置信息(PackInfo)。
+ * getProcess(): { process: number; err: number; count: number } - 获取加载进度信息，process为处理数，err为错误数，count为总数。
+ * clearCache(callback?: () => void) - 清空所有资源缓存(内存缓存+本地存储)，callback为操作完成回调。
+ * setNet(net: Net) - 设置自定义的Net网络实例，用于资源下载。
+ * 内部数据结构说明：
+ *   - ResourceEntry: 资源缓存条目，包含blob(原始二进制)、texture(纹理)、atlas(图集)、spine(骨骼动画)、loading(加载状态)、callbacks(等待回调)。
+ *   - CacheEntry: 本地存储缓存条目，包含blob(base64编码)、mimeType(文件类型)、timestamp(缓存时间戳)。
+ *   - PackInfo: 资源包配置信息，包含文件目录结构和元数据。
+ *   - DecompressResult: 文件解压结果，包含blob(解压后的二进制)、mimeType(文件类型)。
+ */
+
 import { IDBStorage } from "./IDBStorage";
 import { Net } from "./net";
 import { Code, PackInfo, DecompressResult } from "./code";
