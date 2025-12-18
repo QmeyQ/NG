@@ -44,6 +44,14 @@ export class Res {
     // 资源缓存（内存）
     private static _cache: Map<string, any> = new Map();
     
+    // 资源分组信息
+    // key: filePath, value: groupBaseName
+    private static _fileToGroup: Map<string, string> = new Map();
+    // key: groupBaseName, value: GroupInfo
+    private static _groupInfo: Map<string, { type: 'spine' | 'atlas', files: string[] }> = new Map();
+    // 正在加载的组
+    private static _loading: Map<string, Array<(success: boolean) => void>> = new Map();
+
     // 进度信息
     private static _process: number = 0;
     private static _err: number = 0;
@@ -94,7 +102,7 @@ export class Res {
             Res._urlReject = reject;
         });
         
-        // 下载并解析（支持缓存）
+        // 下载并解析，使用持久化存储缓存
         Res._downloadAndParse(url, force, onComplete);
     }
 
@@ -148,6 +156,16 @@ export class Res {
             return null;
         }
         
+        // 优先检查是否直接请求资源组
+        if (Res._groupInfo.has(path)) {
+             if (callback) {
+                 Res._getResourceAsync(path, callback, (err) => callback(null));
+                 return;
+             } else {
+                 return Res._getResourceSync(path);
+             }
+        }
+        
         const paths = Res._parsePath(path);
         const suffix = type === 'blob' ? '|blob' : '';
         
@@ -156,6 +174,15 @@ export class Res {
             if (paths.length === 0) {
                 callback(null);
                 return;
+            }
+            
+            // 检查是否所有文件属于同一个组（例如请求的是目录，且目录下是Spine/Atlas组）
+            if (paths.length > 1) {
+                const firstGroup = Res._fileToGroup.get(paths[0]);
+                if (firstGroup && paths.every(p => Res._fileToGroup.get(p) === firstGroup)) {
+                    Res._getResourceAsync(firstGroup, callback, (err) => callback(null));
+                    return;
+                }
             }
             
             // 如果只有一个文件，直接返回该资源
@@ -195,6 +222,14 @@ export class Res {
         } else {
             // 同步模式：直接从缓存中获取
             if (paths.length === 0) return null;
+
+            // 检查是否所有文件属于同一个组
+            if (paths.length > 1) {
+                const firstGroup = Res._fileToGroup.get(paths[0]);
+                if (firstGroup && paths.every(p => Res._fileToGroup.get(p) === firstGroup)) {
+                    return Res._getResourceSync(firstGroup);
+                }
+            }
 
             if (paths.length === 1) {
                 const resource = Res._getResourceSync(paths[0]);
@@ -328,6 +363,144 @@ export class Res {
 
     // ==================== 私有方法 ====================
 
+    /**
+     * 分析资源，建立分组信息
+     */
+    private static _analyzeResources(): void {
+        Res._fileToGroup.clear();
+        Res._groupInfo.clear();
+        
+        const allFiles = Res._getAllFiles();
+        const potentialGroups: Map<string, string[]> = new Map();
+
+        // 1. 按目录+文件名(无后缀)分组
+        allFiles.forEach(file => {
+            const lastDot = file.lastIndexOf('.');
+            if (lastDot === -1) return;
+            const baseName = file.substring(0, lastDot);
+            
+            if (!potentialGroups.has(baseName)) {
+                potentialGroups.set(baseName, []);
+            }
+            potentialGroups.get(baseName)!.push(file);
+        });
+
+        // 2. 识别 Spine 和 Atlas
+        potentialGroups.forEach((files, baseName) => {
+            const hasPng = files.some(f => f.endsWith('.png') || f.endsWith('.jpg'));
+            const hasAtlas = files.some(f => f.endsWith('.atlas'));
+            const hasSkel = files.some(f => f.endsWith('.skel') || f.endsWith('.sk') || f.endsWith('.json'));
+
+            if (hasPng && hasAtlas) {
+                let type: 'spine' | 'atlas' = 'atlas';
+                if (hasSkel) {
+                    type = 'spine';
+                }
+                
+                Res._groupInfo.set(baseName, { type, files });
+                
+                files.forEach(f => {
+                    Res._fileToGroup.set(f, baseName);
+                });
+            }
+        });
+        
+        console.log(`[Res] 资源分析完成: 发现 ${Res._groupInfo.size} 个资源组`);
+    }
+
+    /**
+     * 加载资源组
+     */
+    private static _loadGroup(groupName: string, callback: (success: boolean) => void): void {
+        // 检查是否正在加载
+        if (Res._loading.has(groupName)) {
+            Res._loading.get(groupName)!.push(callback);
+            return;
+        }
+
+        const info = Res._groupInfo.get(groupName);
+        if (!info) {
+            callback(false);
+            return;
+        }
+
+        Res._loading.set(groupName, [callback]);
+
+        const notify = (success: boolean) => {
+            const callbacks = Res._loading.get(groupName);
+            Res._loading.delete(groupName);
+            if (callbacks) {
+                callbacks.forEach(cb => cb(success));
+            }
+        };
+
+        // 加载组内所有文件
+        let completed = 0;
+        let hasError = false;
+        const blobs: Map<string, Blob> = new Map();
+
+        const checkComplete = () => {
+            if (completed < info.files.length) return;
+
+            if (hasError) {
+                notify(false);
+                return;
+            }
+
+            // 所有文件加载完成，创建资源
+            const lastSlash = groupName.lastIndexOf('/');
+            const dirPath = lastSlash !== -1 ? groupName.substring(0, lastSlash) : '';
+            const baseName = groupName.substring(lastSlash + 1);
+
+            if (info.type === 'spine') {
+                const pngFile = info.files.find(f => f.endsWith('.png') || f.endsWith('.jpg'));
+                const atlasFile = info.files.find(f => f.endsWith('.atlas'));
+                const skFile = info.files.find(f => f.endsWith('.skel') || f.endsWith('.sk') || f.endsWith('.json'));
+
+                if (pngFile && atlasFile && skFile) {
+                    Res._createSpineAndCache(
+                        blobs.get(pngFile)!,
+                        blobs.get(atlasFile)!,
+                        blobs.get(skFile)!,
+                        dirPath,
+                        baseName,
+                        notify
+                    );
+                } else {
+                    notify(false);
+                }
+            } else {
+                // Atlas
+                const pngFile = info.files.find(f => f.endsWith('.png') || f.endsWith('.jpg'));
+                const atlasFile = info.files.find(f => f.endsWith('.atlas'));
+                
+                if (pngFile && atlasFile) {
+                    Res._createAtlasAndCache(
+                        blobs.get(pngFile)!,
+                        blobs.get(atlasFile)!,
+                        dirPath,
+                        baseName,
+                        notify
+                    );
+                } else {
+                    notify(false);
+                }
+            }
+        };
+
+        info.files.forEach(file => {
+             Res._getFileBlob(file, (blob) => {
+                 blobs.set(file, blob);
+                 completed++;
+                 checkComplete();
+             }, () => {
+                 hasError = true;
+                 completed++;
+                 checkComplete();
+             });
+        });
+    }
+
     private static _downloadAndParse(url: string, force: boolean, onComplete?: (info: PackInfo) => void): void {
         Res._executeDownload(url, force, onComplete);
     }
@@ -336,6 +509,7 @@ export class Res {
         Res._net.download(url, {
             key: `res_file_${url}`,
             force: force,
+            cache: true,
             onProgress: (percent: number, speed: number, loaded: number, total: number) => {
                 Res.onDownloadProgress(url, percent, speed, loaded, total);
             },
@@ -355,6 +529,7 @@ export class Res {
                     blob,
                     (packInfo: PackInfo) => {
                         Res._packInfo = packInfo;
+                        Res._analyzeResources();
                         
                         console.log('包信息已解析');
                         if (onComplete) onComplete(packInfo);
@@ -473,7 +648,12 @@ export class Res {
         // 加载资源到缓存
         Res._loadResourceToCache(filePath, (success: boolean) => {
             if (success) {
-                onSuccess(Res._cache.get(filePath)!);
+                const res = Res._cache.get(filePath);
+                if (res) {
+                    onSuccess(res);
+                } else {
+                    onError(`资源加载成功但未找到: ${filePath}`);
+                }
             } else {
                 onError(`加载资源失败: ${filePath}`);
             }
@@ -484,6 +664,20 @@ export class Res {
      * 加载资源到缓存（核心方法）
      */
     private static _loadResourceToCache(filePath: string, callback: (success: boolean) => void): void {
+        // 1. Check if it's a group key
+        if (Res._groupInfo.has(filePath)) {
+            Res._loadGroup(filePath, callback);
+            return;
+        }
+
+        // 2. Check if it's a file in a group
+        const groupName = Res._fileToGroup.get(filePath);
+        if (groupName) {
+            Res._loadGroup(groupName, callback);
+            return;
+        }
+
+        // 3. Normal file load
         // 直接从包中解压，不使用持久化存储
         Code.decompressFileByName(
             Res._packBlob!,
@@ -678,7 +872,9 @@ export class Res {
                     
                     // 缓存整个资源组
                     Res._cache.set(`${dirPath}/${baseName}.png`, texture);
+                    Res._cache.set(`${dirPath}/${baseName}.png|blob`, pngBlob);
                     Res._cache.set(`${dirPath}/${baseName}.atlas`, atlasBlob);
+                    Res._cache.set(`${dirPath}/${baseName}.atlas|blob`, atlasBlob);
                     Res._cache.set(`${dirPath}/${baseName}`, atlasResource);
                     
                     callback(true);
@@ -814,17 +1010,20 @@ private static _createSpineAndCache(
                     Res._cache.set(cacheKey, templet);
                     
                     // 缓存原始数据
-                    Res._cache.set(`${dirPath}/${baseName}.png`, pngBlob);
+                    Res._cache.set(`${dirPath}/${baseName}.png|blob`, pngBlob);
                     Res._cache.set(`${dirPath}/${baseName}.atlas`, atlasBlob);
+                    Res._cache.set(`${dirPath}/${baseName}.atlas|blob`, atlasBlob);
                     
                     // 根据文件类型确定缓存键
                     const skFileName = skBlob.type.includes('skel') || 
                                      (skBlob as any).name?.endsWith('.skel') ? 
                                      `${baseName}.skel` : `${baseName}.json`;
                     Res._cache.set(`${dirPath}/${skFileName}`, skBlob);
+                    Res._cache.set(`${dirPath}/${skFileName}|blob`, skBlob);
                     
                     // 同时缓存纹理
                     if (res.length > 0 && res[0]) {
+                        Res._cache.set(`${dirPath}/${baseName}.png`, res[0]);
                         Res._cache.set(`${dirPath}/${baseName}_texture`, res[0]);
                     }
                     
