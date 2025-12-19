@@ -13,7 +13,9 @@
     {
       "_$type": "e8a95ca0-651f-48bc-b47e-0f93d6b7f3c3",
       "scriptPath": "../src/NewScript.ts",
-      "Sprite": null,
+      "Sprite": {
+        "_$ref": "cr374emg"
+      },
       "linyueru": null
     }
   ],

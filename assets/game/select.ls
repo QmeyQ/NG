@@ -28,6 +28,12 @@
       "catimg": {
         "_$ref": "5gssj6qc"
       },
+      "sprite": {
+        "_$ref": "hfj770qg"
+      },
+      "catg": {
+        "_$ref": "m1fg33xz"
+      },
       "text": ""
     }
   ],
@@ -196,6 +202,7 @@
             },
             {
               "_$id": "hfj770qg",
+              "_$var": true,
               "_$type": "Sprite",
               "name": "Sprite",
               "width": 0,
@@ -217,6 +224,29 @@
       "anchorY": 0.5261579371928113,
       "isMain": true,
       "positionSpeed": null
+    },
+    {
+      "_$id": "m1fg33xz",
+      "_$var": true,
+      "_$type": "Sprite",
+      "name": "catgirl",
+      "x": 791,
+      "y": 1220,
+      "width": 3724,
+      "height": 3724,
+      "anchorX": 0.538,
+      "anchorY": 0.569,
+      "_$comp": [
+        {
+          "_$type": "Spine2DRenderNode",
+          "layer": 0,
+          "source": "res://c7386572-8b1d-4a44-8642-649c8841135f",
+          "animationName": "attack",
+          "preview": true,
+          "physicsUpdate": 2,
+          "premultipliedAlpha": true
+        }
+      ]
     }
   ]
 }

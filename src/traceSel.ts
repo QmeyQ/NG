@@ -14,10 +14,14 @@ export class traceSel extends Laya.Script {
 
     @property(Image)
     catimg: Laya.Image;
+    @property(Laya.Sprite)
+    sprite: Laya.Sprite;
+    @property(Laya.Sprite)
+    catg: Laya.Sprite;
     onStart() {
 
-
-        console.log("Res.get('card') result:", Res.get("card"));
+        console.log("catg:", this.catg);
+        console.log("Res.get('catgirl') result:", Res.get("catgirl/catgirl"));
         
         // 注意：根据资源包结构，catgirl 在 catgril 目录下
         // 尝试获取 catgirl 资源组 (自动识别为Spine动画模板)
@@ -29,6 +33,11 @@ export class traceSel extends Laya.Script {
             if (catgirlRes instanceof Laya.SpineTemplet) {
                  // 这里演示获取资源，实际使用可能需要创建 skeleton
                  console.log("获取到 SpineTemplet:", catgirlRes);
+                 // SpineTemplet 不能直接 addComponent，需先创建 Skeleton 并加载模板
+                 const sk = new Laya.Spine2DRenderNode();
+                 this.sprite.addComponentInstance(sk);
+                 sk.templet = catgirlRes as Laya.SpineTemplet;
+                sk.animationName = sk.templet.skeletonData.animations[0].name;
                  // 也可以获取纹理 (指定 'auto' 类型以获取 Texture，否则默认返回 Blob)
                  const tex = Res.get("catgirl/catgirl.png", "auto");
                  if (tex instanceof Laya.Texture) {
