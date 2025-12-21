@@ -265,7 +265,7 @@ export class TimeManager {
      * 启动定期时间校准
      */
     private startPeriodicCalibration(): void {
-        this.intervalId = this.setInterval(this.calibrationInterval, this.calibrate);
+        this.intervalId = this.setInterval(this.calibrationInterval, () => this.calibrate());
         // 立即进行首次校准
         this.calibrate();
     }

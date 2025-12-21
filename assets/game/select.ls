@@ -15,11 +15,25 @@
       "layer": 0,
       "color": {
         "_$type": "Color"
+      },
+      "tilingOffset": {
+        "_$type": "Vector4",
+        "z": 1,
+        "w": 1
       }
     },
     {
       "_$type": "ba889597-8353-4021-a309-62447c89d901",
       "scriptPath": "../src/traceSel.ts",
+      "catimg": {
+        "_$ref": "5gssj6qc"
+      },
+      "sprite": {
+        "_$ref": "hfj770qg"
+      },
+      "catg": {
+        "_$ref": "m1fg33xz"
+      },
       "text": ""
     }
   ],
@@ -133,7 +147,6 @@
               "scaleY": 1.5,
               "left": 98,
               "top": 111,
-              "skin": "resources/UI/images/bag/12.png",
               "color": "#ffffff"
             },
             {
@@ -188,117 +201,11 @@
             },
             {
               "_$id": "hfj770qg",
+              "_$var": true,
               "_$type": "Sprite",
               "name": "Sprite",
               "width": 0,
               "height": 0
-            }
-          ]
-        },
-        {
-          "_$id": "7o4iyr1u",
-          "_$type": "Sprite",
-          "name": "Sprite",
-          "x": 585,
-          "y": 1500,
-          "width": 3000,
-          "height": 3000,
-          "anchorX": 0.5,
-          "anchorY": 0.5,
-          "_$comp": [
-            {
-              "_$id": "mhek",
-              "_$type": "StaticCollider",
-              "shapes": [
-                {
-                  "_$type": "BoxShape2D",
-                  "x": 0,
-                  "y": 0,
-                  "density": 10,
-                  "restitution": 0,
-                  "restitutionThreshold": 1,
-                  "friction": 0.2,
-                  "width": 942.0000000000002,
-                  "height": 942.0000000000017
-                },
-                {
-                  "_$type": "BoxShape2D",
-                  "x": 2054.0000000000005,
-                  "y": 2.0000000000378897,
-                  "density": 10,
-                  "restitution": 0,
-                  "restitutionThreshold": 1,
-                  "friction": 0.2,
-                  "width": 943.0000000000006,
-                  "height": 935.9999999999818
-                },
-                {
-                  "_$type": "BoxShape2D",
-                  "x": 0,
-                  "y": 0,
-                  "density": 10,
-                  "restitution": 0,
-                  "restitutionThreshold": 1,
-                  "friction": 0.2,
-                  "width": 2999.0000000000005,
-                  "height": 718.0000000000009
-                },
-                {
-                  "_$type": "BoxShape2D",
-                  "x": 1.000000000003109,
-                  "y": 2294.000000000003,
-                  "density": 10,
-                  "restitution": 0,
-                  "restitutionThreshold": 1,
-                  "friction": 0.2,
-                  "width": 2997.000000000001,
-                  "height": 365.999999999999
-                },
-                {
-                  "_$type": "BoxShape2D",
-                  "x": 4.000000000004821,
-                  "y": 2044.9999999999995,
-                  "density": 10,
-                  "restitution": 0,
-                  "restitutionThreshold": 1,
-                  "friction": 0.2,
-                  "width": 940.999999999999,
-                  "height": 606.9999999999987
-                },
-                {
-                  "_$type": "BoxShape2D",
-                  "x": 2053.000000000001,
-                  "y": 2052.0000000000023,
-                  "density": 10,
-                  "restitution": 0,
-                  "restitutionThreshold": 1,
-                  "friction": 0.2,
-                  "width": 948.0000000000015,
-                  "height": 725.9999999999993
-                },
-                {
-                  "_$type": "BoxShape2D",
-                  "x": 0,
-                  "y": 0,
-                  "density": 10,
-                  "restitution": 0,
-                  "restitutionThreshold": 1,
-                  "friction": 0.2,
-                  "width": 726.000000000002,
-                  "height": 2968
-                },
-                {
-                  "_$type": "BoxShape2D",
-                  "x": 2275.0000000000005,
-                  "y": 622.999999999999,
-                  "density": 10,
-                  "restitution": 0,
-                  "restitutionThreshold": 1,
-                  "friction": 0.2,
-                  "width": 721.999999999999,
-                  "height": 1756
-                }
-              ]
             }
           ]
         }
@@ -316,6 +223,29 @@
       "anchorY": 0.5261579371928113,
       "isMain": true,
       "positionSpeed": null
+    },
+    {
+      "_$id": "m1fg33xz",
+      "_$var": true,
+      "_$type": "Sprite",
+      "name": "catgirl",
+      "x": 791,
+      "y": 1220,
+      "width": 3724,
+      "height": 3724,
+      "anchorX": 0.538,
+      "anchorY": 0.569,
+      "_$comp": [
+        {
+          "_$type": "Spine2DRenderNode",
+          "layer": 0,
+          "source": "res://c7386572-8b1d-4a44-8642-649c8841135f",
+          "animationName": "attack",
+          "preview": true,
+          "physicsUpdate": 2,
+          "premultipliedAlpha": true
+        }
+      ]
     }
   ]
 }
