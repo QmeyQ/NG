@@ -1,5 +1,123 @@
-/**net.ts
- * 优化版本：增强断点续传、进度追踪和下载管理
+/**
+ * Net - 网络管理器，处理WebSocket连接和文件下载（支持断点续传）
+ * 
+ * 核心功能：
+ * 1. WebSocket实时通信 - 连接管理、心跳检测、自动重连
+ * 2. 增强下载系统 - 支持断点续传、多任务并发、进度追踪
+ * 3. 缓存管理 - IndexedDB存储、缓存控制、断点数据持久化
+ * 
+ * 使用示例：
+ * 1. 网络连接：new Net(url, pingInterval).connect(callback)
+ * 2. 文件下载：net.download(url, {key: 'uniqueKey', onProgress, onComplete})
+ * 3. 缓存操作：net.cacheGet(key, callback)
+ * 4. 断点控制：net.pauseDownload(key)/resumeDownload(key)
+ * 
+ * 主要方法：
+ * - connect(callback, url): 连接到WebSocket服务器
+ * - disconnect(code, reason): 断开连接
+ * - send(type, data): 发送消息
+ * - download(url, options): 下载文件（支持断点续传）
+ * - pauseDownload(key): 暂停指定下载任务
+ * - resumeDownload(key): 恢复指定下载任务
+ * - pauseAllDownloads(): 暂停所有下载任务
+ * - resumeAllDownloads(): 恢复所有下载任务
+ * - clearDownloadQueue(): 清除下载队列
+ * - cacheGet(key, callback): 从缓存获取文件
+ * - cacheClear(callback): 清除所有缓存
+ * - cacheRemove(key, callback): 移除指定缓存
+ * - cacheInfo(callback): 获取缓存信息
+ * - on(event, callback): 注册事件监听器
+ * - off(event, callback): 移除事件监听器
+ * - sendP2P(targetId, data): 发送点对点消息
+ * - join(roomId): 加入房间
+ * - leave(): 离开房间
+ * - zoneUpdate(rect, layout): 更新区域信息
+ * - zoneRemove(rect): 移除区域
+ * - zoneQuery(rect): 查询区域
+ * - isConnected(): 检查连接状态
+ * - getId(): 获取客户端ID
+ * - getRoom(): 获取房间ID
+ * - destroy(): 销毁实例，清理资源
+ * 
+ * 下载选项：
+ * - key: 唯一标识符，用于断点续传和缓存
+ * - force: 是否强制重新下载
+ * - cache: 是否缓存结果
+ * - onProgress(percent, speed, loaded, total): 进度回调
+ * - onComplete(blob, fromCache): 完成回调
+ * - onError(error): 错误回调
+ * 
+ * 下载状态：
+ * - pending: 等待中
+ * - downloading: 下载中
+ * - paused: 已暂停
+ * - completed: 已完成
+ * - error: 错误
+ * - cancelled: 已取消
+ * 
+ * 事件系统：
+ * - connect: 连接成功
+ * - close: 连接关闭
+ * - error: 错误发生
+ * - message: 接收到消息
+ * - reconnect: 重连尝试
+ * - downloadProgress: 下载进度更新
+ * - downloadComplete: 下载完成
+ * - downloadError: 下载错误
+ * - downloadPaused: 下载暂停
+ * 
+ * 内部模块：
+ * - IDBStorage: IndexedDB存储管理
+ * - TimeManager: 定时器管理
+ * - ResumableData: 断点续传数据结构
+ * - DownloadTask: 下载任务管理
+ * 
+ * 断点续传机制：
+ * 1. 通过Range请求头实现分块下载
+ * 2. 下载进度定期保存到IndexedDB
+ * 3. 断网重连后自动恢复下载
+ * 4. 文件校验和完整性检查
+ * 
+ * 并发控制：
+ * - maxConcurrent: 最大并发下载数（默认3）
+ * - downloadQueue: 等待队列管理
+ * - activeDownloads: 活跃任务集合
+ * 
+ * 重试机制：
+ * - maxRetries: 最大重试次数（默认3）
+ * - exponential backoff: 指数退避重连
+ * - timeout: 请求超时时间（默认60秒）
+ * 
+ * 心跳检测：
+ * - pingInterval: 心跳间隔（默认30秒）
+ * - 自动检测连接状态
+ * - 断线自动重连
+ * 
+ * 属性说明：
+ * - storage: IDBStorage实例，用于文件缓存
+ * - url: WebSocket服务器地址
+ * - ws: WebSocket连接实例
+ * - connected: 连接状态
+ * - clientId: 客户端唯一标识
+ * - roomId: 当前房间ID
+ * - events: 事件监听器集合
+ * - downloadTasks: 下载任务映射表
+ * - activeDownloads: 活跃下载集合
+ * - maxConcurrent: 最大并发下载数
+ * - timeManager: 定时器管理器
+ * 
+ * 消息类型常量：
+ * - CONNECTED: 0 - 连接确认
+ * - JOIN_ROOM: 1 - 加入房间
+ * - LEAVE_ROOM: 2 - 离开房间
+ * - MESSAGE: 3 - 普通消息
+ * - ZONE_UPDATE: 4 - 区域更新
+ * - ZONE_REMOVE: 5 - 区域移除
+ * - ZONE_QUERY: 6 - 区域查询
+ * - ZONE_RESULT: 7 - 区域查询结果
+ * - PING: 8 - 心跳请求
+ * - PONG: 9 - 心跳响应
+ * - ERROR: 10 - 错误消息
  */
 
 import { IDBStorage } from "./IDBStorage";

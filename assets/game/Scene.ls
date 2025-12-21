@@ -62,23 +62,24 @@
       ]
     },
     {
-      "_$id": "1y2a6a51",
+      "_$id": "qtx6ne2o",
       "_$type": "Sprite",
-      "name": "catgirl",
-      "x": 211,
-      "y": 1886,
-      "width": 3724,
-      "height": 3724,
-      "anchorX": 0.538,
-      "anchorY": 0.569,
+      "name": "role",
+      "x": 57,
+      "y": 558,
+      "width": 131,
+      "height": 180,
+      "anchorX": 0.6419593204844977,
+      "anchorY": 0.9333592491808741,
       "_$comp": [
         {
           "_$type": "Spine2DRenderNode",
           "layer": 0,
-          "source": "res://c7386572-8b1d-4a44-8642-649c8841135f",
-          "animationName": "stand",
+          "source": "res://6e07a4b7-3dc7-4bbb-b2d1-1020455ab6dc",
+          "animationName": "attack",
           "preview": true,
           "physicsUpdate": 2,
+          "autoAdjust": true,
           "premultipliedAlpha": true
         }
       ]
