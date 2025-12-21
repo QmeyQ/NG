@@ -41,12 +41,18 @@ export class NewScript extends Laya.Script {
             });
         });
         (async () => {
-                const sk = await dl('http://normalgame.cn/1/linyueru.json');
-                const at = await dl('http://normalgame.cn/1/linyueru.atlas');
-                const img = await dl('http://normalgame.cn/1/linyueru.png');
-                console.log(img, sk, at);
-                Res.lo(img, at, sk, (temp) => {
-                    console.log(temp);
+                // const sk = await dl('http://normalgame.cn/1/linyueru.json');
+                // const at = await dl('http://normalgame.cn/1/linyueru.atlas');
+                // const img = await dl('http://normalgame.cn/1/linyueru.png');
+                // console.log(img, sk, at);
+                console.log("jwzlziyr");
+                Res.url("http://normalgame.cn/res.res", (res:any)=>{
+            console.log(res)
+            Res.downRes((suc, err, total) => {
+                console.log("下载资源成功", suc, err, total);
+                 Res.downRes((suc, err, total) => {
+                    console.log('downRes', suc, err, total);
+                const temp = Res.get("catgirl/catgirl") as Laya.SpineTemplet;
                 console.log(this.linyueru)
                 this.skeleton = new Laya.Spine2DRenderNode();
                 
@@ -59,6 +65,9 @@ export class NewScript extends Laya.Script {
                 this.skeleton.useFastRender = false;
                 this.play();
                 });
+            });
+        })
+               
         })();
         });
     }

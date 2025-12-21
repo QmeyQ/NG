@@ -13,7 +13,9 @@
     {
       "_$type": "e8a95ca0-651f-48bc-b47e-0f93d6b7f3c3",
       "scriptPath": "../src/NewScript.ts",
-      "Sprite": null,
+      "Sprite": {
+        "_$ref": "cr374emg"
+      },
       "linyueru": null
     }
   ],
@@ -55,6 +57,29 @@
           "animationName": "death",
           "preview": true,
           "physicsUpdate": 2,
+          "premultipliedAlpha": true
+        }
+      ]
+    },
+    {
+      "_$id": "qtx6ne2o",
+      "_$type": "Sprite",
+      "name": "role",
+      "x": 57,
+      "y": 558,
+      "width": 131,
+      "height": 180,
+      "anchorX": 0.6419593204844977,
+      "anchorY": 0.9333592491808741,
+      "_$comp": [
+        {
+          "_$type": "Spine2DRenderNode",
+          "layer": 0,
+          "source": "res://6e07a4b7-3dc7-4bbb-b2d1-1020455ab6dc",
+          "animationName": "attack",
+          "preview": true,
+          "physicsUpdate": 2,
+          "autoAdjust": true,
           "premultipliedAlpha": true
         }
       ]

@@ -11,14 +11,53 @@ export class traceSel extends Laya.Script {
     private timer: TimeManager;
     private bagList: Laya.List;
     private lastIndex: number = -1;
-    private res: Res;
+
+    @property(Image)
+    catimg: Laya.Image;
+    @property(Laya.Sprite)
+    sprite: Laya.Sprite;
+    @property(Laya.Sprite)
+    catg: Laya.Sprite;
     onStart() {
-        console.log(Res.get("card", "catgirl"));
-        console.log(Res._textureCache);
-        //列举attrbute下的所有key并以{name:key}的形式存储
-        console.log("attribute" + Res.getList().attribute["catgirl"]);
-        console.log(Res.getList().attribute);
-        let attributeKeys = Object.keys(Res.getList().attribute).map(key => ({ name: Res.getList().attribute[key].name, hero: Res.get("card", key) }));
+
+        console.log("catg:", this.catg);
+        console.log("Res.get('catgirl') result:", Res.get("catgirl/catgirl"));
+        
+        // 注意：根据资源包结构，catgirl 在 catgril 目录下
+        // 尝试获取 catgirl 资源组 (自动识别为Spine动画模板)
+        const catgirlRes = Res.get("catgirl/catgirl");
+        console.log("Res.get('catgirl/catgirl') result:", catgirlRes);
+        
+        if (catgirlRes) {
+            // 如果返回的是 SpineTemplet (因为识别为资源组)
+            if (catgirlRes instanceof Laya.SpineTemplet) {
+                 // 这里演示获取资源，实际使用可能需要创建 skeleton
+                 console.log("获取到 SpineTemplet:", catgirlRes);
+                 // SpineTemplet 不能直接 addComponent，需先创建 Skeleton 并加载模板
+                 const sk = new Laya.Spine2DRenderNode();
+                 this.sprite.addComponentInstance(sk);
+                 sk.templet = catgirlRes as Laya.SpineTemplet;
+                sk.animationName = sk.templet.skeletonData.animations[0].name;
+                 // 也可以获取纹理 (指定 'auto' 类型以获取 Texture，否则默认返回 Blob)
+                 const tex = Res.get("catgirl/catgirl.png", "auto");
+                 if (tex instanceof Laya.Texture) {
+                     this.catimg.texture = tex;
+                 }
+            }
+            // 兼容旧逻辑
+            else if (catgirlRes["catgirl.png"]) {
+                this.catimg.texture = catgirlRes["catgirl.png"] as Laya.Texture;
+            } 
+            else if (catgirlRes instanceof Laya.Texture) {
+                this.catimg.texture = catgirlRes;
+            }
+        } else {
+            console.warn("未找到 catgirl 资源");
+        }
+        
+        return;
+
+        let attributeKeys = Object.keys(Res.getList().attribute).map(key => ({ name: Res.getList().attribute[key].name, hero: Res.get("card/" + key) }));
         console.log(attributeKeys);
 
         const jsonPath = "resources/UI/json/bag.json";
@@ -41,9 +80,10 @@ export class traceSel extends Laya.Script {
         this.timer = new TimeManager();
 
         // 初始化游戏管理器
-        //this.initializeGameManager();
+        this.initializeGameManager();
 
         // 加载游戏资源
+        
     }
 
     /** 列表单元的渲染处理 */
@@ -119,7 +159,7 @@ export class traceSel extends Laya.Script {
         this.setupGameCallbacks();
 
         // 初始化游戏场景
-        this.initializeGameScene();
+        //this.initializeGameScene();
     }
 
     /** 设置游戏回调 */
