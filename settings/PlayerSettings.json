@@ -4,17 +4,8 @@
     "designHeight": 2532,
     "scaleMode": "fixedwidth"
   },
-  "light2D": {
-    "lightDirection": {},
-    "ambientColor": {}
-  },
-  "3D": {
-    "lightClusterCount": {}
-  },
-  "physics2D": {
-    "defaultConfig": {
-      "gravity": {}
-    }
+  "2D": {
+    "FPS": 120
   },
   "UI": {
     "alwaysIncludeDefaultSkin": false
@@ -23,9 +14,14 @@
     "laya.ui": true,
     "laya.d3": true,
     "laya.physics2D": true,
+    "laya.physics3D": true,
     "laya.legacyParser": true,
     "laya.blueprint": true,
-    "laya.spine": true
+    "laya.spine": true,
+    "laya.ik": true
+  },
+  "addons": {
+    "laya.ui": "both"
   },
   "splash": {
     "enabled": false,

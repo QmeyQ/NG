@@ -1,0 +1,15 @@
+{
+  "name": "layaproject",
+  "version": "1.0.0",
+  "description": "",
+  "license": "ISC",
+  "author": "",
+  "type": "commonjs",
+  "main": "debug_decompress.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "dependencies": {
+    "gl-matrix": "^3.4.4"
+  }
+}

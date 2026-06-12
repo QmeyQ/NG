@@ -1,0 +1,10 @@
+{
+  "camera": {
+    "fieldOfView": 62,
+    "nearPlane": 0.01,
+    "zoomSpeed": 0.1,
+    "transformSpeed": 0.1,
+    "showPostProcess": true,
+    "depthTexture": true
+  }
+}

@@ -1,0 +1,173 @@
+{
+  "_$type": "Animator",
+  "enabled": true,
+  "path": "",
+  "cullingMode": 2,
+  "controllerLayers": [
+    {
+      "name": "Base Layer",
+      "states": [
+        {
+          "x": -105.30014792754974,
+          "y": -4.90456088766043,
+          "id": "-1",
+          "name": "进入",
+          "nexts": [],
+          "soloTransitions": [
+            {
+              "id": "0",
+              "exitByTime": true,
+              "transduration": 0.15,
+              "exitTime": 0.85
+            }
+          ]
+        },
+        {
+          "y": 278.6728899637593,
+          "id": "-2",
+          "name": "任何状态",
+          "x": -3.205409424038862,
+          "soloTransitions": [
+            {
+              "id": "6"
+            },
+            {
+              "id": "5"
+            },
+            {
+              "id": "3"
+            }
+          ]
+        },
+        {
+          "x": 50.368943445569485,
+          "y": -69.1441444564444,
+          "loopState": 0,
+          "_isLooping": 0,
+          "id": "0",
+          "name": "diving",
+          "speed": 1,
+          "clipEnd": 1,
+          "clip": {
+            "_$uuid": "d719ff85-d301-4312-9fda-2824ceb07d75@lani0"
+          }
+        },
+        {
+          "x": 227.90121947401144,
+          "y": -79.42232809186176,
+          "loopState": 0,
+          "_isLooping": 0,
+          "id": "1",
+          "name": "highhit",
+          "speed": 1,
+          "clipEnd": 1,
+          "clip": {
+            "_$uuid": "d719ff85-d301-4312-9fda-2824ceb07d75@lani2"
+          },
+          "soloTransitions": [
+            {
+              "id": "0"
+            }
+          ]
+        },
+        {
+          "x": 245.65444707685566,
+          "y": 34.57207222822219,
+          "loopState": 0,
+          "_isLooping": 0,
+          "id": "2",
+          "name": "hightoo",
+          "speed": 1,
+          "clipEnd": 1,
+          "clip": {
+            "_$uuid": "d719ff85-d301-4312-9fda-2824ceb07d75@lani3"
+          },
+          "soloTransitions": [
+            {
+              "id": "1"
+            }
+          ]
+        },
+        {
+          "x": 174.64153666547884,
+          "y": 132.68200692993378,
+          "loopState": 0,
+          "_isLooping": 0,
+          "id": "3",
+          "name": "lefthit",
+          "speed": 1,
+          "clipEnd": 1,
+          "clip": {
+            "_$uuid": "d719ff85-d301-4312-9fda-2824ceb07d75@lani4"
+          },
+          "soloTransitions": [
+            {
+              "id": "2"
+            }
+          ]
+        },
+        {
+          "x": 13.928107839731382,
+          "y": 76.61918710038428,
+          "loopState": 0,
+          "_isLooping": 0,
+          "id": "4",
+          "name": "down",
+          "speed": 1,
+          "clipEnd": 1,
+          "clip": {
+            "_$uuid": "d719ff85-d301-4312-9fda-2824ceb07d75@lani5"
+          },
+          "soloTransitions": [
+            {
+              "id": "3"
+            }
+          ]
+        },
+        {
+          "x": -127.16333258287248,
+          "y": 132.68200692993378,
+          "loopState": 0,
+          "_isLooping": 0,
+          "id": "5",
+          "name": "runfront",
+          "speed": 1,
+          "clipEnd": 1,
+          "clip": {
+            "_$uuid": "d719ff85-d301-4312-9fda-2824ceb07d75@lani14"
+          },
+          "soloTransitions": [
+            {
+              "id": "4"
+            }
+          ]
+        },
+        {
+          "x": 4.5843038382344545,
+          "y": 154.17275453126115,
+          "loopState": 0,
+          "_isLooping": 0,
+          "id": "6",
+          "name": "idle",
+          "speed": 1,
+          "clipEnd": 1,
+          "clip": {
+            "_$uuid": "d719ff85-d301-4312-9fda-2824ceb07d75@lani15"
+          },
+          "soloTransitions": [
+            {
+              "id": "5"
+            }
+          ]
+        }
+      ],
+      "stageX": 185.81927593453736,
+      "stageY": 145.1391020499732,
+      "stageScale": 0.9894304700809945,
+      "playOnWake": true,
+      "blendingMode": 0,
+      "defaultWeight": 1
+    }
+  ],
+  "layerW": 150
+}

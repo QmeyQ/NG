@@ -1,0 +1,56 @@
+---
+alwaysApply: true
+---
+
+---
+alwaysApply: true
+---
+
+## 命名空间约定
+
+**必须使用 `Laya.` 前缀**访问所有引擎类和静态方法。
+✅ `Laya.Sprite`, `Laya.Handler.create(...)` ❌ `Sprite`, `Handler`
+
+---
+## 入口规范 (Entry.ts)
+
+入口函数结构固定，禁止修改：
+```typescript
+export async function main() { /* 正式初始化逻辑 */ }
+```
+❌ 禁止提交测试代码到 `main` 函数
+
+---
+## 版本与 API 查询
+
+- 查询 API 时附加 `<LAYA_VERSION>` 版本号
+- 迁移时对比 `<LAYA_PRE_VERSION>` → `<LAYA_VERSION>` 的 API 差异
+- 以 MCP 返回的精准文档为准，自我修正幻觉
+
+---
+## UI 系统识别
+
+读取 `settings/PlayerSettings.json` 判断 UI 类型：	
+
+| `addons["laya.ui"]` | 类型 | 约束 |
+|---|---|---|
+| 字段不存在 | classic | 仅用经典 UI（Box/Button/Label 等） |
+| `"both"` | both | 两套均可，同模块保持一致 |
+| `"ui2"` | new | 仅用新 UI (GBox/GButton/GLabel 等) |
+
+---
+## 物理引擎识别
+
+读取 `settings/PlayerSettings.json` 判断物理引擎：
+
+| `physics3dModule` | 引擎 |
+|---|---|
+| 字段存在 | PhysX |
+| 字段不存在 | Bullet |
+
+查询物理 API 时按引擎类型过滤。
+
+---
+## MCP 知识库
+
+LayaAir API 相关问题通过 MCP 查询，需附带版本号、UI 类型、物理引擎类型。

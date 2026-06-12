@@ -84,12 +84,10 @@ export class Game {
             this.logger.warn('updatePlane, playerId:' + gameCmdInfo.playerId + 'not exist');
             return;
         }
-        // @ts-ignore
-        plane.x = gameCmdInfo.x;
-        // @ts-ignore
-        plane.y = gameCmdInfo.y;
-        // @ts-ignore
-        plane.hp = gameCmdInfo.hp;
+        
+        if (gameCmdInfo.x !== undefined) plane.x = gameCmdInfo.x;
+        if (gameCmdInfo.y !== undefined) plane.y = gameCmdInfo.y;
+        if (gameCmdInfo.hp !== undefined) plane.hp = gameCmdInfo.hp;
     }
 
     /**
@@ -102,26 +100,21 @@ export class Game {
             this.logger.warn('updateBullet, playerId:' + gameCmdInfo.playerId + 'not exist');
             return;
         }
-        // @ts-ignore
+
+        if (gameCmdInfo.bulletId === undefined) return;
+
         let bullet = plane.bullets.get(gameCmdInfo.bulletId);
         if (bullet === undefined) {
             const newBullet: Bullet = {
-                // @ts-ignore
                 id: gameCmdInfo.bulletId,
-                // @ts-ignore
-                x: gameCmdInfo.x,
-                // @ts-ignore
-                y: gameCmdInfo.y,
-                // @ts-ignore
-                direction: this.transferDir(gameCmdInfo.direction),
+                x: gameCmdInfo.x ?? 0,
+                y: gameCmdInfo.y ?? 0,
+                direction: this.transferDir(gameCmdInfo.direction ?? Direction.up),
             }
-            // @ts-ignore
             plane.bullets.set(gameCmdInfo.bulletId, newBullet);
         } else {
-            // @ts-ignore
-            bullet.x = gameCmdInfo.x;
-            // @ts-ignore
-            bullet.y = gameCmdInfo.y;
+            if (gameCmdInfo.x !== undefined) bullet.x = gameCmdInfo.x;
+            if (gameCmdInfo.y !== undefined) bullet.y = gameCmdInfo.y;
         }
 
     }
@@ -136,8 +129,9 @@ export class Game {
             this.logger.warn('destroyBullet, playerId:' + gameCmdInfo.playerId + 'not exist');
             return;
         }
-        // @ts-ignore
-        plane.bullets.delete(gameCmdInfo.bulletId);
+        if (gameCmdInfo.bulletId !== undefined) {
+            plane.bullets.delete(gameCmdInfo.bulletId);
+        }
     }
 
     /**

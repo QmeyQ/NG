@@ -168,7 +168,7 @@
           "_$type": "Panel",
           "name": "Panel",
           "x": 45,
-          "y": 1462,
+          "y": 1466,
           "width": 1053,
           "height": 123,
           "mouseThrough": true,
@@ -178,13 +178,10 @@
               "_$id": "nt5ynvys",
               "_$type": "HBox",
               "name": "HBox",
-              "y": 14,
               "width": 1246,
-              "height": 95,
+              "height": 101,
               "_mouseState": 2,
               "mouseThrough": true,
-              "left": 0,
-              "centerY": 0,
               "space": 0,
               "_$child": [
                 {

@@ -715,6 +715,7 @@ declare namespace gui {
         private updateTransform;
         clearBackgroundStyle(): void;
         static addStyles(doc: Document): void;
+        static getStyles(): string;
     }
     const defaultInputPadding: Array<number>;
     type EventType = "pointer_down" | "pointer_up" | "pointer_move" | "click" | "right_click" | "roll_over" | "roll_out" | "mouse_wheel" | "key_down" | "key_up" | "added_to_stage" | "removed_from_stage" | "pos_changed" | "size_changed" | "content_size_changed" | "controllers_changed" | "changed" | "focus_in" | "focus_out" | "drag_start" | "drag_move" | "drag_end" | "drop" | "native_dragstart" | "native_dragover" | "native_dragend" | "native_dragleave" | "native_drop" | "scroll" | "scroll_end" | "pull_down_release" | "pull_up_release" | "click_item" | "click_link" | "submit" | "play_end" | "gear_stop" | "popup" | "loaded" | "instance_reload";
@@ -767,6 +768,7 @@ declare namespace gui {
         commandKey: boolean;
         keyCode: string;
         key: string;
+        repeat: boolean;
         keyTimestamp: number;
         get isDblClick(): boolean;
         get isRightButton(): boolean;
@@ -1199,6 +1201,7 @@ declare namespace gui {
         static AWAKED: number;
         static ENABLED: number;
         static OBSOLUTE: number;
+        static ALWASY_EMIT_MOUSE_MOVE_EVENT: number;
         static ESCAPE_LAYOUT: number;
         static DISABLE_CLIPPING: number;
         static FORCE_HIDDEN: number;
@@ -1402,6 +1405,7 @@ declare namespace gui {
         private _onChanged;
     }
     class DragSupport {
+        enablePointerCapture: boolean;
         private _owner;
         private _dragStartPos;
         private _dragTesting;
@@ -1420,6 +1424,7 @@ declare namespace gui {
         private _modalWaitPane;
         private _inputMgr;
         private _popupMgr;
+        private _margin;
         static get inst(): GRoot;
         static getInst(w: Widget): GRoot;
         constructor(ownerWindow: globalThis.Window);
@@ -1429,6 +1434,9 @@ declare namespace gui {
         get pointerPos(): Vec2;
         getPointerPos(pointerId?: number, out?: Vec2): Vec2;
         get popupMgr(): PopupManager;
+        get margin(): number[];
+        set margin(value: number[]);
+        private onWinResize;
         showWindow(win: Window): void;
         hideWindow(win: Window): void;
         hideWindowImmediately(win: Window): void;
@@ -1492,6 +1500,8 @@ declare namespace gui {
         set mouseWheelDisabled(value: boolean);
         get decelerationRate(): number;
         set decelerationRate(value: number);
+        get fixedGripSize(): boolean;
+        set fixedGripSize(value: boolean);
         get percX(): number;
         set percX(value: number);
         setPercX(value: number, ani?: boolean): void;
@@ -1734,8 +1744,6 @@ declare namespace gui {
         private _value;
         private _titleType;
         private _reverse;
-        private _barMaxWidth;
-        private _barMaxHeight;
         private _barMaxWidthDelta;
         private _barMaxHeightDelta;
         private _barStartX;
@@ -1749,11 +1757,18 @@ declare namespace gui {
         set max(value: number);
         get value(): number;
         set value(value: number);
+        get hBar(): Widget;
+        set hBar(value: Widget);
+        get vBar(): Widget;
+        set vBar(value: Widget);
+        get titleWidget(): Widget;
+        set titleWidget(value: Widget);
+        get reverse(): boolean;
+        set reverse(value: boolean);
         tweenValue(value: number, duration: number): Tweener;
-        update(newValue: number): void;
+        update(newValue: number, delay?: boolean): void;
         private updateTitle;
         private setFillAmount;
-        _setup(hBar: Widget, vBar: Widget, titleWidget: Widget, reverse: boolean): void;
         protected _sizeChanged(): void;
     }
     class Relation {
@@ -1783,16 +1798,17 @@ declare namespace gui {
         private instReload;
     }
     class ScrollBar extends Widget {
-        private _gripButton;
-        private _arrowButton1;
-        private _arrowButton2;
-        private _bar;
+        _gripButton: Widget;
+        _arrowButton1: Widget;
+        _arrowButton2: Widget;
+        _bar: Widget;
         private _target;
         private _vertical;
         private _scrollPerc;
         private _fixedGripSize;
         private _dragOffset;
         private _gripDragging;
+        private _scrollingDir;
         constructor();
         setOwner(target: IScroller, vertical: boolean): void;
         setDisplayPerc(value: number): void;
@@ -1801,13 +1817,15 @@ declare namespace gui {
         get gripDragging(): boolean;
         get fixedGripSize(): boolean;
         set fixedGripSize(value: boolean);
-        _setup(arrowButton1: Widget, arrowButton2: Widget, bar: Widget, grip: Widget): void;
         private _gripTouchBegin;
+        private startDragGrip;
         private _gripTouchMove;
         private _gripTouchEnd;
         private _arrowButton1Click;
         private _arrowButton2Click;
         private _barTouchBegin;
+        private doBarScroll;
+        private _barTouchEnd;
     }
     class Scroller implements IScroller {
         static draggingInst: Scroller;
@@ -1837,6 +1855,7 @@ declare namespace gui {
         private _vScrollBarRes;
         private _footerRes;
         private _headerRes;
+        private _fixedGripSize;
         private _vScrollNone;
         private _hScrollNone;
         private _needRefresh;
@@ -1918,6 +1937,8 @@ declare namespace gui {
         set mouseWheelDisabled(value: boolean);
         get decelerationRate(): number;
         set decelerationRate(value: number);
+        get fixedGripSize(): boolean;
+        set fixedGripSize(value: boolean);
         get isDragged(): boolean;
         get percX(): number;
         set percX(value: number);
@@ -1936,6 +1957,8 @@ declare namespace gui {
         get viewWidth(): number;
         get viewHeight(): number;
         setViewSize(width: number, height: number): void;
+        get _extraPaddingX(): number;
+        get _extraPaddingY(): number;
         get pageX(): number;
         set pageX(value: number);
         get pageY(): number;
@@ -2026,8 +2049,6 @@ declare namespace gui {
         private _titleType;
         private _reverse;
         private _wholeNumbers;
-        private _barMaxWidth;
-        private _barMaxHeight;
         private _barMaxWidthDelta;
         private _barMaxHeightDelta;
         private _clickPos;
@@ -2045,14 +2066,27 @@ declare namespace gui {
         set max(value: number);
         get value(): number;
         set value(value: number);
-        update(): void;
+        get hBar(): Widget;
+        set hBar(value: Widget);
+        get vBar(): Widget;
+        set vBar(value: Widget);
+        get gripButton(): Widget;
+        set gripButton(value: Widget);
+        get titleWidget(): Widget;
+        set titleWidget(value: Widget);
+        get reverse(): boolean;
+        set reverse(value: boolean);
+        update(delay?: boolean): void;
         private updateWithPercent;
         private updateTitle;
+        private setupEvents;
         _setup(hBar: Widget, vBar: Widget, grip: Widget, title: Widget, reverse: boolean): void;
         protected _sizeChanged(): void;
         private _gripTouchBegin;
+        private startDragGrip;
         private _gripTouchMove;
         private _barTouchBegin;
+        onAfterDeserialize(): void;
     }
     class TextField extends Widget {
         protected _style: TextStyle;
@@ -2383,6 +2417,7 @@ declare namespace gui {
         get destroyed(): boolean;
         get draggable(): boolean;
         set draggable(value: boolean);
+        get dragSupport(): DragSupport;
         get nativeDraggable(): boolean;
         set nativeDraggable(value: boolean);
         get dragBounds(): Rect;
@@ -2441,6 +2476,7 @@ declare namespace gui {
         get numChildren(): number;
         get parent(): Widget;
         findRoot(): GRoot;
+        findParent(): Widget;
         isAncestorOf(child: Widget): boolean;
         private prepareActiveChangeList;
         _processActive(active: boolean, fromSetter?: boolean): void;
@@ -2635,6 +2671,7 @@ declare namespace gui {
          * dir正数表示右移或者下移，负数表示左移或者上移
          */
         getSnappingPosition(xValue: number, yValue: number, xDir: number, yDir: number, resultPoint?: Vec2): Vec2;
+        calculateFitSize(childCount?: number, minSize?: number): number;
         resizeToFit(childCount?: number, minSize?: number): void;
         setChangedFlag(reason?: LayoutChangedReason): void;
         refresh(force?: boolean): void;
@@ -2685,6 +2722,8 @@ declare namespace gui {
         set columnGap(value: number);
         get padding(): Array<number>;
         set padding(value: Array<number>);
+        private getPaddingX;
+        private getPaddingY;
         get align(): AlignType;
         set align(value: AlignType);
         get valign(): VAlignType;
@@ -2714,6 +2753,7 @@ declare namespace gui {
         get contentWidth(): number;
         get contentHeight(): number;
         setContentSize(aw: number, ah: number): void;
+        calculateFitSize(childCount?: number, minSize?: number): number;
         resizeToFit(childCount?: number, minSize?: number): void;
         protected applyNone(): void;
         private applyFlowX;

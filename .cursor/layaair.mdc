@@ -1,0 +1,279 @@
+---
+alwaysApply: true
+---
+
+## 命名空间约定
+
+- 必须使用 `Laya.` 前缀访问所有引擎类和静态方法。
+- 正例：`Laya.Sprite`, `Laya.Handler.create(...)`
+- 反例：`Sprite`, `Handler`
+
+---
+
+## 入口规范 (Entry.ts)
+
+入口函数结构固定，禁止修改签名：
+
+```typescript
+export async function main() { /* 正式初始化逻辑 */ }
+```
+
+- 禁止提交测试代码到 `main`。
+
+---
+
+## 版本与 API 查询
+
+- 查询 API 时附加 `<LAYA_VERSION>`。
+- 迁移时对比 `<LAYA_PRE_VERSION>` -> `<LAYA_VERSION>` 的差异。
+- 以 MCP 返回文档为准，禁止凭记忆猜测 API。
+
+---
+
+## UI 系统识别
+
+读取 `settings/PlayerSettings.json` 判断 UI 类型：
+
+| `addons["laya.ui"]` | 类型 | 约束 |
+|---|---|---|
+| 字段不存在 | classic | 仅用经典 UI（Box/Button/Label 等） |
+| `"both"` | both | 两套均可，但同模块保持一致 |
+| `"ui2"` | new | 仅用新 UI（GBox/GButton/GLabel 等） |
+
+---
+
+## 物理引擎识别
+
+读取 `settings/PlayerSettings.json` 判断物理引擎：
+
+| `physics3dModule` | 引擎 |
+|---|---|
+| 字段存在 | PhysX |
+| 字段不存在 | Bullet |
+
+- 查询物理 API 时必须按引擎类型过滤。
+
+---
+
+## MCP 知识库
+
+LayaAir 相关问题必须通过 MCP 查询，并附带：版本号、UI 类型、物理引擎类型。
+
+---
+
+## 本项目硬规范：羽毛球（State Sync）
+
+### 1) 架构原则
+
+- 逻辑层与表现层严格分离：
+  - 逻辑层：确定性规则、状态推进、判定。
+  - 表现层：动画/特效/音频/插值显示，仅消费逻辑状态。
+- 网络模式固定：**状态同步（Server authoritative）**，不做帧锁/回滚。
+- 断线重连固定：请求并应用**全量状态快照**。
+- 随机必须可复现：球网滚网等概率行为使用确定性种子。
+
+### 2) 命名与模块
+
+- 命名统一英文（类、字段、函数、文件）。
+- 不使用 `System` 后缀（例如 `Movement`、`Swing`、`Hit`）。
+- 职责分层固定：`Core` / `Logic` / `Input` / `Presentation` / `Network`。
+
+### 3) 控制逻辑（最终版）
+
+> 唯一权威规则：**下屏单击移动 + 下屏双击击球（第二次按下触发）**。
+
+- 屏幕分割：`SCREEN_SPLIT = 0.5`。
+  - 上屏：`y >= Laya.stage.height * 0.5`
+  - 下屏：`y < Laya.stage.height * 0.5`
+- 上屏永远是移动摇杆，优先级最高。
+- 下屏规则：
+  - 单击按住拖动：移动（输出 `moveDir`）。
+  - 双击第二次 `touchstart`：立即触发 `onHit(payload)`，不等抬起。
+- 下屏是否能输出移动只由 `upperActive` 决定：
+  - `upperActive=true`：下屏不输出移动，但允许击球识别。
+  - `upperActive=false`：下屏可输出移动。
+- 击球参数仅采样“双击第二次触点”：`holdTime`、`swipeDir`、`swipeDistance`。
+- 挥拍不阻塞输入：挥拍中继续可接收控制；新的击球进入 `pendingHit`（单槽覆盖），当前挥拍结束后立即续接。
+
+### 4) 运动与挥拍并发
+
+- `Movement` 每逻辑帧读取 `moveDir` 推进角色。
+- `Swing` 仅决定命中时机与后摇时长，不得阻塞输入状态切换。
+- 禁止出现“等待挥拍/动画结束才允许输入切换”的逻辑。
+
+### 5) 网络同步硬约束
+
+- 服务器以 `logicFPS=20` 跑权威逻辑并广播 `StateSnapshot`（10~20Hz）。
+- 客户端仅上传 `InputCommand`，禁止上传权威状态。
+- 羽毛球位置不逐帧同步：客户端根据 `FlightPlan + currentTime` 本地解算。
+- 重连流程：`requestSnapshot` -> 应用完整快照 -> 表现层平滑过渡。
+
+### 6) 配置强约束
+
+- 关键常量必须来自 `Configs/GameConfig.json`，禁止硬编码散落：
+  - `screenSplit`, `doubleTapInterval`, `windupFixed`, `followMin`, `followMax`
+  - `baseSpeed`, `minSpeed`, `maxSpeed`, `maxAngle`, `holdTimeMax`
+  - `gravity`, `airDrag`, `netRollChance`, `logicFPS`
+- 若常量有变更，必须同步更新配置版本并保证客户端与服务端一致。
+
+### 7) 禁止事项
+
+- 禁止逻辑层直接依赖动画事件决定命中结果。
+- 禁止将“动画结束回调”作为状态推进唯一条件。
+- 禁止在 `main` 或临时脚本中堆放业务逻辑。
+- 禁止在未声明权威来源时本地改分数、改回合结论。
+
+---
+
+## 项目完整实现规范（LayaAir 3.x / TypeScript / State Sync / 英文命名）
+
+> 以下为“完整可实现”的项目规格，后续生成代码、拆模块、写协议、写测试必须严格按此执行。\n> 若与上文“硬规范”冲突，以“控制逻辑最终版”和“State Sync 硬约束”为准。
+
+### 1) 目录结构（建议落在 `assets`/`src` 中，职责必须一致）
+
+```text
+Assets/
+├── Scripts/
+│   ├── Core/
+│   │   ├── GameManager.ts
+│   │   ├── NetworkManager.ts
+│   │   ├── UIManager.ts
+│   │   └── AudioManager.ts
+│   ├── Logic/
+│   │   ├── Entities/
+│   │   │   ├── Player.ts
+│   │   │   ├── Shuttle.ts
+│   │   │   └── CourtConstants.ts
+│   │   ├── Modules/
+│   │   │   ├── Movement.ts
+│   │   │   ├── Stamina.ts
+│   │   │   ├── Swing.ts
+│   │   │   ├── Hit.ts
+│   │   │   ├── Flight.ts
+│   │   │   └── Round.ts
+│   │   └── Data/
+│   │       ├── FlightPlan.ts
+│   │       └── StateSnapshot.ts
+│   ├── Input/
+│   │   ├── TouchInput.ts
+│   │   └── SwipeDetector.ts
+│   ├── Presentation/
+│   │   ├── PlayerAnimator.ts
+│   │   ├── ShuttleRenderer.ts
+│   │   ├── EffectFactory.ts
+│   │   └── AudioPlayer.ts
+│   └── Network/
+│       ├── StateSync.ts
+│       └── ReconnectHandler.ts
+├── Prefabs/
+│   ├── Player.prefab
+│   ├── Shuttle.prefab
+│   └── Court.prefab
+├── Configs/
+│   └── GameConfig.json
+└── Scenes/
+    └── Game.scene
+```
+
+### 2) 核心数据结构（逻辑层的权威模型）
+
+```typescript
+interface Player {
+    id: number;                 // 0-3
+    pos: Laya.Vector3;          // world position (meters)
+    stamina: number;            // 0-100
+    isSwinging: boolean;
+    swingTimer: number;         // remaining time (seconds)
+    swingPhase: 'w' | 'f' | 'n'; // windup, follow, none
+    pendingHitType: number;     // cached hit type (-1 = none)
+}
+
+interface Shuttle {
+    plan: FlightPlan;
+    currentTime: number;        // elapsed time in plan (seconds)
+    lastHitterId: number;
+}
+
+interface FlightSegment {
+    p0: Laya.Vector3;
+    v0: Laya.Vector3;
+    t0: number;
+    t1: number;
+    endReason: 'g' | 'n' | 'o'; // ground, net, out
+}
+
+interface FlightPlan {
+    segments: FlightSegment[];
+    totalDuration: number;
+    result: 'i' | 'o' | 'n';    // in, out, net fault
+    landingPos: Laya.Vector3;
+}
+
+interface InputCommand {
+    playerId: number;
+    moveDir: Laya.Vector2;      // normalized world direction
+    hitTriggered: boolean;
+    holdTime: number;           // seconds
+    swipeDir: Laya.Vector2;     // normalized screen direction
+    swipeDistance: number;      // pixels
+}
+
+interface StateSnapshot {
+    frameId: number;
+    scores: number[];           // length 4
+    players: Player[];
+    shuttle: Shuttle;
+    serverTime: number;         // for interpolation
+}
+```
+
+### 3) 模块契约（无 `System` 后缀）
+
+#### 3.1 Input – `TouchInput`
+
+- 输出：\n  - `getMoveDir(): Laya.Vector2`\n  - `onHit`：触发 `HitPayload`\n- 规则：\n  - 上/下屏按首次落点归属。\n  - 双击识别：`DOUBLE_TAP_INTERVAL` 内第二次 `touchstart` 触发击球。\n  - 下屏移动：单击按住拖动输出 `moveDir`（当 `upperActive=false`）。\n  - 上屏开始触摸：抢占移动优先级（下屏移动失效）。\n
+> 注意：此处需与“控制逻辑最终版（双击击球）”保持一致，禁止回退到“抬起击球”。
+
+#### 3.2 Swing – `Swing`
+
+- 输入：`onHit(payload)`, `dt`\n- 输出：`onHitMoment(payload, ctx)`, `onSwingComplete`\n- 规则：\n  - 非 active：进入 `windup`（`WINDUP_FIXED`）。\n  - active：写入 `pendingHit`（覆盖）。\n  - `windup` 结束触发命中点，再进入 `follow`。\n  - `follow` 结束触发 `onSwingComplete`，若 `pendingHit` 存在则立刻开启下一拍。\n
+#### 3.3 Hit – `Hit`
+
+- 在命中点计算：角度（由 `holdTime` + `swipeDir.y` 符号）、水平朝向（由相机 forward/right 与 `swipeDir`）、力度（由 `swipeDistance`）。\n- 范围判定失败：不生成新 `FlightPlan`，但挥拍流程继续。\n- 体力不足：降级 `Drive`。\n
+#### 3.4 Flight – `Flight`
+
+- `calculatePlan(p0, v0, hitterId, frameId): FlightPlan`\n- 公式（带阻力）：\n
+```typescript
+function posAt(p0: Laya.Vector3, v0: Laya.Vector3, t: number): Laya.Vector3 {
+    let e = Math.exp(-K * t);
+    let c = (1 - e) / K;
+    let x = p0.x + v0.x * c;
+    let y = p0.y + v0.y * c + (G / K) * (t - c);
+    let z = p0.z + v0.z * c;
+    return new Laya.Vector3(x, y, z);
+}
+```
+
+- 常量：`G=-12.0`, `K=0.97`\n- 碰撞：地面（`y=0`）、球网（`z=0` 且 `y` 在 `[0, NET_HEIGHT]`）、出界（宽/长边界）。\n- 滚网：确定性随机种子：`seed = (frameId * 131 + hitterId * 253) % 100`。\n
+#### 3.5 Movement – `Movement`
+
+> 若采用“follow 阶段禁止移动”，必须全项目一致（逻辑/表现/测试全部对齐）。
+
+#### 3.6 Stamina – `Stamina`
+
+- 移动与击球消耗；静止且非 follow 期间恢复。\n
+#### 3.7 Round – `Round`
+
+- 监听 `shuttle.currentTime >= shuttle.plan.totalDuration`，判定得分，重置发球与挥拍状态，通知 UI。\n
+### 4) 动画与逻辑解耦
+
+- 动画事件仅触发音效/特效，禁止改变逻辑判定。\n- 表现层每帧读取 `Player/Shuttle` 状态并设置：位置、朝向、动画参数。\n
+### 5) 网络（State Sync）
+
+- 服务器权威 20Hz。\n- 客户端发 `InputCommand`，收 `StateSnapshot`。\n- 羽毛球用 `FlightPlan+currentTime` 本地解算，不逐帧同步位置。\n- 重连：`requestSnapshot` -> 下发全量 `snapshot`。\n
+### 6) 配置（`GameConfig.json`）
+
+- 项目所有阈值/速度/角度/物理常量必须来源于配置文件，禁止散落硬编码。\n
+### 7) 测试用例与里程碑
+
+- 必须按 TC01~TC12 覆盖验证。\n- 里程碑 M0~M5 按“能编译 -> 单机闭环 -> 上屏抢占+网判定 -> 4人 state sync -> 重连优化 -> 完整游戏”推进。
