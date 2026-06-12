@@ -1,0 +1,48 @@
+{
+  "screenSplit": 0.5,
+  "doubleTapInterval": 0.3,
+  "windupFixed": 0.15,
+  "followMin": 0.2,
+  "followMax": 0.6,
+  "baseSpeed": 5.0,
+  "minSpeed": 2.0,
+  "maxSpeed": 8.0,
+  "maxAngle": 45.0,
+  "holdTimeMax": 1.0,
+  "gravity": -12.0,
+  "airDrag": 0.97,
+  "netRollChance": 0.1,
+  "logicFPS": 20,
+  "courtWidth": 13.4,
+  "courtLength": 6.1,
+  "netHeight": 1.55,
+  "playerMoveSpeed": 3.0,
+  "playerStaminaMoveCost": 0.5,
+  "playerStaminaHitCost": 10.0,
+  "playerStaminaRecoveryRate": 2.0,
+  "shuttleMass": 0.005,
+  "shuttleDragCoefficient": 0.47,
+  "shuttleCrossSectionalArea": 0.003,
+  "airDensity": 1.225,
+  "hitTypes": {
+    "drop": 0,
+    "net": 1,
+    "drive": 2,
+    "clear": 3,
+    "smash": 4
+  },
+  "hitPowerMultipliers": {
+    "drop": 0.3,
+    "net": 0.5,
+    "drive": 0.8,
+    "clear": 1.0,
+    "smash": 1.5
+  },
+  "hitAngleMultipliers": {
+    "drop": -0.7,
+    "net": -0.3,
+    "drive": 0.0,
+    "clear": 0.5,
+    "smash": 0.8
+  }
+}

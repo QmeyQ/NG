@@ -1,0 +1,184 @@
+   /**
+     * 马格努斯力 (Magnus force)
+     * 公式：F_m = ρ·C_M·A·(ω × v)
+     * 为防切球时单方向加速度超标，对每个分量独立限制：
+     * |F_i| ≤ magnusMaxAccel · mass
+     */
+    private Mag(speed: number, spin: Laya.Vector3, vel: Laya.Vector3, out: Laya.Vector3): void {
+        out.x = out.y = out.z = 0;
+        const sr = this.len(spin);
+        if (speed <= 0.01 || sr <= 0.01) return;
+
+        const p = this.params;
+        const A = Math.PI * p.radius ** 2;
+        const cross = Phy._tv3;
+        Laya.Vector3.cross(spin, vel, cross);     // ω × v
+
+        const k = p.airDensity * p.magnusCoeff * A;
+        const maxC = p.magnusMaxAccel * p.mass;   // 单方向最大允许的力
+
+        // 各分量独立钳制
+        out.x = Math.max(-maxC, Math.min(maxC, cross.x * k));
+        out.y = Math.max(-maxC, Math.min(maxC, cross.y * k));
+        out.z = Math.max(-maxC, Math.min(maxC, cross.z * k));
+    }
+
+
+ // ---------- 核心物理子步 ----------
+
+    /**
+     * 陀螺动力学：计算轴向自旋加速度 + 气动恢复力矩
+     *
+     * 原理：羽毛球因质心前移，气流会产生恢复力矩使球头指向速度方向。
+     * 同时轴向自旋通过 Magnus 效应产生侧向力，球体自身的角动量通过陀螺效应影响姿态。
+     *
+     * 公式：
+     *   目标轴向自旋 ω_target = v * kc * max(cosθ, 0.2)
+     *   轴向加速度 = (ω_target - ω) * (3.0 + 0.1*v) - ω * kdamp * (1 + 0.05*v)
+     *   恢复力矩大小 = q * A * r * sinθ * 0.5 * (1 + |ω|*0.03)
+     *   其中 q = 0.5 * ρ * v^2 (动压)，A = π * r^2 (截面积)
+     *
+     * @param lx    球头局部 X 轴
+     * @param vel   世界速度
+     * @param v     速率
+     * @param sa    当前轴向自旋 (rad/s)
+     * @param dt    时间步（未使用，保留接口）
+     * @param outT  输出恢复力矩（世界坐标系）
+     * @returns { axialAccel, newSpinAxial } 轴向加速度与瞬时计算值
+     */
+    private gyro(lx: Laya.Vector3, vel: Laya.Vector3, v: number, sa: number, dt: number, outT: Laya.Vector3)
+        : { aa: number; nsa: number } {
+        const res = { aa: 0, nsa: sa };
+        if (v < 0.5) {
+            outT.setValue(0, 0, 0);
+            res.aa = -sa * 2.0; // 低速自然衰减
+            return res;
+        }
+        V3.norm(vel, this._gv);
+        const cosT = V3.clamp(V3.dot(lx, this._gv), -1, 1);
+        const theta = Math.acos(cosT);
+        const sinT = Math.sin(theta);
+
+        // 目标自旋：与速度成正比，最低有效 cosTheta 防止完全侧对时自旋过低
+        const effCos = Math.max(cosT, 0.2);
+        const target = v * this.p.kc * effCos;
+        const coup = 3.0 + v * 0.1;
+        const damp = -sa * this.p.kdamp * (1.0 + v * 0.05);
+        res.aa = (target - sa) * coup + damp;
+
+        if (theta < 0.001) {
+            outT.setValue(0, 0, 0);
+            return res;
+        }
+
+        V3.cross(lx, this._gv, this._gr);
+        const axLenSq = V3.lenSq(this._gr);
+        if (axLenSq < 1e-12) {
+            outT.setValue(0, 0, 0);
+            return res;
+        }
+        const axLen = Math.sqrt(axLenSq);
+        this._gr.x /= axLen; this._gr.y /= axLen; this._gr.z /= axLen;
+
+        const A = Math.PI * this.p.r * this.p.r;
+        const q = 0.5 * this.p.rho * v * v;
+        const base = q * A * this.p.r * sinT * 0.5;
+        const gyroEnh = 1.0 + Math.abs(sa) * 0.03;
+        const mag = base * gyroEnh;
+        outT.x = this._gr.x * mag;
+        outT.y = this._gr.y * mag;
+        outT.z = this._gr.z * mag;
+        return res;
+    }
+
+private _applyCollisionImpulse(
+        s: State,
+        spherePos: Laya.Vector3,
+        sphereR: number,
+        normal: Laya.Vector3,
+        pen: number,
+        isHead: boolean,
+        rest: number,
+        friction: number,
+        extraFriction: number = 0
+    ): boolean {
+        // 1. 必须在位置修正前计算力臂
+        this._cR.x = spherePos.x - normal.x * sphereR - s.pos.x;
+        this._cR.y = spherePos.y - normal.y * sphereR - s.pos.y;
+        this._cR.z = spherePos.z - normal.z * sphereR - s.pos.z;
+
+        // 2. 位置修正
+        s.pos.x += normal.x * pen;
+        s.pos.y += normal.y * pen;
+        s.pos.z += normal.z * pen;
+
+        const vn_cm = V3.dot(s.vel, normal);
+        if (vn_cm >= 0) return true; 
+
+        // 【核心优化】防微震荡机制
+        // 碰撞前法向速度极小时(小于0.5m/s)，直接吸收法向速度，不再产生回弹
+        // 这能完美解决落地后每帧弹0.1毫米导致的“贴地抽搐/滑行不停”问题
+        if (Math.abs(vn_cm) < 0.5) {
+            s.vel.x -= normal.x * vn_cm;
+            s.vel.y -= normal.y * vn_cm;
+            s.vel.z -= normal.z * vn_cm;
+            return true;
+        }
+
+        const Jn = -(1 + rest) * vn_cm * this.p.m; 
+
+        s.vel.x += normal.x * (Jn / this.p.m);
+        s.vel.y += normal.y * (Jn / this.p.m);
+        s.vel.z += normal.z * (Jn / this.p.m);
+
+        const I_na = 0.4 * this.p.m * this.p.r * this.p.r;
+        V3.cross(this._cR, normal, this._cDo);
+        const jnAng = Jn / I_na;
+        this._cDo.x *= jnAng;
+        this._cDo.y *= jnAng;
+        this._cDo.z *= jnAng;
+
+        // 切线摩擦力
+        Laya.Vector3.transformQuat(V3.RIGHT, s.rot, this._cLx);
+        this._cOw.x = s.sn.x + this._cLx.x * s.sa;
+        this._cOw.y = s.sn.y + this._cLx.y * s.sa;
+        this._cOw.z = s.sn.z + this._cLx.z * s.sa;
+
+        V3.cross(this._cOw, this._cR, this._cVc);
+        V3.add(s.vel, this._cVc, this._cVc);
+
+        const vn_contact = V3.dot(this._cVc, normal);
+        this._cT.x = this._cVc.x - normal.x * vn_contact;
+        this._cT.y = this._cVc.y - normal.y * vn_contact;
+        this._cT.z = this._cVc.z - normal.z * vn_contact;
+
+        const vtMag = V3.len(this._cT);
+        if (vtMag > 0.01) {
+            const invVt = 1 / vtMag;
+            this._cT.x *= invVt; this._cT.y *= invVt; this._cT.z *= invVt;
+
+            let Jt = vtMag * this.p.m * 0.5; 
+            const maxJt = (friction + extraFriction) * Math.abs(Jn);
+            if (Jt > maxJt) Jt = maxJt;
+
+            const jtLin = -Jt / this.p.m;
+            s.vel.x += this._cT.x * jtLin;
+            s.vel.y += this._cT.y * jtLin;
+            s.vel.z += this._cT.z * jtLin;
+
+            V3.cross(this._cR, this._cT, this._cT1);
+            const jtAng = -Jt / I_na;
+            this._cDo.x += this._cT1.x * jtAng;
+            this._cDo.y += this._cT1.y * jtAng;
+            this._cDo.z += this._cT1.z * jtAng;
+        }
+
+        const dSa = V3.dot(this._cDo, this._cLx);
+        s.sa += dSa;
+        s.sn.x += this._cDo.x - this._cLx.x * dSa;
+        s.sn.y += this._cDo.y - this._cLx.y * dSa;
+        s.sn.z += this._cDo.z - this._cLx.z * dSa;
+
+        this._clampState(s);
+        return true;
+    }

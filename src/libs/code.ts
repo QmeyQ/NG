@@ -1,5 +1,4 @@
 // Code.ts
-import { fileManager } from "./file";
 
 export interface PackInfo {
     magic: string;
@@ -16,6 +15,43 @@ export interface DecompressResult {
 }
 
 export class Code {
+
+
+static padZero(num: number, len: number): string {
+    let str = num.toString(16);
+    while (str.length < len) str = '0' + str;
+    return str;
+}
+
+     static hexDump(data: any, maxBytes: number = 64): string {
+    if (!data) return '[null]';
+    try {
+        let bytes: Uint8Array;
+        if (data instanceof ArrayBuffer) {
+            bytes = new Uint8Array(data);
+        } else if (data instanceof Blob) {
+            return `[Blob size=${data.size}]`;
+        } else if (typeof data === 'string') {
+            if (data.startsWith('data:')) return `[DataURL length=${data.length}]`;
+            try {
+                const binary = atob(data);
+                bytes = new Uint8Array(binary.length);
+                for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+            } catch {
+                bytes = new TextEncoder().encode(data);
+            }
+        } else {
+            return `[Unknown type: ${typeof data}]`;
+        }
+        const len = Math.min(bytes.length, maxBytes);
+        const hexParts: string[] = [];
+        for (let i = 0; i < len; i++) hexParts.push(this.padZero(bytes[i], 2).toUpperCase());
+        return hexParts.join(' ') + (bytes.length > maxBytes ? '...' : '');
+    } catch (e) {
+        return `[Error: ${e}]`;
+    }
+}
+
     /**
      * 解析.res文件头部
      */
@@ -32,6 +68,8 @@ export class Code {
                 const magic = String.fromCharCode(...magicBytes);
                 
                 if (magic !== 'DPR1') {
+                    //打印二进制数据的前80个字节的十六进制表示
+                    console.log(new Uint8Array(buffer.slice(0, 80)));
                     throw new Error(`无效的包格式: ${magic}`);
                 }
                 
@@ -58,7 +96,7 @@ export class Code {
                 // 移除末尾可能的null字符
                 headerText = headerText.replace(/\0/g, '');
                 
-                console.log(`[Code] 头部总大小: ${headerTotalSize}, JSON长度: ${headerText.length}, Body偏移: ${bodyOffset}`);
+                // console.log(`[Code] 头部总大小: ${headerTotalSize}, JSON长度: ${headerText.length}, Body偏移: ${bodyOffset}`);
                 
                 const header = JSON.parse(headerText);
                 
@@ -80,7 +118,7 @@ export class Code {
             onError('读取包数据失败');
         };
         
-        reader.readAsArrayBuffer(blob.slice(0, 1024 * 1024));
+        reader.readAsArrayBuffer(blob)//.slice(0, 1024 * 1024));
     }
 
     /**
@@ -115,8 +153,10 @@ export class Code {
                 const decompressed = this._decompress(compressedData);
                 const mimeType = this._getMimeType(filePath);
                 
-                console.log(`[Code] 解压文件: ${filePath}, 压缩后: ${compressedData.length}字节, 解压后: ${decompressed.length}字节`);
-                
+                //console.log(`[Code] 解压文件: ${filePath}, 压缩后: ${compressedData.length}字节, 解压后: ${decompressed.length}字节`);
+                //打印解压后的数据的前30个字节的十六进制表示和ASCII码
+                // console.log(this.hexDump(decompressed.buffer));
+                // console.log(new TextDecoder().decode(decompressed.slice(0, 30)));
                 const result: DecompressResult = {
                     blob: new Blob([decompressed], { type: mimeType }),
                     mimeType,
