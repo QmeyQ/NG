@@ -89,10 +89,11 @@
                       "text": "Loading...",
                       "x": 50,
                       "y": 50,
-                      "font": "italic 100px SimSun",
-                      "color": "#ffffff",
+                      "fontFamily": "SimSun",
+                      "fontSize": 100,
+                      "italic": true,
                       "align": null,
-                      "strokeColor": "#000000"
+                      "letterSpacing": 0
                     },
                     {
                       "_$type": "DrawRectCmd",
@@ -131,10 +132,11 @@
                       "text": "Loading...",
                       "x": 50,
                       "y": 50,
-                      "font": "italic 100px SimSun",
-                      "color": "#ffffff",
+                      "fontFamily": "SimSun",
+                      "fontSize": 100,
+                      "italic": true,
                       "align": null,
-                      "strokeColor": "#000000"
+                      "letterSpacing": 0
                     },
                     {
                       "_$type": "DrawRectCmd",
@@ -190,13 +192,14 @@
                   "name": "0",
                   "width": 414,
                   "height": 102,
-                  "text": "轨迹序列",
+                  "text": "羽球对战",
                   "font": "ArialUnicodeMS",
                   "fontSize": 80,
                   "color": "#ffffff",
                   "align": "center",
                   "valign": "middle",
-                  "leading": 2
+                  "leading": 2,
+                  "letterSpacing": 0
                 },
                 {
                   "_$id": "4oeyeww4",
@@ -208,10 +211,11 @@
                   "text": "星战纪",
                   "font": "ArialUnicodeMS",
                   "fontSize": 80,
-                  "color": "#ffffff",
+                  "color": "#ff0000",
                   "align": "center",
                   "valign": "middle",
-                  "leading": 2
+                  "leading": 2,
+                  "letterSpacing": 0
                 },
                 {
                   "_$id": "lgi63tba",
@@ -223,10 +227,11 @@
                   "text": "魔法牌传说",
                   "font": "ArialUnicodeMS",
                   "fontSize": 80,
-                  "color": "#ffffff",
+                  "color": "#ff0000",
                   "align": "center",
                   "valign": "middle",
-                  "leading": 2
+                  "leading": 2,
+                  "letterSpacing": 0
                 }
               ]
             }

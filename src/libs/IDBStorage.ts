@@ -1,3 +1,7 @@
+/**
+ * IDBStorage - IndexedDB 浏览器本地数据库存储封装类
+ * 提供数据库初始化、版本管理、主存储和文件存储的读写操作，适用于 LayaAir 项目的本地持久化缓存
+ */
 // IDBStorage.ts
 // IndexedDB存储封装类，适用于LayaAir项目
 

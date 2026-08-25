@@ -121,3 +121,112 @@ getUsage (callback)：存储使用情况，回调 ({used, quota, percentage})
  * - isPlayerControlled: 是否为玩家控制
  */
 
+/**
+ * Phy - 羽毛球物理引擎，管理仿真状态、空气动力、碰撞检测与响应
+ * extends PhyCfg（参数、碰撞体配置、调试绘制）
+ * - new Phy(ball: Ball, params?: Partial<Params>) - 初始化物理状态，ball为3D精灵节点，params为可覆盖物理参数
+ * - hit(power, angH, angV, spin?) - 击球，power为力度0-100，angH水平角(度)，angV垂直角(度)，spin为可选初始自旋
+ * - sync(node: Obj) - 同步外部节点位置/旋转到物理状态
+ * - applyToNode(node: Obj) - 将物理状态应用到3D节点（更新世界变换）
+ * - get(t?: number): State - 获取当前或指定时间戳的物理状态克隆
+ * - setGround(cfg: {y?}) - 设置地面碰撞体y坐标
+ * - setGroundCollisionParams(cfg) - 动态修改地面碰撞参数
+ * - getLastGroundHit(): NetHitInfo|null - 获取最后一次地面碰撞信息
+ * - clearGroundHit() - 清除地面碰撞记录
+ * - simTo(target: number): State - 仿真主循环，推进至目标时间戳(ms)，采用RK4积分+子步碰撞
+ * - rk4(s, dt) - 四阶龙格-库塔积分一步
+ * - eul(s, d, aa, dt) - 欧拉积分一步（RK4中间步骤）
+ * - der(s, dt): {s, aa} - 状态导数计算（阻力+重力+马格努斯+陀螺）
+ * - drg(lx, vel, v, out) - 空气阻力计算，Cd随攻角变化
+ * - mag(rot, sn, sa, vel, v, out) - 马格努斯力计算
+ * - gyr(lx, vel, v, sa, dt, outT): {aa, nsa} - 陀螺进动与轴向自旋阻尼
+ * - nax(v, sn, out) - 非轴向角速度空气阻尼力矩
+ * - imp(s, spherePos, sphereR, normal, pen, isHead, rest, friction, extraFriction?, dt?): boolean - 碰撞冲量响应（反弹+穿透补偿+摩擦）
+ * - procCol(s, net, ncol, isGround, dt) - 处理与网/地面的碰撞检测和响应
+ * - sphBox(sx,sy,sz,sr,net,outClosest,outNormal): number - 球体与AABB盒相交检测，返回穿透深度
+ * - clampSt(s) - 钳制状态量，防止速度/角速度超限
+ * - alx(dir, out) - 根据方向向量计算球体朝向四元数（X轴对齐dir）
+ * - rstep(rot, sn, sa, lx, dt) - 旋转状态更新（小角度近似四元数积分）
+ * - comb(out, k1, k2, k3, k4, dt) - RK4加权平均组合
+ * - recordHit(s, head, feather, past) - 记录网碰撞事件
+ * - recordGndHit(s, head, feather) - 记录地面碰撞事件
+ * - vEff: Vector3 - 有效速度向量（半隐式欧拉中间步骤）
+ */
+
+ /**
+ * Ani.ts 动画控制器，负责动画状态切换、播放控制与根运动处理
+ * 
+ * 构造：new Ani(owner: Laya.Sprite3D, rootBoneName?: string)
+ * 
+ * play(stateName: string, duration?: number): void         播放指定动画，duration为播放时长(秒)，自动缩放动画速度
+ * setSpeed(speed: number): void                            设置全局动画速度倍数
+ * pause(): void                                            暂停动画
+ * resume(): void                                           恢复动画
+ * freeze(): void                                           冻结动画（停在当前帧）
+ * unfreeze(): void                                         解冻动画
+ * crossFade(stateName: string, duration: number): void     淡入淡出切换到指定动画
+ * gets(): string[]                                         获取所有动画状态名称列表
+ * get currentState(): string | null                        获取当前播放状态名
+ * update(): void                                           每帧更新（处理根运动，需外部调用）
+ * 
+ * 属性：
+ * rootMotion: boolean                                      是否启用根运动（默认 false）
+ */
+
+ /**
+ * Mag 羽毛球比赛管理类
+ * - 管理单打/双打比赛流程，包括发球、对打、得分、换边、局/场胜利判定
+ * - 支持 AI 玩家、联机同步（帧同步 + 状态同步）
+ * - 提供事件回调：比分变化、局结束、比赛结束、换边、倒计时更新
+ * 
+ * 公共属性：
+ * - mode: MatchMode 当前比赛模式（单打/双打）
+ * - phase: MatchPhase 当前比赛阶段（等待开始、倒计时、发球、对打、得分、结束）
+ * - scores: Record<TeamSide, number> 当前局比分
+ * - servingTeam: TeamSide 当前发球方
+ * - currentHitTeam: TeamSide 当前击球方（最后一次击球的队伍）
+ * - currentServer: Cha | null 当前发球球员（只读）
+ * - currentReceiver: Cha | null 当前接发球员（只读）
+ * - isServeShot: boolean 当前回合是否为发球击球（只读）
+ * - gamesWon: Record<TeamSide, number> 已获胜局数
+ * - maxScore: number 单局胜利分数（默认 21）
+ * - bestOf: number 总局数（默认 3）
+ * - serveTimeLimit: number 发球超时时间（毫秒，默认 15000）
+ * - countdownDuration: number 倒计时总时长（毫秒，默认 15000）
+ * - ballAssignDelay: number 发球前分配球延迟（毫秒，默认 5000）
+ * - NET_X: 球网 X 坐标（只读，固定为 0）
+ * 
+ * 事件回调（可赋值）：
+ * - onScoreChanged?: (left: number, right: number) => void 比分变化
+ * - onGameEnded?: (winner: TeamSide) => void 单局结束
+ * - onMatchEnded?: (winner: TeamSide) => void 整场比赛结束
+ * - onSideSwitch?: () => void 换边时触发
+ * - onCountdown?: (count: number) => void 倒计时更新（count 为剩余秒数，0 表示倒计时结束）
+ * 
+ * 公共方法：
+ * - constructor(p1: Cha, p2: Cha, ball: Ball): 单打构造
+ * - constructor(p1: Cha, p2: Cha, p3: Cha, p4: Cha, ball: Ball): 双打构造
+ * - startMatch(): 开始比赛（进入倒计时阶段）
+ * - update(): 每帧更新，处理倒计时、AI、超时判定、位置违规等
+ * - addAI(ai: any): 为玩家绑定 AI 控制器
+ * - getServeLandingTarget(): { x: number, z: number } 获取发球推荐落点（根据当前发球方分数奇偶）
+ * - isServer(cha: Cha): boolean 判断某球员是否为当前发球人
+ * - isReceiver(cha: Cha): boolean 判断某球员是否为当前接发人
+ * - getTeamPlayers(team: TeamSide): Cha[] 获取某方所有球员
+ * - getTeam(cha: Cha): TeamSide | undefined 获取球员所在方
+ * - getPlayerServePosition(cha: Cha): { x, y, z } 获取球员在发球阶段的站位坐标
+ * - bindNetwork(gnet: any, gobePlayerId: string, localCha: Cha, playerChaMap?: Map<string, Cha>): void
+ *   绑定联机服务，自动注册帧同步与状态同步（内部判断权威端）
+ * - serializeState(): string 序列化当前比赛状态（比分、阶段、发球方等）
+ * - applyRemoteState(stateStr: string): void 应用远端状态（含防回退逻辑）
+ * - serializeFrame(): string 序列化本地玩家位置帧
+ * - applyRemoteFrame(data: any): void 应用远端玩家位置帧
+ * 
+ * 内部核心逻辑（摘要）：
+ * - 倒计时结束后进入发球阶段，发球击球后进入对打阶段
+ * - 击球合法性校验（二次击球、同队连击、越权发球/接球、站位违规）
+ * - 落地判定（界内/界外、发球落点区域校验）
+ * - 得分后自动重置状态，切换发球方，触发换边与局/场胜利判定
+ * - 双打发球人/接发人按分数奇偶轮转
+ * - 支持联机同步：权威端发送状态帧，非权威端接收并应用；所有端发送自身位置帧
+ */

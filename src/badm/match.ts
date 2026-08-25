@@ -1,4 +1,9 @@
+/**
+ * Match - 独立比赛类，管理比赛状态、比分、局数、发球轮换、场地界线配置
+ * 定义 Player 接口和 MatchState 枚举
+ */
 import { Timer } from "../libs/time";
+import { Cha } from "./cha";
 
 export enum MatchState {
     IDLE = 0,
@@ -11,6 +16,7 @@ export interface Player {
     id: number;
     team: 'A' | 'B';
     side: 'left' | 'right';
+    cha?: Cha;
 }
 
 export class Match {
@@ -53,12 +59,28 @@ export class Match {
         this.resetMatch();
     }
 
+    /**
+     * 根据玩家 side 矫正角色朝向
+     * left 半场(-X)面朝 +X → Y旋转 90°
+     * right 半场(+X)面朝 -X → Y旋转 -90°
+     */
+    public alignFacing(player: Player): void {
+        if (!player.cha) return;
+        const angleY = player.side === 'left' ? 90 : -90;
+        (player.cha.root.parent as Laya.Sprite3D).transform.rotate(new Laya.Vector3(0, angleY, 0), false);
+
+    }
+
+    private _alignAllFacing(): void {
+        this._players.forEach(p => this.alignFacing(p));
+    }
+
     public resetMatch(): void {
         this.gamesWonA = 0;
         this.gamesWonB = 0;
         this.resetGame();
-        // 初始发球权随机或约定
         this.currentServer = this._players[0];
+        this._alignAllFacing();
         if (this.onServerChanged) this.onServerChanged(this.currentServer);
     }
 
@@ -226,6 +248,7 @@ export class Match {
         this._players.forEach(p => {
             p.side = p.side === 'left' ? 'right' : 'left';
         });
+        this._alignAllFacing();
         if (this.onSideSwitch) this.onSideSwitch();
     }
 }

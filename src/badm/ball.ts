@@ -1,8 +1,13 @@
-// Cha.ts
+/**
+ * Ball - 羽毛球类，继承 Obj
+ * 管理球的状态、移动方向与力度、击球参数，引用物理（Phy）和动画（Ani）系统
+ */
+// Ball.ts
 import { Timer } from "../libs/time";
 import { Phy } from "./phy";
 import { Ani } from "./ani";
 import { Obj, dressCfg } from "./obj";
+import { StrokeParams } from "./cha"; // 确保路径正确
 
 export enum ChaState {
     IDLE = 0,
@@ -22,55 +27,64 @@ export interface ChaAttr {
 
 export class Ball extends Obj {
     private _ani: Ani;
-
     private _attr = {
         id: 0,
         side: 'right' as 'left' | 'right',
-        x: 0,
-        y: 0,
-        z: 0,
-        spd: 2,
-        hitRange: 20,
+        x: 0, y: 0, z: 0,
+        spd: 2, hitRange: 20,
         state: ChaState.IDLE
     };
 
-    // 移动相关
     private _moveDir: Laya.Vector3 = new Laya.Vector3();
     private _movePower: number = 0;
     private _moveStartPos: Laya.Vector3 = new Laya.Vector3();
     private _isMoving: boolean = false;
 
-
     private _pendingBall: Obj | null = null;
-    public isP = false;   // 球权标记
-    public phy: Phy ;
-
+    public isP = false;   
+    public phy: Phy;
     private _moveIntervalId: string | null = null;
+
+    // 【新增】事件系统与击球记录
+    private _events: { [key: string]: ((...args: any[]) => void)[] } = {};
+    public lastHitInfo: { hitterId: number, stroke: StrokeParams } | null = null;
 
     constructor(root: Laya.Sprite3D) {
         super(root);
         this._moveStartPos.setValue(this.x, this.y, this.z);
         this.phy = new Phy(this);
+        this.phy.debugDrawNet(new Laya.Color(255, 0, 0, 255))
         let sc = new Laya.Script();
         sc.onUpdate = this.onUpdate.bind(this);
         this.root.addComponentInstance(sc);
     }
 
-    get pos(): Laya.Vector3 {
-        return this.root.transform.position;
+    // 【新增】事件监听与触发
+    public on(eventName: string, callback: (...args: any[]) => void): void {
+        if (!this._events[eventName]) this._events[eventName] = [];
+        this._events[eventName].push(callback);
     }
+
+    public emit(eventName: string, ...args: any[]): void {
+        const callbacks = this._events[eventName];
+        if (callbacks) callbacks.forEach(cb => cb(...args));
+    }
+
+    get pos(): Laya.Vector3 { return this.root.transform.position; }
     set pos(v: Laya.Vector3) {
         this.root.transform.position = v;
         this.phy.sync(this);
     }
 
-    hit(power: number, angH: number, angV: number, spi: Laya.Vector3): void {
+    // 【修改】击球时记录信息并触发事件
+    hit(power: number, angH: number, angV: number, spi: Laya.Vector3, hitterId?: number): void {
+
         this.phy.hit(power, angH, angV, spi);
+        const stroke: StrokeParams = { power, angH, angV, spi };
+        this.lastHitInfo = { hitterId: hitterId ?? -1, stroke };
+        this.emit('hit', this.lastHitInfo);
     }
 
-
-
-    // 设置球权
     ball(ball: Obj): void {
         this._pendingBall = ball;
         this.isP = true;
@@ -78,10 +92,8 @@ export class Ball extends Obj {
 
     move(pos: { x: number; y: number; z: number }): void;
     move(angle: number, power: number): void;
-    move(arg1: any, arg2?: number): void {
-    }
+    move(arg1: any, arg2?: number): void {}
 
-    // ---------- 属性访问（角色特有） ----------
     get id(): number { return this._attr.id; }
     get side(): 'left' | 'right' { return this._attr.side; }
     get spd(): number { return this._attr.spd; }
@@ -90,22 +102,15 @@ export class Ball extends Obj {
     set hitRange(v: number) { this._attr.hitRange = v; }
     get state(): ChaState { return this._attr.state; }
 
-    // 序列化
-    get(): ChaAttr {
-        return { ...this._attr };
-    }
-
+    get(): ChaAttr { return { ...this._attr }; }
     set(data: Partial<ChaAttr>): void {
         Object.assign(this._attr, data);
         this._syncAttrToNodePos();
         this._moveStartPos.setValue(this._attr.x, this._attr.y, this._attr.z);
     }
 
-    // 将 _attr 中的位置同步到父类节点
     private _syncAttrToNodePos(): void {
-        this.x = this._attr.x;
-        this.y = this._attr.y;
-        this.z = this._attr.z;
+        this.x = this._attr.x; this.y = this._attr.y; this.z = this._attr.z;
     }
 
     private _stopMove(): void {
@@ -122,10 +127,7 @@ export class Ball extends Obj {
     private _startMoveInterval(): void {
         if (this._moveIntervalId) return;
         this._moveIntervalId = Timer.setInterval(16, () => {
-            if (!this._isMoving) {
-                this._clearMoveInterval();
-                return;
-            }
+            if (!this._isMoving) { this._clearMoveInterval(); return; }
             const elapsedMs = Timer.invoke("move");
             Timer.start("move");
             const totalDist = this.spd * this._movePower * elapsedMs / 10000;
@@ -137,53 +139,43 @@ export class Ball extends Obj {
     }
 
     private _clearMoveInterval(): void {
-        if (this._moveIntervalId) {
-            Timer.clear(this._moveIntervalId);
-            this._moveIntervalId = null;
-        }
+        if (this._moveIntervalId) { Timer.clear(this._moveIntervalId); this._moveIntervalId = null; }
     }
 
-    // 销毁时会自动调用父类 destroy（清理节点）
     destroy(): void {
         this._clearMoveInterval();
         super.destroy();
         this._ani = undefined;
     }
 
-        onUpdate(): void {
-        if(Timer.invoke('Time') >= 16){
-        //时间放慢两倍
-        //if(Timer.invoke('x')  > 100){
-            //console.log("inx:", this.inx);
-            // const state = this.phy.get(Timer.now() - 100 * this.inx);
-                // this.ball.transform.position = state.pos;
-                // const rot = state.rot;
-                // this.ball.transform.rotation = rot;
-                //  this.camera.transform.position  = new Laya.Vector3(state.pos.x,
-                //      state.pos.y, this.camera.transform.position.z);
+    onUpdate(): void {
+        //console.log(Timer.invoke('Time'))
+        //if (Timer.invoke('Time') >= 16) {
+            if (this.phy.isCalc) {
                 this.phy.get(Timer.now());
                 this.phy.applyToNode(this);
                 this.phy.debug();
 
-                //如果没有绘制网区域，则绘制
-                if (!xx && this.phy.isCalc) {
-                    var xx = true;
+                if (!(this as any).xx && this.phy.isCalc) {
+                    (this as any).xx = true;
                     this.phy.debugDrawNet();
                 }
-            
-                            // 查询是否碰网
-            const hit = this.phy.getLastNetHit();
-            if (hit && hit.featherHit && hit.headPastNet) {
-                console.log("球裙勾网！球头已过网，尾部上扬翻转");
-                // 播放勾网音效/特效
-                this.phy.clearNetHit();
-            } else if (hit && hit.headHit) {
-                console.log("球头触网回弹");
-                this.phy.clearNetHit();
-            }
-            //    this.camera.transform.localRotation = new Laya.Quaternion(0 , 0, 0, 1);
-                Timer.start('Time');
-            }
-        }
 
+                // 【修改】抛出碰网事件
+                const hit = this.phy.getLastNetHit();
+                if (hit) {
+                    this.emit('netHit', hit);
+                    this.phy.clearNetHit();
+                }
+
+                // 【新增】抛出落地事件
+                const gHit = this.phy.getLastGroundHit();
+                if (gHit) {
+                    this.emit('groundHit', { x: this.x, y: this.y, z: this.z });
+                    this.phy.clearGroundHit();
+                }
+            }
+            Timer.start('Time');
+       // }
+    }
 }

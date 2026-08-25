@@ -40,23 +40,25 @@ export class Ani {
      */
     constructor(owner: Laya.Sprite3D, rootBoneName: string = "Hips") {
         this._owner = owner;
+        // console.log(`[Ani] 角色根节点: ${owner}`);
         this._anim = owner.getComponent(Laya.Animator);
         if (!this._anim) {
-            console.warn("[Ani] 未找到 Animator 组件");
+            console.log('[Ani] 未找到 Animator，附加并初始化');
+            this._anim = owner.addComponent(Laya.Animator) as Laya.Animator;
+            const layer = new Laya.AnimatorControllerLayer('Base');
+            layer.defaultWeight = 1;
+            layer.playOnWake = true;
+            this._anim.addControllerLayer(layer);
         }
         this._findRootBone(rootBoneName);
         this._calcRootOffset();
         this._recordRootPosition();
-        console.log(`[oner] 根骨骼初始位置:` ,this._owner);
-        let sc = new Laya.Script();
-        sc.onUpdate = this.update.bind(this);
-        this.boneNode.addComponentInstance(sc);
-        console.log(`[Ani] 根骨骼节点: ${this.boneNode}`);
+        // console.log(`[Ani] 根骨骼节点: ${this.boneNode}`);
     }
 
     /** 查找根骨骼节点 */
     private _findRootBone(rootBoneName: string): void {
-        if (!this._anim) return;
+        //if (!this._anim) return;
 
         const findNode = (node: Laya.Node, name: string): Laya.Sprite3D | null => {
             if (node.name === name && node instanceof Laya.Sprite3D) {
@@ -73,23 +75,12 @@ export class Ani {
         this.boneNode = findNode(this._owner, rootBoneName);
         if (this.boneNode) {
             this._rootBone = this.boneNode.transform;
-            console.log(`[Ani] 找到根骨骼: ${rootBoneName}`);
+            // console.log(`[Ani] 找到根骨骼: ${rootBoneName}`);
         } else {
             console.warn(`[Ani] 未找到根骨骼: ${rootBoneName}，根运动将使用 owner 节点`);
         }
     }
 
-    /** 计算根骨骼相对于 owner 的初始偏移（忽略 Y 轴） */
-    private _calcRootOffset(): void {
-        if (this._rootBone) {
-            this._rootOffset.x = this._rootBone.position.x - this._owner.transform.position.x;
-            this._rootOffset.y = 0; // 忽略 Y 轴
-            this._rootOffset.z = this._rootBone.position.z - this._owner.transform.position.z;
-            console.log(`[Ani] 根骨骼初始偏移: ${this._rootOffset}`);
-        } else {
-            this._rootOffset.setValue(0, 0, 0);
-        }
-    }
 
     /** 记录当前根骨骼位置（用于计算增量） */
     private _recordRootPosition(): void {
@@ -99,30 +90,57 @@ export class Ani {
             this._owner.transform.position.cloneTo(this._lastRootPos);
         }
     }
+    /** 计算根骨骼的初始局部位置（用于根运动抵消） */
+    private _calcRootOffset(): void {
+        if (this._rootBone) {
+            this._rootOffset.x = this._rootBone.localPosition.x;
+            this._rootOffset.y = this._rootBone.localPosition.y; // 【修改点】记录真实的 Y 轴，不再强制为 0
+            this._rootOffset.z = this._rootBone.localPosition.z;
+            //console.log(`[Ani] 根骨骼初始局部位置: ${this._rootOffset}`);
+        } else {
+            this._rootOffset.setValue(0, 0, 0);
+        }
+    }
 
     /**
      * 每帧更新（处理根运动）
-     * - 如果启用根运动，则强制根骨骼的 XZ 坐标跟随 owner 的位置 + 偏移，Y 轴保留动画计算值。
-     * - 这样可以抵消动画中根骨骼的位移，同时保持正确的骨骼层级关系。
+     * - 在世界坐标系下锁定 X 和 Z 位移，彻底抵消动画造成的水平滑步。
+     * - 保留世界坐标系下的 Y 位移，确保跳跃、下蹲等高度变化不受骨骼旋转影响。
      */
     public update(): void {
-        if (!this.rootMotion || !this._anim) return;
+        if (!this.rootMotion || !this._anim || !this._rootBone || !this.boneNode.parent) return;
 
-        const rootBone = this._rootBone;
-        if (!rootBone) return;
+        // 1. 计算如果没有动画位移时，根骨骼当前应该处于的【世界坐标】
+        // 使用初始的局部偏移量，乘以父节点的当前世界矩阵
+        const parentMat = (this.boneNode.parent as Laya.Sprite3D).transform.worldMatrix;
+        const expectedWorldPos = new Laya.Vector3();
+        Laya.Vector3.transformCoordinate(this._rootOffset, parentMat, expectedWorldPos);
 
-        // 强制根骨骼 XZ 对齐到 owner 位置 + 偏移，Y 保持不变（由动画控制）
-        const newX = this._owner.transform.position.x + this._rootOffset.x;
-        const newZ = this._owner.transform.position.z + this._rootOffset.z;
-        rootBone.position = new Laya.Vector3(newX, rootBone.position.y, newZ);
+        // // 2. 获取当前根骨骼被 Animator 驱动后的实际【世界坐标】
+        const currentWorldPos = this._rootBone.position;
 
-        // 更新记录的位置，防止后续可能的计算错误（实际上不再使用 _lastRootPos）
-        this._recordRootPosition();
+        // // 3. 拼接新的世界坐标：锁定 X 和 Z，保留 Y
+        this._rootBone.position = new Laya.Vector3(
+            expectedWorldPos.x, 
+            currentWorldPos.y, 
+            expectedWorldPos.z
+        );
+    }
+    // ---------- 动画播放控制 ----------
+    private _stateReady(stateName: string): boolean {
+        if (!this._anim) return false;
+        const layer = this._anim.getControllerLayer(0);
+        if (!layer) return false;
+        const state = layer.getAnimatorState(stateName);
+        return !!(state && state.clip);
     }
 
-    // ---------- 动画播放控制 ----------
     play(stateName: string, duration?: number): void {
-        console.log("Ani play", stateName, duration);
+        if (!this._stateReady(stateName)) {
+            console.warn(`[Ani] 动画状态未就绪，跳过 play: ${stateName}`);
+            return;
+        }
+        //console.log("Ani play", stateName, duration);
         this._frozen = false;
         if (duration !== undefined && duration > 0) {
             const clip = this._anim.getControllerLayer(0)?.getAnimatorState(stateName)?.clip;
@@ -143,7 +161,11 @@ export class Ani {
     }
 
     crossFade(stateName: string, duration: number): void {
-        console.log("Ani crossFade", stateName, duration);
+        if (!this._stateReady(stateName)) {
+            //console.warn(`[Ani] 动画状态未就绪，跳过 crossFade: ${stateName}`);
+            return;
+        }
+        //console.log("Ani crossFade", stateName, duration);
         this._frozen = false;
         this._anim.crossFade(stateName, duration, 0, 0);
         this._anim.speed = this._paused ? 0 : this._speed;
@@ -169,13 +191,13 @@ export class Ani {
     }
 
     freeze(): void {
-        console.log("Ani freeze");
+        //console.log("Ani freeze");
         this._frozen = true;
         this._anim.speed = 0;
     }
 
     unfreeze(): void {
-        console.log("Ani unfreeze");
+        //console.log("Ani unfreeze");
         this._frozen = false;
         if (!this._paused) {
             this._anim.speed = this._speed;

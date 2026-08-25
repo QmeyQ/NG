@@ -1,3 +1,7 @@
+/**
+ * MapManager - 基于网格的空间索引结构
+ * 支持按层级（layout）、区域（cellKey）高效查询对象，包含全局对象存储和性能监控统计
+ */
 export class MapManager {
     /** 网格基础大小（像素） */
     private gridSize: number;
@@ -439,5 +443,56 @@ export class MapManager {
         
         (this.layoutObjects.get(layout) || new Set<any>())?.forEach(obj => result.add(obj));
         return result;
+    }
+}
+
+/**
+ * MPM — 事件多播管理
+ */
+export class MPM {
+    private _handlers: Map<string, Set<Function>> = new Map();
+
+    on(event: string, cb: Function): void {
+        if (!this._handlers.has(event)) {
+            this._handlers.set(event, new Set());
+        }
+        this._handlers.get(event)!.add(cb);
+    }
+
+    emit(event: string, ...args: any[]): void {
+        const set = this._handlers.get(event);
+        if (!set) return;
+        set.forEach(cb => {
+            try {
+                cb(...args);
+            } catch (e) {
+                console.error(`[MPM] 事件 "${event}" 回调异常:`, e);
+            }
+        });
+    }
+
+    off(event: string, cb: Function): void {
+        const set = this._handlers.get(event);
+        if (set) set.delete(cb);
+    }
+
+    /**
+     * unon: 清理指定事件的所有回调；不传 event 则清理全部
+     */
+    unon(event?: string): void {
+        if (event) {
+            this._handlers.delete(event);
+        } else {
+            this._handlers.clear();
+        }
+    }
+
+    has(event: string): boolean {
+        const set = this._handlers.get(event);
+        return !!set && set.size > 0;
+    }
+
+    count(event: string): number {
+        return this._handlers.get(event)?.size || 0;
     }
 }

@@ -10,6 +10,10 @@
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "dependencies": {
+    "brotli-wasm": "^3.0.1",
     "gl-matrix": "^3.4.4"
+  },
+  "devDependencies": {
+    "typescript": "^7.0.2"
   }
 }

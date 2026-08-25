@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>GOBE 通信测试</title>
+<script src="../bin/libs/GOBE.js"></script>
+<style>
+body { font-family: monospace; margin: 0; padding: 10px; background: #1e1e1e; color: #d4d4d4; }
+.container { display: flex; gap: 10px; }
+.panel { flex: 1; border: 1px solid #555; border-radius: 4px; padding: 10px; background: #252526; }
+.panel h2 { margin: 0 0 8px; font-size: 14px; color: #569cd6; }
+.row { margin-bottom: 6px; }
+label { display: inline-block; width: 70px; font-size: 12px; color: #9cdcfe; }
+input, button { font-size: 12px; padding: 3px 6px; border: 1px solid #555; border-radius: 2px; background: #3c3c3c; color: #d4d4d4; }
+button { cursor: pointer; }
+button:hover { background: #505050; }
+button:disabled { opacity: 0.5; cursor: default; }
+.log { height: 300px; overflow-y: auto; border: 1px solid #444; padding: 5px; font-size: 11px; line-height: 1.4; background: #1e1e1e; border-radius: 2px; }
+.log .info { color: #d4d4d4; }
+.log .ok { color: #4ec9b0; }
+.log .err { color: #f44747; }
+.log .warn { color: #dcdcaa; }
+.log .recv { color: #ce9178; }
+.section { border-top: 1px dashed #444; margin-top: 8px; padding-top: 8px; }
+.section-title { font-size: 12px; color: #9cdcfe; margin-bottom: 4px; }
+</style>
+</head>
+<body>
+<h3>GOBE sendToClient / onRecvFromClient 通信测试</h3>
+<div class="container">
+  <div class="panel" id="panelA">
+    <h2>客户端 A</h2>
+    <div class="row"><label>openId:</label><input id="openIdA" value="test_open_id_A" style="width:180px"></div>
+    <div class="row">
+      <button onclick="initClient('A')">1. 初始化</button>
+      <button onclick="createRoom('A')" id="createBtnA">2. 创建房间</button>
+      <button onclick="joinRoom('A')" id="joinBtnA" disabled>2. 加入房间</button>
+    </div>
+    <div class="row"><label>房间ID:</label><input id="roomIdA" style="width:180px" readonly></div>
+    <div class="section">
+      <div class="section-title">sendToClient 测试 (type=发送范围)</div>
+      <div class="row">
+        <button onclick="sendMsg('A',0)">type=0 全员</button>
+        <button onclick="sendMsg('A',1)">type=1 除自己</button>
+        <button onclick="sendMsg('A',2)">type=2 指定列表</button>
+      </div>
+    </div>
+    <div class="section">
+      <div class="section-title">sendToServer 测试</div>
+      <div class="row"><button onclick="sendSvr('A')">发送服务器消息</button></div>
+    </div>
+    <div class="log" id="logA"></div>
+  </div>
+  <div class="panel" id="panelB">
+    <h2>客户端 B</h2>
+    <div class="row"><label>openId:</label><input id="openIdB" value="test_open_id_B" style="width:180px"></div>
+    <div class="row">
+      <button onclick="initClient('B')">1. 初始化</button>
+      <button onclick="createRoom('B')" id="createBtnB">2. 创建房间</button>
+      <button onclick="joinRoom('B')" id="joinBtnB" disabled>2. 加入房间</button>
+    </div>
+    <div class="row"><label>房间ID:</label><input id="roomIdB" style="width:180px" readonly></div>
+    <div class="section">
+      <div class="section-title">sendToClient 测试 (type=发送范围)</div>
+      <div class="row">
+        <button onclick="sendMsg('B',0)">type=0 全员</button>
+        <button onclick="sendMsg('B',1)">type=1 除自己</button>
+        <button onclick="sendMsg('B',2)">type=2 指定列表</button>
+      </div>
+    </div>
+    <div class="section">
+      <div class="section-title">sendToServer 测试</div>
+      <div class="row"><button onclick="sendSvr('B')">发送服务器消息</button></div>
+    </div>
+    <div class="log" id="logB"></div>
+  </div>
+</div>
+<div style="margin-top:10px; padding:8px; border:1px solid #555; border-radius:4px; background:#252526;">
+  <div class="section-title">使用说明</div>
+  <ol style="font-size:12px; margin:4px 0; padding-left:20px;">
+    <li>分别点击 A 和 B 的"初始化"按钮</li>
+    <li>A 点击"创建房间"，获取房间ID后复制到 B 的输入框（或直接用全局共享）</li>
+    <li>B 点击"加入房间"加入 A 创建的房间</li>
+    <li>测试 sendToClient：分别点击 type=0/1/2 按钮，观察对方是否收到</li>
+    <li>type=0：发送给房间内全部玩家（含自己）</li>
+    <li>type=1：发送给除自己外的其他玩家</li>
+    <li>type=2：发送给 recvPlayerIdList 指定的玩家</li>
+  </ol>
+</div>
+<script>
+const CONFIG = {
+  clientId: '1263859182919011264',
+  clientSecret: '8D99CCC71D57DD3DFF0F1C4EB5A800E527AB122C9580D781E6BEB18C917AE277',
+  appId: '172249065902748389'
+};
+const clients = { A: null, B: null };
+const rooms = { A: null, B: null };
+let sharedRoomId = '';
+
+function log(tag, cls, msg) {
+  const el = document.getElementById('log' + tag);
+  const time = new Date().toLocaleTimeString();
+  const div = document.createElement('div');
+  div.className = cls || 'info';
+  div.textContent = `[${time}] ${msg}`;
+  el.appendChild(div);
+  el.scrollTop = el.scrollHeight;
+}
+
+function initClient(tag) {
+  const openId = document.getElementById('openId' + tag).value;
+  log(tag, 'info', `初始化中... openId=${openId}`);
+  const gobeConfig = {
+    appVersion: '0.0.0',
+    clientId: CONFIG.clientId,
+    openId: openId,
+    appId: CONFIG.appId,
+    clientSecret: CONFIG.clientSecret
+  };
+  const client = new GOBE.Client(gobeConfig);
+  client.init().then(() => {
+    clients[tag] = client;
+    log(tag, 'ok', '初始化成功!');
+    document.getElementById('createBtn' + tag).disabled = false;
+  }).catch(err => {
+    log(tag, 'err', '初始化失败: ' + (err.message || JSON.stringify(err)));
+  });
+}
+
+function createRoom(tag) {
+  if (!clients[tag]) { log(tag, 'err', '请先初始化'); return; }
+  log(tag, 'info', '创建房间中...');
+  clients[tag].createRoom({
+    roomName: 'test_' + Date.now(),
+    maxPlayers: 4,
+    roomType: '2'
+  }).then(room => {
+    rooms[tag] = room;
+    const rid = room.roomId || room.id;
+    sharedRoomId = rid;
+    document.getElementById('roomId' + tag).value = rid;
+    log(tag, 'ok', `房间创建成功! roomId=${rid}`);
+    setupRoomEvents(tag, room);
+    const otherTag = tag === 'A' ? 'B' : 'A';
+    document.getElementById('roomId' + otherTag).value = rid;
+    document.getElementById('joinBtn' + otherTag).disabled = false;
+  }).catch(err => {
+    log(tag, 'err', '创建房间失败: ' + (err.message || JSON.stringify(err)));
+  });
+}
+
+function joinRoom(tag) {
+  if (!clients[tag]) { log(tag, 'err', '请先初始化'); return; }
+  const roomId = sharedRoomId || document.getElementById('roomId' + tag).value;
+  if (!roomId) { log(tag, 'err', '没有房间ID'); return; }
+  log(tag, 'info', `加入房间 ${roomId}...`);
+  clients[tag].joinRoom(roomId).then(room => {
+    rooms[tag] = room;
+    log(tag, 'ok', `加入房间成功! roomId=${roomId}`);
+    setupRoomEvents(tag, room);
+  }).catch(err => {
+    log(tag, 'err', '加入房间失败: ' + (err.message || JSON.stringify(err)));
+  });
+}
+
+function setupRoomEvents(tag, room) {
+  room.onJoin(player => {
+    log(tag, 'recv', `[onJoin] 玩家加入: ${player.playerId}`);
+  });
+  room.onLeave(player => {
+    log(tag, 'recv', `[onLeave] 玩家离开: ${player.playerId}`);
+  });
+  room.onRecvFromClient(info => {
+    log(tag, 'recv', `[onRecvFromClient] sendPlayerId=${info.sendPlayerId} msg=${info.msg}`);
+  });
+  room.onRecvFromServer(info => {
+    log(tag, 'recv', `[onRecvFromServer] msg=${info.msg}`);
+  });
+  room.onConnect(player => {
+    log(tag, 'recv', `[onConnect] ${player.playerId} 已连接`);
+  });
+}
+
+function sendMsg(tag, type) {
+  if (!rooms[tag]) { log(tag, 'err', '请先加入房间'); return; }
+  const myId = document.getElementById('openId' + tag).value;
+  const otherTag = tag === 'A' ? 'B' : 'A';
+  const otherId = document.getElementById('openId' + otherTag).value;
+  const msg = JSON.stringify({ kind: 'test', from: myId, time: Date.now(), text: `hello from ${tag}` });
+  const sendInfo = { type: type, msg: msg };
+  if (type === 2) {
+    sendInfo.recvPlayerIdList = [otherId];
+    log(tag, 'info', `sendToClient type=2 -> [${otherId}] msg=${msg}`);
+  } else {
+    log(tag, 'info', `sendToClient type=${type} msg=${msg}`);
+  }
+  try {
+    rooms[tag].sendToClient(sendInfo);
+    log(tag, 'ok', 'sendToClient 调用成功');
+  } catch (e) {
+    log(tag, 'err', 'sendToClient 异常: ' + e.message);
+  }
+}
+
+function sendSvr(tag) {
+  if (!rooms[tag]) { log(tag, 'err', '请先加入房间'); return; }
+  const myId = document.getElementById('openId' + tag).value;
+  const msg = JSON.stringify({ kind: 'svr_test', from: myId, time: Date.now() });
+  log(tag, 'info', `sendToServer msg=${msg}`);
+  try {
+    rooms[tag].sendToServer(msg);
+    log(tag, 'ok', 'sendToServer 调用成功');
+  } catch (e) {
+    log(tag, 'err', 'sendToServer 异常: ' + e.message);
+  }
+}
+</script>
+</body>
+</html>
