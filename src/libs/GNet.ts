@@ -75,6 +75,9 @@
 
 declare const GOBE: any;
 
+import { PlayerInfo } from "./GOBE";
+import { MPM } from "./mpm";
+
 // 配置对象接口
 interface GnetConfig {
   clientId: string;
@@ -139,13 +142,14 @@ export enum RoomStatus {
 }
 
 export class Gnet {
-  private static client: any = null;
+  public static client: any = null;
   private static config: GnetConfig | null = null;
   private static isInitialized: boolean = false;
   private static currentPlayerId: string = '';
   private static messageHandlers: Map<number, MessageCallback[]> = new Map();
   private static roomChangeCallbacks: Array<(room: any) => void> = [];
   private static isRoomOwnerCache: boolean = false;
+  private static _mpm: MPM = new MPM();
 
   /**
    * 初始化客户端
@@ -224,6 +228,7 @@ export class Gnet {
     } else {
       this.isRoomOwnerCache = false;
     }
+    this._cachedRoomPlayerId = '';
   }
 
   /**
@@ -257,11 +262,43 @@ export class Gnet {
   }
 
   /**
-   * 获取当前玩家ID
-   * @returns 当前玩家ID
+   * 玩家全局ID（openId）
+   */
+  static getOpenId(): string {
+    return this.currentPlayerId;
+  }
+
+  private static _cachedRoomPlayerId: string = '';
+
+  /**
+   * 房间分配的玩家ID（缓存，重进房间或为空时重新获取）
+   */
+  static getRoomPlayerId(): string {
+    const room = this.getRoom();
+    if (!room) {
+      this._cachedRoomPlayerId = '';
+      return '';
+    }
+    if (this._cachedRoomPlayerId) return this._cachedRoomPlayerId;
+    const players = room.players || [];
+    const myOpenId = this.currentPlayerId;
+    for (const p of players) {
+      try {
+        const props = typeof p.customPlayerProperties === 'string' ? JSON.parse(p.customPlayerProperties) : p.customPlayerProperties;
+        if (props && props.playerName === myOpenId) {
+          this._cachedRoomPlayerId = p.playerId;
+          return p.playerId;
+        }
+      } catch (e) {}
+    }
+    return '';
+  }
+
+  /**
+   * 当前玩家ID（优先房间ID，兼容旧调用）
    */
   static getCurrentPlayerId(): string {
-    return this.currentPlayerId;
+    return this.getRoomPlayerId() || this.currentPlayerId;
   }
 
   /**
@@ -274,7 +311,7 @@ export class Gnet {
   }
 
   /**
-   * 检查当前玩家是否是房主
+   * 检查当前玩家是否是房主,状态变更时需要updateRoomcache
    * @returns 是否是房主
    */
   static isRoomOwner(): boolean {
@@ -292,7 +329,7 @@ export class Gnet {
   }
 
   /**
-   * 获取所有玩家列表
+   * 获取房间所有玩家列表
    * @returns 玩家数组
    */
   static getPlayers(): any[] {
@@ -348,8 +385,12 @@ export class Gnet {
         this.updateRoomOwnerCache(room);
         this.notifyRoomChange(room);
         
-        // 发送系统消息
-        this.sendSystemMessage(`${this.getCurrentPlayerId()} 创建了房间`);
+      // 发送系统消息（失败不影响主流程）
+        try {
+          this.sendSystemMessage(`${this.getCurrentPlayerId()} 创建了房间`);
+        } catch (e) {
+          console.warn("sendSystemMessage failed:", e);
+        }
         
         callback(null, room);
       })
@@ -386,15 +427,17 @@ export class Gnet {
         this.updateRoomOwnerCache(room);
         this.notifyRoomChange(room);
         
-        // 发送玩家加入消息给房主
-        this.sendToRoomOwner(MessageType.PLAYER_JOIN, JSON.stringify({
-          playerId: this.getCurrentPlayerId(),
-          playerName: options.playerName || this.config?.openId,
-          joinTime: Date.now()
-        }));
-        
-        // 发送系统消息
-        this.sendSystemMessage(`${options.playerName || this.getCurrentPlayerId()} 加入了房间`);
+        // 发送消息（失败不影响主流程）
+        try {
+          this.sendToRoomOwner(MessageType.PLAYER_JOIN, JSON.stringify({
+            playerId: this.getCurrentPlayerId(),
+            playerName: options.playerName || this.config?.openId,
+            joinTime: Date.now()
+          }));
+          this.sendSystemMessage(`${options.playerName || this.getCurrentPlayerId()} 加入了房间`);
+        } catch (e) {
+          console.warn("joinRoom message send failed:", e);
+        }
         
         callback(null, room);
       })
@@ -413,19 +456,21 @@ export class Gnet {
 
     const leavingPlayerId = this.getCurrentPlayerId();
     
+    // 在离开房间前发送消息（离开后 room 为 null）
+    try {
+      if (leavingPlayerId !== this.getRoomOwnerId()) {
+        this.sendToRoomOwner(MessageType.PLAYER_LEAVE, JSON.stringify({
+          playerId: leavingPlayerId,
+          leaveTime: Date.now()
+        }));
+      }
+      this.sendSystemMessage(`${leavingPlayerId} 离开了房间`);
+    } catch (e) {
+      console.warn("leaveRoom message send failed:", e);
+    }
+    
     this.client.leaveRoom()
       .then((client: any) => {
-        // 发送玩家离开消息给房主（如果房主不是离开的玩家）
-        if (leavingPlayerId !== this.getRoomOwnerId()) {
-          this.sendToRoomOwner(MessageType.PLAYER_LEAVE, JSON.stringify({
-            playerId: leavingPlayerId,
-            leaveTime: Date.now()
-          }));
-        }
-        
-        // 发送系统消息
-        this.sendSystemMessage(`${leavingPlayerId} 离开了房间`);
-        
         this.updateRoomOwnerCache(null);
         callback(null, client);
       })
@@ -718,105 +763,314 @@ export class Gnet {
    */
 
   static matchRoom(matchCode: string | MatchConfig, callback: RoomCallback, options: PlayerOptions = {}): void {
-    // ... 原有实现 ...
+    if (!this.checkInitialized()) {
+      callback(new Error("Client not initialized"));
+      return;
+    }
+
+    let matchRoomConfig: any;
+    if (typeof matchCode === 'string') {
+      matchRoomConfig = {
+        matchParams: {},
+        maxPlayers: 4,
+        roomType: matchCode,
+      };
+    } else {
+      matchRoomConfig = {
+        matchParams: matchCode.matchParams || {},
+        maxPlayers: matchCode.maxPlayers || 4,
+        roomType: matchCode.roomType,
+      };
+    }
+
+    const playerConfig: any = {
+      customPlayerStatus: options.customPlayerStatus ?? 0,
+      customPlayerProperties: options.customPlayerProperties || JSON.stringify({
+        playerName: this.config?.openId || "Player",
+        joinTime: Date.now()
+      }),
+    };
+
+    this.client.matchRoom(matchRoomConfig, playerConfig)
+      .then((room: any) => {
+        this.updateRoomOwnerCache(room);
+        this.notifyRoomChange(room);
+        callback(null, room);
+      })
+      .catch((err: Error) => callback(err));
   }
 
   static matchPlayer(matchCode: string, callback: MatchCallback, options: PlayerOptions = {}): void {
-    // ... 原有实现 ...
+    if (!this.checkInitialized()) {
+      callback(new Error("Client not initialized"));
+      return;
+    }
+
+    const matchPlayerConfig: any = {
+      playerInfo: {
+        playerId: this.getCurrentPlayerId(),
+        matchParams: { level: parseInt(matchCode) || 1 }
+      },
+      matchCode: matchCode
+    };
+
+    const playerConfig: any = {
+      customPlayerStatus: options.customPlayerStatus ?? 0,
+      customPlayerProperties: options.customPlayerProperties || JSON.stringify({
+        playerName: options.playerName || this.config?.openId || "Player",
+        joinTime: Date.now()
+      })
+    };
+
+    this.client.matchPlayer(matchPlayerConfig, playerConfig)
+      .then((resp: any) => callback(null, resp))
+      .catch((err: Error) => callback(err));
   }
 
   static getAvailableRooms(callback: (err: Error | null, info?: any) => void, config?: any): void {
-    // ... 原有实现 ...
+    if (!this.checkInitialized()) {
+      callback(new Error("Client not initialized"));
+      return;
+    }
+
+    const queryConfig: any = {
+      limit: config?.limit || 20,
+      offset: config?.offset || 0,
+      roomType: config?.roomType,
+      roomTypeList: config?.roomTypeList,
+      sync: config?.sync
+    };
+
+    this.client.getAvailableRooms(queryConfig)
+      .then((result: any) => callback(null, result))
+      .catch((err: Error) => callback(err));
   }
 
   static cancelMatch(callback: BaseCallback): void {
-    // ... 原有实现 ...
+    if (!this.checkInitialized()) {
+      callback(new Error("Client not initialized"));
+      return;
+    }
+
+    this.client.cancelMatch()
+      .then((resp: any) => callback(null, resp))
+      .catch((err: Error) => callback(err));
   }
 
   static startFrameSync(callback: VoidCallback): void {
-    // ... 原有实现 ...
-  }
+    const room = this.getRoom();
+    if (!room) {
+      callback(new Error("Not in a room"));
+      return;
+    }
 
+    room.startFrameSync()
+      .then(() => callback(null))
+      .catch((err: any) => {
+           if (err.errorCode === 101114 || (err.message && err.message.includes("already start frame sync"))) {
+               console.warn("[Gnet] 房间已在帧同步中，继续执行...");
+               callback(null); // 忽略已开启帧同步的错误
+           } else if (err.errorCode === 101118 || (err.message && err.message.includes("invalid room status"))) {
+               // 尝试先停止再开始
+               console.warn("[Gnet] 房间状态无效，尝试停止后重新开始帧同步...");
+               room.stopFrameSync().then(() => {
+                   room.startFrameSync().then(() => callback(null)).catch((e: any) => callback(e));
+               }).catch((e: any) => {
+                   console.warn("[Gnet] 停止帧同步失败，忽略错误继续...", e);
+                   callback(null); // 如果停止也失败，直接继续，让游戏尝试运行
+               });
+           } else {
+               callback(err);
+           }
+      });
+  }
   static stopFrameSync(callback: VoidCallback): void {
-    // ... 原有实现 ...
+    const room = this.getRoom();
+    if (!room) {
+      callback(new Error("Not in a room"));
+      return;
+    }
+
+    room.stopFrameSync()
+      .then(() => callback(null))
+      .catch((err: Error) => callback(err));
   }
 
   static sendFrame(data: string | string[]): void {
-    // ... 原有实现 ...
+    const room = this.getRoom();
+    if (!room) {
+      console.error("Not in a room");
+      return;
+    }
+    room.sendFrame(data);
   }
 
   static requestFrame(beginFrameId: number, size: number): void {
-    // ... 原有实现 ...
+    const room = this.getRoom();
+    if (!room) {
+      console.error("Not in a room");
+      return;
+    }
+    room.requestFrame(beginFrameId, size);
   }
 
   static updateRoom(roomName?: string, customProperties?: string): void {
-    // ... 原有实现 ...
+    const room = this.getRoom();
+    if (!room) {
+      console.error("Not in a room");
+      return;
+    }
+    if (!this.isRoomOwner()) {
+      console.warn("Only room owner can update room properties");
+      return;
+    }
+
+    const updateInfo: any = {};
+    if (roomName !== undefined) updateInfo.roomName = roomName;
+    if (customProperties !== undefined) updateInfo.customRoomProperties = customProperties;
+
+    room.updateRoomProperties(updateInfo);
   }
 
   static sendToServer(msg: string): void {
-    // ... 原有实现 ...
+    const room = this.getRoom();
+    if (!room) {
+      console.error("Not in a room");
+      return;
+    }
+    room.sendToServer(msg);
   }
 
   static sendToClient(type: number, msg: string, recvPlayerIdList?: string[]): void {
-    // ... 原有实现 ...
+    const room = this.getRoom();
+    if (!room) {
+      console.error("Not in a room");
+      return;
+    }
+
+    const sendInfo: any = {
+      type: type,
+      msg: msg
+    };
+    if (recvPlayerIdList) {
+      sendInfo.recvPlayerIdList = recvPlayerIdList;
+    }
+    room.sendToClient(sendInfo);
   }
 
   static destroy(callback: VoidCallback): void {
-    // ... 原有实现 ...
+    try {
+      this._mpm.unon();
+      this.messageHandlers.clear();
+      this.roomChangeCallbacks.length = 0;
+      this.isInitialized = false;
+      this.client = null;
+      this.config = null;
+      this.currentPlayerId = '';
+      this.isRoomOwnerCache = false;
+      callback(null);
+    } catch (err) {
+      callback(err as Error);
+    }
   }
 
   static onInit(cb: (code: number) => any): void {
-    // ... 原有实现 ...
+    this.client?.onInitResult((code: number) => cb(code));
   }
 
   static onMatch(cb: (resp: any) => any): void {
-    // ... 原有实现 ...
+    this.client?.onMatch((resp: any) => cb(resp));
   }
 
   static onKick(cb: () => any): void {
-    // ... 原有实现 ...
+    this.client?.onKickOff(() => cb());
   }
 
+  /**
+   * 注册帧同步数据监听（支持多播）
+   */
   static onFrame(cb: (msg: any) => any): void {
-    // ... 原有实现 ...
+    this._mpm.on("frame", cb);
+    if (this._mpm.count("frame") === 1) {
+      this.client?.room?.onRecvFrame((msg: any) => {
+        this._mpm.emit("frame", msg);
+      });
+    }
   }
 
-  static onServer(cb: (info: any) => any): void {
-    // ... 原有实现 ...
+  /**
+   * 移除帧同步数据监听
+   */
+  static offFrame(cb: (msg: any) => any): void {
+    this._mpm.off("frame", cb);
   }
+
+  /**
+   * 注册服务器消息监听（支持多播）
+   */
+  static onServer(cb: (info: any) => any): void {
+    this._mpm.on("server", cb);
+    if (this._mpm.count("server") === 1) {
+      this.client?.room?.onRecvFromServer((info: any) => {
+        this._mpm.emit("server", info);
+      });
+    }
+  }
+
+  /**
+   * 移除服务器消息监听
+   */
+  static offServer(cb: (info: any) => any): void {
+    this._mpm.off("server", cb);
+  }
+
 
   static onClient(cb: (info: any) => any): void {
-    // ... 原有实现，但增加消息处理器调用 ...
-    this.client?.room?.onRecvFromClient((info: any) => {
-      // 调用注册的消息处理器
-      const handlers = this.messageHandlers.get(info.type) || [];
-      handlers.forEach(handler => {
-        try {
-          handler(info.sendPlayerId, info.msg, info.type);
-        } catch (err) {
-          console.error("Message handler error:", err);
-        }
+    this._mpm.on("client", cb);
+    if (this._mpm.count("client") === 1) {
+      this.client?.room?.onRecvFromClient((info: any) => {
+        const handlers = this.messageHandlers.get(info.type) || [];
+        handlers.forEach(handler => {
+          try {
+            handler(info.sendPlayerId, info.msg, info.type);
+          } catch (err) {
+            console.error("Message handler error:", err);
+          }
+        });
+        this._mpm.emit("client", info);
       });
-      
-      // 调用原始回调
-      cb(info);
-    });
+    }
   }
 
   static onConnect(cb: (player: any) => any): void {
-    // ... 原有实现 ...
+    this._mpm.on("connect", cb);
+    if (this._mpm.count("connect") === 1) {
+      this.client?.room?.onConnect((player: any) => this._mpm.emit("connect", player));
+    }
   }
 
   static onJoin(cb: (player: any) => any): void {
-    // ... 原有实现 ...
+    this._mpm.on("join", cb);
+    if (this._mpm.count("join") === 1) {
+      this.client?.room?.onJoin((player: any) => this._mpm.emit("join", player));
+    }
   }
 
   static onLeave(cb: (player: any) => any): void {
-    // ... 原有实现 ...
+    this._mpm.on("leave", cb);
+    if (this._mpm.count("leave") === 1) {
+      this.client?.room?.onLeave((player: any) => this._mpm.emit("leave", player));
+    }
   }
 
   static onDismiss(cb: (roomId: string) => any): void {
-    // ... 原有实现 ...
+    this._mpm.on("dismiss", cb);
+    if (this._mpm.count("dismiss") === 1) {
+      this.client?.room?.onDismiss(() => {
+        const roomId = this.getRoom()?.id || '';
+        this._mpm.emit("dismiss", roomId);
+      });
+    }
   }
 
   static getAvailableRoomsPaged(
@@ -825,11 +1079,53 @@ export class Gnet {
     callback: (err: Error | null, rooms: any[], hasNext: 0 | 1, serverTotalCount: number, extra?: any) => void,
     options: any = {}
   ): void {
-    // ... 原有实现 ...
+    if (!this.isInitialized || !this.client) {
+      callback(new Error("Gnet not initialized"), [], 0, 0);
+      return;
+    }
+
+    const config: any = {
+      limit: pageSize,
+      offset: options.serverOffset != null ? options.serverOffset : 0,
+    };
+
+    this.client.getAvailableRooms(config)
+      .then((result: any) => {
+        const rooms = (result.rooms || []).map((r: any) => ({
+          ...r,
+          playerCount: r.players ? r.players.length : 0,
+        }));
+        callback(null, rooms, result.hasNext || 0, result.count || 0, { nextServerOffset: result.offset });
+      })
+      .catch((err: Error) => {
+        callback(err, [], 0, 0);
+      });
   }
 
   static updatePlayerProperties(options: PlayerOptions, callback: BaseCallback): void {
-    // ... 原有实现 ...
+    const room = this.getRoom();
+    if (!room) {
+      callback(new Error("Not in a room"));
+      return;
+    }
+
+    try {
+      const player = room.player;
+      if (!player) {
+        callback(new Error("Player not available"));
+        return;
+      }
+
+      if (options.customPlayerStatus !== undefined) {
+        player.updateCustomStatus(options.customPlayerStatus);
+      }
+      if (options.customPlayerProperties !== undefined) {
+        player.updateCustomProperties(options.customPlayerProperties);
+      }
+      callback(null, { success: true });
+    } catch (err) {
+      callback(err as Error);
+    }
   }
 
   /**

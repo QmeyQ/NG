@@ -11,14 +11,15 @@
     "alwaysIncludeDefaultSkin": false
   },
   "modules": {
-    "laya.ui": true,
     "laya.d3": true,
     "laya.physics2D": true,
     "laya.physics3D": true,
     "laya.legacyParser": true,
     "laya.blueprint": true,
     "laya.spine": true,
-    "laya.ik": true
+    "laya.ik": true,
+    "laya.spine3D": true,
+    "laya.ui": true
   },
   "addons": {
     "laya.ui": "both"

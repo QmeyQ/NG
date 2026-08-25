@@ -1,6 +1,10 @@
+/**
+ * Res - 资源管理器，负责多包资源加载、包索引解析、内存缓存
+ * 支持 Spine/Atlas 资源组识别，提供下载进度/错误/完成回调与 Promise 接口
+ */
 // Res.ts
 import { Net } from "./net";
-import { Code, PackInfo, DecompressResult } from "./code";
+import { Code, PackInfo } from "./code";
 
 // ========== 简化的索引结构 ==========
 interface PackIndex {
@@ -36,7 +40,7 @@ export class Res {
         if (Res._initialized) return;
         Res._net = new Net();
         Res._initialized = true;
-        console.log('[Res] 初始化完成');
+        // console.log('[Res] 初始化完成');
     }
 
     // ==================== 加载 .res 包（含自动修复） ====================
@@ -52,14 +56,14 @@ export class Res {
             onComplete = forceOrCallback;
         }
 
-        if (!url.endsWith('.res')) {
-            console.warn('[Res] 仅支持 .res 格式文件');
+        if (!url.endsWith('.res') && !url.endsWith('.br')) {
+            console.warn('[Res] 仅支持 .res / .br 格式文件');
             onComplete?.(null as any);
             return;
         }
 
         const packName = Res._extractPackName(url);
-        console.log(`[Res] 加载资源包: ${url}, 包名: ${packName}`);
+        // console.log(`[Res] 加载资源包: ${url}, 包名: ${packName}`);
 
         Res._urlPromise = new Promise((resolve, reject) => {
             Res._urlResolve = resolve;
@@ -75,7 +79,7 @@ export class Res {
                     const idx: PackIndex = JSON.parse(cached);
                     Res._packMap.set(packName, { index: idx, url });
                     Res._activePackName? packName:undefined;
-                    console.log(`[Res] 找到本地索引 [${packName}]，文件数: ${Object.keys(idx.files).length}, 版本: ${idx.v}`);
+                    // console.log(`[Res] 找到本地索引 [${packName}]，文件数: ${Object.keys(idx.files).length}, 版本: ${idx.v}`);
 
                     // 2. 校验本地文件完整性
                     Res.check(idx, packName).then(result => {
@@ -110,7 +114,7 @@ export class Res {
 
     private static _extractPackName(url: string): string {
         const fileName = url.substring(url.lastIndexOf('/') + 1);
-        return fileName.replace(/\.res$/, '');
+        return fileName.replace(/\.(res|br)$/, '');
     }
 
     private static _buildFileTree(index: PackIndex): any {
@@ -148,65 +152,82 @@ export class Res {
                 }
                 console.log(`[Res] 下载完成，大小: ${blob.size} bytes`);
 
-                Code.parsePack(blob,
-                    (packInfo: PackInfo) => {
-                        console.log(`[Res] 包头解析成功，版本: ${packInfo.version}`);
-                        const allFiles = Res._getAllFilesFromPackInfo(packInfo);
-                        console.log(`[Res] 包内文件总数: ${allFiles.length}`);
+                const isBr = url.endsWith('.br');
+                const proceed = (containerBlob: Blob, containerBuffer?: ArrayBuffer) => {
+                    Code.parsePack(containerBlob,
+                        (packInfo: PackInfo) => {
+                            // console.log(`[Res] 包头解析成功，版本: ${packInfo.version}`);
+                            const allFiles = Res._getAllFilesFromPackInfo(packInfo);
+                            // console.log(`[Res] 包内文件总数: ${allFiles.length}`);
 
-                        const index: PackIndex = {
-                            v: packInfo.version || '1.0',
-                            files: {}
-                        };
+                            const index: PackIndex = {
+                                v: packInfo.version || '1.0',
+                                files: {}
+                            };
 
-                        // 使用 Promise 确保所有文件写入完成
-                        const extractPromises = allFiles.map(filePath => {
-                            return new Promise<void>((resolve, reject) => {
-                                const fileKey = `${packName}@${filePath}`;
-                                Code.decompressFileByName(blob, packInfo, filePath,
-                                    (result: DecompressResult) => {
-                                        Res._net.storage.setFile(fileKey, result.blob, (success: boolean) => {
-                                            if (success) {
-                                                index.files[filePath] = result.blob.size;
-                                                console.log(`[Res] 文件已存储: ${fileKey} (${result.blob.size} bytes)`);
-                                            } else {
-                                                console.error(`[Res] 存储失败: ${fileKey}`);
-                                            }
-                                            resolve();
-                                        });
-                                    },
-                                    (error) => {
-                                        console.error(`[Res] 解压失败 ${filePath}:`, error);
-                                        resolve(); // 继续其他文件，不阻塞
+                            const container = containerBuffer!;
+                            const extractPromises = allFiles.map(filePath => {
+                                return new Promise<void>((resolve) => {
+                                    const fileKey = `${packName}@${filePath}`;
+                                    const fileBlob = Code.extractFile(container, packInfo, filePath);
+                                    if (!fileBlob) {
+                                        console.error(`[Res] 提取失败: ${fileKey}`);
+                                        resolve();
+                                        return;
                                     }
-                                );
-                            });
-                        });
-
-                        Promise.all(extractPromises).then(() => {
-                            console.log(`[Res] 所有文件提取完成，成功 ${Object.keys(index.files).length} 个`);
-                            Res._packMap.set(packName, { index, url });
-                            Res._activePackName = packName;
-                            const indexKey = `res_idx::${packName}`;
-                            Res._net.storage.set(indexKey, JSON.stringify(index), () => {
-                                console.log('[Res] 索引已保存');
-                                // 删除整包 Blob
-                                Res._net.cacheRemove(`res_file_${url}`, () => {
-                                    console.log('[Res] 整包 Blob 已删除');
+                                    Res._net.storage.setFile(fileKey, fileBlob, (success: boolean) => {
+                                        if (success) {
+                                            index.files[filePath] = fileBlob.size;
+                                            // console.log(`[Res] 文件已存储: ${fileKey} (${fileBlob.size} bytes)`);
+                                        } else {
+                                            console.error(`[Res] 存储失败: ${fileKey}`);
+                                        }
+                                        resolve();
+                                    });
                                 });
-                                Res._analyzeGroupsFromIndex(packName);
-                                const fakePackInfo = { files: Res._buildFileTree(index) } as PackInfo;
-                                onComplete?.(fakePackInfo);
-                                Res._urlResolve?.(fakePackInfo);
                             });
-                        });
-                    },
-                    (error) => {
-                        console.error('[Res] 解析包失败:', error);
+
+                            Promise.all(extractPromises).then(() => {
+                                // console.log(`[Res] 所有文件提取完成，成功 ${Object.keys(index.files).length} 个`);
+                                Res._packMap.set(packName, { index, url });
+                                Res._activePackName = packName;
+                                const indexKey = `res_idx::${packName}`;
+                                Res._net.storage.set(indexKey, JSON.stringify(index), () => {
+                                    // console.log('[Res] 索引已保存');
+                                    Res._net.cacheRemove(`res_file_${url}`, () => {
+                                        console.log('[Res] 整包 Blob 已删除');
+                                    });
+                                    Res._analyzeGroupsFromIndex(packName);
+                                    const fakePackInfo = { files: Res._buildFileTree(index) } as PackInfo;
+                                    onComplete?.(fakePackInfo);
+                                    Res._urlResolve?.(fakePackInfo);
+                                });
+                            });
+                        },
+                        (error) => {
+                            console.error('[Res] 解析包失败:', error);
+                            onComplete?.(null as any);
+                            Res._urlReject?.(error);
+                        }
+                    );
+                };
+
+                if (isBr) {
+                    console.log('[Res] 检测到 .br，开始 Brotli 解压');
+                    Code.decompressBr(blob, (containerBuffer: ArrayBuffer) => {
+                        console.log(`[Res] Brotli 解压完成，容器大小: ${containerBuffer.byteLength} bytes`);
+                        proceed(new Blob([containerBuffer]), containerBuffer);
+                    }, (err: string) => {
+                        console.error('[Res] Brotli 解压失败:', err);
                         onComplete?.(null as any);
-                        Res._urlReject?.(error);
-                    }
-                );
+                        Res._urlReject?.(err);
+                    });
+                } else {
+                    const reader = new FileReader();
+                    reader.onload = () => proceed(blob, reader.result as ArrayBuffer);
+                    reader.onerror = () => { onComplete?.(null as any); Res._urlReject?.('读取容器失败'); };
+                    reader.readAsArrayBuffer(blob);
+                }
             },
             onError: (msg: string) => {
                 console.error('[Res] 下载失败:', msg);
@@ -259,7 +280,7 @@ export class Res {
                 files.forEach(f => Res._fileToGroup.set(f, baseName));
             }
         });
-        console.log(`[Res] 识别到 ${Res._groupInfo.size} 个资源组 (包: ${packName})`);
+        // console.log(`[Res] 识别到 ${Res._groupInfo.size} 个资源组 (包: ${packName})`);
     }
 
     // ==================== 完整性校验 ====================
@@ -294,7 +315,7 @@ export class Res {
                 return;
             }
 
-            console.log(`[Res] 开始校验 ${files.length} 个文件 (包: ${targetPackName})...`);
+            // console.log(`[Res] 开始校验 ${files.length} 个文件 (包: ${targetPackName})...`);
 
             files.forEach(filePath => {
                 const fileKey = `${targetPackName}@${filePath}`;
@@ -310,7 +331,7 @@ export class Res {
                     }
                     if (--pending === 0) {
                         const valid = missing.length === 0 && sizeMismatch.length === 0;
-                        console.log(`[Res] 校验完成: ${valid ? '完整' : '不完整'} (缺失 ${missing.length}, 不匹配 ${sizeMismatch.length})`);
+                        // console.log(`[Res] 校验完成: ${valid ? '完整' : '不完整'} (缺失 ${missing.length}, 不匹配 ${sizeMismatch.length})`);
                         resolve({ valid, missing, sizeMismatch });
                     }
                 });
@@ -519,6 +540,11 @@ export class Res {
                 console.error(`[Res] 材质加载失败: ${filePath}`, e);
                 finish(null);
             });
+        } else if (ext === 'lani') {
+            Laya.loader.load(url, Laya.Loader.ANIMATIONCLIP).then(clip => finish(clip)).catch(e => {
+                console.error(`[Res] 动画片段加载失败: ${filePath}`, e);
+                finish(null);
+            });
         } else {
             console.log(`[Res] 未知类型，返回 Blob: ${filePath}`);
             finish(blob);
@@ -669,13 +695,11 @@ export class Res {
 
                 Laya.loader.load(atlasPages).then((res: Laya.Texture2D[]) => {
                     const textures: Record<string, Laya.Texture2D> = {};
-                    let premultipliedAlpha = true;
                     for (let i = 0; i < res.length; i++) {
                         const tex = res[i];
                         if (tex) tex._addReference();
                         const page = atlas.pages[i];
                         if (tex) {
-                            premultipliedAlpha = page.pma || (tex._premultiplyAlpha && premultipliedAlpha);
                             // @ts-ignore
                             page.texture.realTexture = tex;
                             // @ts-ignore
@@ -707,7 +731,7 @@ export class Res {
 
                     try {
                         // @ts-ignore
-                        templet._parse(skData, atlas, textures, premultipliedAlpha);
+                        templet._parse(skData, atlas, textures);
                         callback(templet);
                     } catch (e) {
                         console.error('[Res] 解析 Spine 失败', e);
@@ -741,8 +765,8 @@ export class Res {
             const subTexture = Laya.Texture.create(texture, frame.x, frame.y, frame.w, frame.h,
                 frameData.spriteSourceSize?.x || 0, frameData.spriteSourceSize?.y || 0,
                 frameData.sourceSize?.w || frame.w, frameData.sourceSize?.h || frame.h);
-            subTexture._sizeGrid = frameData.sizeGrid;
-            subTexture._stateNum = frameData.stateNum;
+            // subTexture._sizeGrid = frameData.sizeGrid;
+            // subTexture._stateNum = frameData.stateNum;
             subTexture.url = `${texture.url}_${frameName}`;
             Laya.loader.cacheRes(subTexture.url, subTexture);
             subTextures.push(subTexture);

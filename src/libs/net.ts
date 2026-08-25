@@ -1,3 +1,7 @@
+/**
+ * Net - 网络通信类，负责资源包的下载、缓存、断点续传
+ * 引用 IDBStorage 做本地持久化和 Timer 做定时控制，内置调试日志和十六进制 dump 工具
+ */
 import { IDBStorage } from "./IDBStorage";
 import { Timer } from "./time";
 

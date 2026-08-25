@@ -1,0 +1,232 @@
+{
+  "_$ver": 1,
+  "_$type": "Sprite3D",
+  "_$id": "#9",
+  "name": "RootNode",
+  "isStatic": false,
+  "layer": 0,
+  "transform": {
+    "localPosition": {
+      "_$type": "Vector3",
+      "x": 0,
+      "y": 0,
+      "z": 0
+    },
+    "localRotation": {
+      "_$type": "Quaternion",
+      "x": 0,
+      "y": 0,
+      "z": 0,
+      "w": 1
+    },
+    "localScale": {
+      "_$type": "Vector3",
+      "x": 1,
+      "y": 1,
+      "z": 1
+    }
+  },
+  "_$child": [
+    {
+      "_$type": "Sprite3D",
+      "_$id": "#42",
+      "name": "floor",
+      "isStatic": false,
+      "layer": 0,
+      "transform": {
+        "localPosition": {
+          "_$type": "Vector3",
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "localRotation": {
+          "_$type": "Quaternion",
+          "x": -0.7071068286895752,
+          "y": 0,
+          "z": 0,
+          "w": 0.7071067094802856
+        },
+        "localScale": {
+          "_$type": "Vector3",
+          "x": 1,
+          "y": 1,
+          "z": 1
+        }
+      },
+      "_$comp": [
+        {
+          "_$type": "MeshFilter",
+          "sharedMesh": {
+            "_$uuid": "0d67e488-b658-427f-a24e-9add580694fa@lm0"
+          }
+        },
+        {
+          "_$type": "MeshRenderer",
+          "sharedMaterials": [
+            {
+              "_$uuid": "0d67e488-b658-427f-a24e-9add580694fa@lmat1"
+            },
+            {
+              "_$uuid": "0d67e488-b658-427f-a24e-9add580694fa@lmat4"
+            },
+            {
+              "_$uuid": "0d67e488-b658-427f-a24e-9add580694fa@lmat5"
+            }
+          ],
+          "enable": true,
+          "receiveShadow": true,
+          "castShadow": true
+        }
+      ],
+      "_$child": []
+    },
+    {
+      "_$type": "Sprite3D",
+      "_$id": "#43",
+      "name": "net",
+      "isStatic": false,
+      "layer": 0,
+      "transform": {
+        "localPosition": {
+          "_$type": "Vector3",
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "localRotation": {
+          "_$type": "Quaternion",
+          "x": -0.7071068286895752,
+          "y": 0,
+          "z": 0,
+          "w": 0.7071067094802856
+        },
+        "localScale": {
+          "_$type": "Vector3",
+          "x": 1,
+          "y": 1,
+          "z": 1
+        }
+      },
+      "_$comp": [
+        {
+          "_$type": "MeshFilter",
+          "sharedMesh": {
+            "_$uuid": "0d67e488-b658-427f-a24e-9add580694fa@lm1"
+          }
+        },
+        {
+          "_$type": "MeshRenderer",
+          "sharedMaterials": [
+            {
+              "_$uuid": "0d67e488-b658-427f-a24e-9add580694fa@lmat2"
+            },
+            {
+              "_$uuid": "0d67e488-b658-427f-a24e-9add580694fa@lmat3"
+            }
+          ],
+          "enable": true,
+          "receiveShadow": true,
+          "castShadow": true
+        }
+      ],
+      "_$child": []
+    },
+    {
+      "_$type": "Sprite3D",
+      "_$id": "#44",
+      "name": "pole",
+      "isStatic": false,
+      "layer": 0,
+      "transform": {
+        "localPosition": {
+          "_$type": "Vector3",
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "localRotation": {
+          "_$type": "Quaternion",
+          "x": -0.7071068286895752,
+          "y": 0,
+          "z": 0,
+          "w": 0.7071067094802856
+        },
+        "localScale": {
+          "_$type": "Vector3",
+          "x": 1,
+          "y": 1,
+          "z": 1
+        }
+      },
+      "_$comp": [
+        {
+          "_$type": "MeshFilter",
+          "sharedMesh": {
+            "_$uuid": "0d67e488-b658-427f-a24e-9add580694fa@lm3"
+          }
+        },
+        {
+          "_$type": "MeshRenderer",
+          "sharedMaterials": [
+            {
+              "_$uuid": "0d67e488-b658-427f-a24e-9add580694fa@lmat0"
+            }
+          ],
+          "enable": true,
+          "receiveShadow": true,
+          "castShadow": true
+        }
+      ],
+      "_$child": []
+    },
+    {
+      "_$type": "Sprite3D",
+      "_$id": "#45",
+      "name": "pole.001",
+      "isStatic": false,
+      "layer": 0,
+      "transform": {
+        "localPosition": {
+          "_$type": "Vector3",
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "localRotation": {
+          "_$type": "Quaternion",
+          "x": -3.090862321641907e-8,
+          "y": 0.7071068286895752,
+          "z": -0.7071067094802856,
+          "w": 3.0908616110991716e-8
+        },
+        "localScale": {
+          "_$type": "Vector3",
+          "x": -1,
+          "y": -1,
+          "z": -1
+        }
+      },
+      "_$comp": [
+        {
+          "_$type": "MeshFilter",
+          "sharedMesh": {
+            "_$uuid": "0d67e488-b658-427f-a24e-9add580694fa@lm2"
+          }
+        },
+        {
+          "_$type": "MeshRenderer",
+          "sharedMaterials": [
+            {
+              "_$uuid": "0d67e488-b658-427f-a24e-9add580694fa@lmat0"
+            }
+          ],
+          "enable": true,
+          "receiveShadow": true,
+          "castShadow": true
+        }
+      ],
+      "_$child": []
+    }
+  ]
+}

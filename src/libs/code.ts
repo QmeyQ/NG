@@ -1,4 +1,9 @@
+/**
+ * Code - 编解码工具类
+ * 定义 PackInfo 资源包信息接口，提供十六进制补零、数据 dump 等静态工具方法
+ */
 // Code.ts
+
 
 export interface PackInfo {
     magic: string;
@@ -8,98 +13,112 @@ export interface PackInfo {
     bodyOffset: number;
 }
 
-export interface DecompressResult {
-    blob: Blob;
-    mimeType: string;
-    size: number;
-}
-
 export class Code {
 
-
-static padZero(num: number, len: number): string {
-    let str = num.toString(16);
-    while (str.length < len) str = '0' + str;
-    return str;
-}
-
-     static hexDump(data: any, maxBytes: number = 64): string {
-    if (!data) return '[null]';
-    try {
-        let bytes: Uint8Array;
-        if (data instanceof ArrayBuffer) {
-            bytes = new Uint8Array(data);
-        } else if (data instanceof Blob) {
-            return `[Blob size=${data.size}]`;
-        } else if (typeof data === 'string') {
-            if (data.startsWith('data:')) return `[DataURL length=${data.length}]`;
-            try {
-                const binary = atob(data);
-                bytes = new Uint8Array(binary.length);
-                for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-            } catch {
-                bytes = new TextEncoder().encode(data);
-            }
-        } else {
-            return `[Unknown type: ${typeof data}]`;
-        }
-        const len = Math.min(bytes.length, maxBytes);
-        const hexParts: string[] = [];
-        for (let i = 0; i < len; i++) hexParts.push(this.padZero(bytes[i], 2).toUpperCase());
-        return hexParts.join(' ') + (bytes.length > maxBytes ? '...' : '');
-    } catch (e) {
-        return `[Error: ${e}]`;
+    static padZero(num: number, len: number): string {
+        let str = num.toString(16);
+        while (str.length < len) str = '0' + str;
+        return str;
     }
-}
+
+    static hexDump(data: any, maxBytes: number = 64): string {
+        if (!data) return '[null]';
+        try {
+            let bytes: Uint8Array;
+            if (data instanceof ArrayBuffer) {
+                bytes = new Uint8Array(data);
+            } else if (data instanceof Blob) {
+                return `[Blob size=${data.size}]`;
+            } else if (typeof data === 'string') {
+                if (data.startsWith('data:')) return `[DataURL length=${data.length}]`;
+                try {
+                    const binary = atob(data);
+                    bytes = new Uint8Array(binary.length);
+                    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+                } catch {
+                    bytes = new TextEncoder().encode(data);
+                }
+            } else {
+                return `[Unknown type: ${typeof data}]`;
+            }
+            const len = Math.min(bytes.length, maxBytes);
+            const hexParts: string[] = [];
+            for (let i = 0; i < len; i++) hexParts.push(this.padZero(bytes[i], 2).toUpperCase());
+            return hexParts.join(' ') + (bytes.length > maxBytes ? '...' : '');
+        } catch (e) {
+            return `[Error: ${e}]`;
+        }
+    }
+
+    private static _brotliReady: Promise<any> | null = null;
+    private static _brotliModule(): Promise<any> {
+        if (Code._brotliReady) return Code._brotliReady;
+        const dynamicImport = new Function('u', 'return import(u)') as (u: string) => Promise<any>;
+        const jsUrl = '/js/brotli_wasm.js';
+        const wasmUrl = '/js/brotli_wasm_bg.wasm';
+        Code._brotliReady = (async () => {
+            const mod: any = await dynamicImport(jsUrl);
+            await mod.default(await fetch(wasmUrl));
+            return mod;
+        })();
+        return Code._brotliReady;
+    }
 
     /**
-     * 解析.res文件头部
+     * Brotli 解压 .br 文件，返回容器格式的 ArrayBuffer（使用 brotli-wasm）
+     */
+    static decompressBr(blob: Blob, onComplete: (containerBuffer: ArrayBuffer) => void, onError: (error: string) => void): void {
+        (async () => {
+            try {
+                const brotli = await Code._brotliModule();
+                const ab = await blob.arrayBuffer();
+                const input = new Uint8Array(ab);
+                const output: Uint8Array = brotli.decompress(input);
+                const copy = new Uint8Array(output.length);
+                copy.set(output);
+                onComplete(copy.buffer);
+            } catch (e: any) {
+                onError('Brotli 解压失败: ' + (e?.message || e));
+            }
+        })();
+    }
+
+    /**
+     * 解析容器头部（BRP1 magic + 头部长度 + 头部JSON）
      */
     static parsePack(blob: Blob, onComplete: (packInfo: PackInfo) => void, onError: (error: string) => void): void {
         const reader = new FileReader();
-        
+
         reader.onload = () => {
             try {
                 const buffer = reader.result as ArrayBuffer;
                 const view = new DataView(buffer);
-                
-                // 读取magic
+
                 const magicBytes = new Uint8Array(buffer.slice(0, 4));
                 const magic = String.fromCharCode(...magicBytes);
-                
-                if (magic !== 'DPR1') {
-                    //打印二进制数据的前80个字节的十六进制表示
+
+                if (magic !== 'BRP1') {
                     console.log(new Uint8Array(buffer.slice(0, 80)));
                     throw new Error(`无效的包格式: ${magic}`);
                 }
-                
-                // 读取头部长度 (Magic(4) + Length(4) + JSON数据)
-                const headerTotalSize = view.getUint32(4, false); // Big Endian
-                
-                // 计算body偏移量 = 总头部长度
+
+                const headerTotalSize = view.getUint32(4, false);
                 const bodyOffset = headerTotalSize;
-                
-                // 读取头部JSON (从第8字节开始，到bodyOffset结束)
-                const headerStart = 8; // 跳过 Magic(4) + Length(4)
+
+                const headerStart = 8;
                 const headerLength = bodyOffset - headerStart;
-                
+
                 if (headerLength <= 0) {
                     throw new Error(`头部长度无效: ${headerLength}`);
                 }
-                
+
                 const headerBytes = new Uint8Array(buffer.slice(headerStart, bodyOffset));
                 const decoder = new TextDecoder('utf-8');
                 let headerText = decoder.decode(headerBytes);
-                
-                // 移除可能存在的BOM或空白字符
-                headerText = headerText.trim();
-                // 移除末尾可能的null字符
-                headerText = headerText.replace(/\0/g, '');
-                
-                // console.log(`[Code] 头部总大小: ${headerTotalSize}, JSON长度: ${headerText.length}, Body偏移: ${bodyOffset}`);
-                
+                headerText = headerText.trim().replace(/\0/g, '');
+
                 const header = JSON.parse(headerText);
-                
+
                 const packInfo: PackInfo = {
                     magic,
                     version: header.version,
@@ -107,108 +126,49 @@ static padZero(num: number, len: number): string {
                     files: header.files,
                     bodyOffset
                 };
-                
+
                 onComplete(packInfo);
             } catch (error: any) {
                 onError(`解析包失败: ${error.message}`);
             }
         };
-        
+
         reader.onerror = () => {
             onError('读取包数据失败');
         };
-        
-        reader.readAsArrayBuffer(blob)//.slice(0, 1024 * 1024));
+
+        reader.readAsArrayBuffer(blob);
     }
 
     /**
-     * 从包中解压文件
+     * 从容器中按文件路径切片提取原始文件数据（无解压，直接切片）
      */
-    static decompressFile(
-        packBlob: Blob,
-        packInfo: PackInfo,
-        offset: number,
-        length: number,
-        filePath: string,
-        onComplete: (result: DecompressResult) => void,
-        onError: (error: string) => void
-    ): void {
-        // 计算实际文件数据在包中的偏移量（加上body偏移量）
-        const actualOffset = packInfo.bodyOffset + offset;
-        const actualEnd = actualOffset + length;
-        
-        // 检查偏移量是否有效
-        if (actualEnd > packBlob.size) {
-            onError(`文件数据越界: 偏移 ${actualOffset}, 长度 ${length}, 包大小 ${packBlob.size}`);
-            return;
-        }
-        
-        // 读取压缩数据
-        const compressedBlob = packBlob.slice(actualOffset, actualEnd);
-        const reader = new FileReader();
-        
-        reader.onload = () => {
-            try {
-                const compressedData = new Uint8Array(reader.result as ArrayBuffer);
-                const decompressed = this._decompress(compressedData);
-                const mimeType = this._getMimeType(filePath);
-                
-                //console.log(`[Code] 解压文件: ${filePath}, 压缩后: ${compressedData.length}字节, 解压后: ${decompressed.length}字节`);
-                //打印解压后的数据的前30个字节的十六进制表示和ASCII码
-                // console.log(this.hexDump(decompressed.buffer));
-                // console.log(new TextDecoder().decode(decompressed.slice(0, 30)));
-                const result: DecompressResult = {
-                    blob: new Blob([decompressed], { type: mimeType }),
-                    mimeType,
-                    size: decompressed.length
-                };
-                
-                onComplete(result);
-            } catch (error: any) {
-                onError(`解压失败: ${error.message}`);
-            }
-        };
-        
-        reader.onerror = () => {
-            onError('读取压缩数据失败');
-        };
-        
-        reader.readAsArrayBuffer(compressedBlob);
-    }
-
-    /**
-     * 从包中解压文件（使用文件路径）
-     */
-    static decompressFileByName(
-        packBlob: Blob,
-        packInfo: PackInfo,
-        filePath: string,
-        onComplete: (result: DecompressResult) => void,
-        onError: (error: string) => void
-    ): void {
-        // 查找文件位置
+    static extractFile(container: ArrayBuffer, packInfo: PackInfo, filePath: string): Blob | null {
         const fileInfo = this._findFileInPack(filePath, packInfo.files);
-        if (!fileInfo) {
-            onError(`文件未找到: ${filePath}`);
-            return;
-        }
-        
+        if (!fileInfo) return null;
         const [offset, length] = fileInfo;
-        this.decompressFile(packBlob, packInfo, offset, length, filePath, onComplete, onError);
+        const start = packInfo.bodyOffset + offset;
+        const end = start + length;
+        if (end > container.byteLength) {
+            console.error(`[Code] 文件数据越界: ${filePath} 偏移 ${start} 长度 ${length} 容器 ${container.byteLength}`);
+            return null;
+        }
+        const mimeType = this._getMimeType(filePath);
+        return new Blob([container.slice(start, end)], { type: mimeType });
     }
 
     /**
-     * 批量解压文件
+     * 批量提取文件
      */
-    static decompressFiles(
-        packBlob: Blob,
+    static extractFiles(
+        container: ArrayBuffer,
         packInfo: PackInfo,
         filePaths: string[],
         onProgress: (loaded: number, total: number) => void,
-        onComplete: (results: { [path: string]: DecompressResult }) => void,
+        onComplete: (results: { [path: string]: Blob }) => void,
         onError: (errors: { [path: string]: string }) => void
     ): void {
-        const results: { [path: string]: DecompressResult } = {};
+        const results: { [path: string]: Blob } = {};
         const errors: { [path: string]: string } = {};
         let loaded = 0;
         const total = filePaths.length;
@@ -218,184 +178,42 @@ static padZero(num: number, len: number): string {
             return;
         }
 
-        const processNext = (index: number) => {
-            if (index >= total) {
-                if (Object.keys(errors).length > 0) {
-                    onError(errors);
-                } else {
-                    onComplete(results);
-                }
-                return;
+        filePaths.forEach(filePath => {
+            const blob = this.extractFile(container, packInfo, filePath);
+            if (blob) {
+                results[filePath] = blob;
+            } else {
+                errors[filePath] = `文件未找到或越界: ${filePath}`;
             }
+            loaded++;
+            onProgress(loaded, total);
+        });
 
-            const filePath = filePaths[index];
-            this.decompressFileByName(
-                packBlob,
-                packInfo,
-                filePath,
-                (result: DecompressResult) => {
-                    results[filePath] = result;
-                    loaded++;
-                    onProgress(loaded, total);
-                    processNext(index + 1);
-                },
-                (error: string) => {
-                    errors[filePath] = error;
-                    loaded++;
-                    onProgress(loaded, total);
-                    processNext(index + 1);
-                }
-            );
-        };
-
-        processNext(0);
+        if (Object.keys(errors).length > 0) {
+            onError(errors);
+        } else {
+            onComplete(results);
+        }
     }
 
     // ==================== 私有方法 ====================
 
     private static _findFileInPack(filePath: string, files: any): [number, number] | null {
-        // 根据编码代码，files对象是嵌套的，需要递归查找
         const findNested = (obj: any, parts: string[]): any => {
             if (!obj || parts.length === 0) return null;
-            
             const part = parts[0];
             const value = obj[part];
-            
             if (parts.length === 1) {
-                // 找到目标文件
                 if (Array.isArray(value) && value.length === 2) {
                     return value;
                 }
                 return null;
             } else {
-                // 继续递归查找
                 return findNested(value, parts.slice(1));
             }
         };
-
         const parts = filePath.split('/');
         return findNested(files, parts);
-    }
-
-    private static _decompress(data: Uint8Array): Uint8Array {
-        const outputChunks: Uint8Array[] = [];
-        let totalOutputSize = 0;
-        let pos = 0;
-
-        while (pos < data.length) {
-            const opcode = data[pos++];
-
-            if (opcode === 0x00) {
-                // RAW块
-                if (pos + 1 >= data.length) {
-                    throw new Error(`RAW块数据不足 at ${pos}`);
-                }
-                
-                // 读取长度 (Big-Endian)
-                const len = (data[pos] << 8) | data[pos + 1];
-                pos += 2;
-                
-                if (pos + len > data.length) {
-                    throw new Error(`RAW块数据越界 at ${pos}, len=${len}`);
-                }
-                
-                const chunk = data.slice(pos, pos + len);
-                outputChunks.push(chunk);
-                totalOutputSize += len;
-                pos += len;
-                
-            } else if (opcode === 0x01) {
-                // 单字节重复
-                if (pos + 1 >= data.length) {
-                    throw new Error(`单字节重复块数据不足 at ${pos}`);
-                }
-                
-                const count = data[pos++];
-                const byte = data[pos++];
-                
-                const chunk = new Uint8Array(count);
-                chunk.fill(byte);
-                outputChunks.push(chunk);
-                totalOutputSize += count;
-                
-            } else if (opcode >= 0x02 && opcode <= 0xE0) {
-                // 多字节重复 (opcode = 序列长度)
-                const seqLen = opcode;
-                if (pos >= data.length) {
-                    throw new Error(`多字节重复块数据不足 at ${pos}`);
-                }
-                
-                const repeatCount = data[pos++];
-                
-                if (pos + seqLen > data.length) {
-                    throw new Error(`多字节重复块序列数据不足 at ${pos}`);
-                }
-                
-                const sequence = data.slice(pos, pos + seqLen);
-                pos += seqLen;
-                
-                // 创建重复数据
-                const totalLen = seqLen * repeatCount;
-                const chunk = new Uint8Array(totalLen);
-                
-                for (let i = 0; i < repeatCount; i++) {
-                    chunk.set(sequence, i * seqLen);
-                }
-                
-                outputChunks.push(chunk);
-                totalOutputSize += totalLen;
-                
-            } else if (opcode >= 0xE1 && opcode <= 0xF2) {
-                // 间隔重复 (opcode - 0xE0 = 步长)
-                const stride = opcode - 0xE0;
-                
-                if (pos + 1 >= data.length) {
-                    throw new Error(`间隔重复块数据不足 at ${pos}`);
-                }
-                
-                const repeatByte = data[pos++];
-                const repeatCount = data[pos++]; // 注意：这是额外重复次数
-                
-                const tailLen = stride - 1;
-                if (tailLen > 0) {
-                    if (pos + tailLen > data.length) {
-                        throw new Error(`间隔重复块尾部数据不足 at ${pos}`);
-                    }
-                }
-                
-                const tail = tailLen > 0 ? data.slice(pos, pos + tailLen) : new Uint8Array(0);
-                pos += tailLen;
-                
-                // 总组数 = repeatCount + 1
-                const totalGroups = repeatCount + 1;
-                const totalLen = stride * totalGroups;
-                const chunk = new Uint8Array(totalLen);
-                
-                for (let i = 0; i < totalGroups; i++) {
-                    const offset = i * stride;
-                    chunk[offset] = repeatByte;
-                    if (tailLen > 0) {
-                        chunk.set(tail, offset + 1);
-                    }
-                }
-                
-                outputChunks.push(chunk);
-                totalOutputSize += totalLen;
-                
-            } else {
-                throw new Error(`未知的opcode: 0x${opcode.toString(16)} at ${pos-1}`);
-            }
-        }
-
-        // 合并所有chunk
-        const result = new Uint8Array(totalOutputSize);
-        let offset = 0;
-        for (const chunk of outputChunks) {
-            result.set(chunk, offset);
-            offset += chunk.length;
-        }
-        
-        return result;
     }
 
     private static _getMimeType(filePath: string): string {
@@ -407,7 +225,7 @@ static padZero(num: number, len: number): string {
             'gif': 'image/gif',
             'webp': 'image/webp',
             'json': 'application/json',
-            'atlas': 'application/json', // 通常也是JSON格式
+            'atlas': 'application/json',
             'skel': 'application/octet-stream',
             'sk': 'application/octet-stream',
             'meta': 'application/json',
@@ -416,9 +234,13 @@ static padZero(num: number, len: number): string {
             'html': 'text/html',
             'htm': 'text/html',
             'css': 'text/css',
-            'js': 'application/javascript'
+            'js': 'application/javascript',
+            'lani': 'application/octet-stream',
+            'lmat': 'application/octet-stream',
+            'lm': 'application/octet-stream',
+            'lh': 'application/octet-stream',
+            'ls': 'application/octet-stream'
         };
-        
         return mimeMap[ext] || 'application/octet-stream';
     }
 }

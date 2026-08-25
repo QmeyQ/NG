@@ -1,3 +1,7 @@
+/**
+ * Inp - 输入事件管理器，处理多点触摸、键盘（WASD）、双击、拖拽等输入事件
+ * 定义 InpFlag 标志位枚举和 InpKey 类型，维护手指映射、按键状态和手势识别
+ */
 import { Timer } from "../libs/time";
 
 export const InpFlag = {
