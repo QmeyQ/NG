@@ -3,7 +3,7 @@
  * 定义 Player 接口和 MatchState 枚举
  */
 import { Timer } from "../libs/time";
-import { Cha } from "./cha";
+import { Cha } from "./obj/cha";
 
 export enum MatchState {
     IDLE = 0,

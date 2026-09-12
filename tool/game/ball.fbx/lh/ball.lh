@@ -1,0 +1,79 @@
+{
+  "_$ver": 1,
+  "_$type": "Sprite3D",
+  "_$id": "#9",
+  "name": "RootNode",
+  "isStatic": false,
+  "layer": 0,
+  "transform": {
+    "localPosition": {
+      "_$type": "Vector3",
+      "x": 0,
+      "y": 0,
+      "z": 0
+    },
+    "localRotation": {
+      "_$type": "Quaternion",
+      "x": 0,
+      "y": 0,
+      "z": 0,
+      "w": 1
+    },
+    "localScale": {
+      "_$type": "Vector3",
+      "x": 1,
+      "y": 1,
+      "z": 1
+    }
+  },
+  "_$child": [
+    {
+      "_$type": "Sprite3D",
+      "_$id": "#40",
+      "name": "Shuttlecock.001",
+      "isStatic": false,
+      "layer": 0,
+      "transform": {
+        "localPosition": {
+          "_$type": "Vector3",
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "localRotation": {
+          "_$type": "Quaternion",
+          "x": -0.7071068286895752,
+          "y": 0,
+          "z": 0,
+          "w": 0.7071067094802856
+        },
+        "localScale": {
+          "_$type": "Vector3",
+          "x": 1,
+          "y": 1,
+          "z": 1
+        }
+      },
+      "_$comp": [
+        {
+          "_$type": "MeshFilter",
+          "sharedMesh": {
+            "_$uuid": "38e3fc6b-3dc3-4b81-9d1c-d4eb09857961@lm0"
+          }
+        },
+        {
+          "_$type": "MeshRenderer",
+          "sharedMaterials": [
+            {
+              "_$uuid": "38e3fc6b-3dc3-4b81-9d1c-d4eb09857961@lmat0"
+            }
+          ],
+          "enable": true,
+          "receiveShadow": true,
+          "castShadow": true
+        }
+      ],
+      "_$child": []
+    }
+  ]
+}

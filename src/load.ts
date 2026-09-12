@@ -538,7 +538,7 @@ export class load extends Laya.Script {
                     return;
                 }
             } catch (e) {
-                console.error("[load] onClient 解析异常:", e);
+                console.error("[load] onClient 解析异常:", e, info.msg);
             }
             console.log("收到客户端消息:", info);
         });

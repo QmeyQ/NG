@@ -3,8 +3,8 @@
  * 管理移动和击球两种交互模式（摇杆拖拽、双击、长按），提供 onMove/onHit/onStop 回调
  */
 import { Timer } from "../libs/time";
-import { Inp, InpFlag, InpKey } from "../libs/inp";
-import { UI } from "./ui";
+import { Inp, InpFlag } from "../libs/inp";
+import { UI } from "./engine/ui";
 
 export class Control {
     /** 舞台引用 */
@@ -241,23 +241,23 @@ export class Control {
         }
     }
 
-    /** 计算击球参数：力度由距离决定，水平角度由方向决定，垂直角度由蓄力时间和方向决定 */
+    /** 计算击球参数：力度由按住时长决定(0-100)，水平角度由方向决定，垂直角度由滑动距离决定(-90~+90) */
     private _calcHitParams(dx: number, dy: number, distance: number): { power: number; angH: number; angV: number } | null {
         if (distance <= this.hitMinDistance) {
             return null;
         }
         const holdTime = Math.max(0, Timer.invoke("hitHold") - 200);
         const holdRatio = Math.min(holdTime / this.maxHoldTime, 1.0);
+        const power = holdRatio * 100;
+        const slideRatio = Math.min(Math.abs(dy) / Laya.stage.height + Math.abs(dx) / Laya.stage.width, 1.0);
         let angV: number;
         if (dy < 0) {
-            angV = 90 * holdRatio;
+            angV = 90 * slideRatio;
         } else {
-            angV = -90 * holdRatio;
+            angV = -90 * slideRatio;
         }
         const rawAngle = Math.atan2(-dy, dx) * 180 / Math.PI;
         let angH = (rawAngle + 360) % 360;
-
-        const power = Math.min(distance / 10, this._ui.maxRadius);
         return { power, angH, angV };
     }
 

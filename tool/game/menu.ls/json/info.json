@@ -1,0 +1,24 @@
+{
+  "ScenePanel": {
+    "viewScale": 0.25,
+    "mode": 1,
+    "scrollCenter": {
+      "x": 0.4869643314950433,
+      "y": 0.480310297834452
+    }
+  },
+  "HierarchyPanel": {
+    "expandedNodes": {
+      "0": {
+        "0": {
+          "1": {
+            "0": null
+          },
+          "3": {
+            "0": null
+          }
+        }
+      }
+    }
+  }
+}

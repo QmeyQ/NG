@@ -208,7 +208,7 @@
                   "x": 414,
                   "width": 414,
                   "height": 102,
-                  "text": "星战纪",
+                  "text": "动作卡牌",
                   "font": "ArialUnicodeMS",
                   "fontSize": 80,
                   "color": "#ff0000",
@@ -224,7 +224,7 @@
                   "x": 828,
                   "width": 414,
                   "height": 102,
-                  "text": "魔法牌传说",
+                  "text": "城池工坊",
                   "font": "ArialUnicodeMS",
                   "fontSize": 80,
                   "color": "#ff0000",
@@ -236,6 +236,17 @@
               ]
             }
           ]
+        },
+        {
+          "_$id": "bzfkgk67",
+          "_$type": "GImage",
+          "name": "img",
+          "x": -173,
+          "y": -5,
+          "width": 1516,
+          "height": 2537,
+          "zIndex": -1,
+          "src": ""
         }
       ]
     }

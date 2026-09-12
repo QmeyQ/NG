@@ -3,10 +3,10 @@
  * 包含难度系数枚举（AIDifficulty），由 PVE.update() 每帧调用
  * 负责球落点预测、击球冷却控制、双打分工与防守站位
  */
-import { Cha, ChaState, StrokeParams } from "../cha";
-import { Ball } from "../ball";
+import { Cha, ChaState, StrokeParams } from "../obj/cha";
+import { Ball } from "../obj/ball";
 import { Timer } from "../../libs/time";
-import { Mag, MatchPhase, TeamSide , MatchMode} from "../mag/mag";
+import { Mag, MatchPhase, TeamSide, MatchMode } from "../mag/mag";
 import { PVE } from "../mag/pve";
 
 /** AI 难度系数枚举，值越大 AI 越强 */
@@ -123,68 +123,68 @@ export class AIControl {
      * - 否则移动到发球目标点等待
      * @param phase 当前比赛阶段（COUNTDOWN 或 SERVING）
      */
-private _handleServePhase(phase: MatchPhase): void {
-    const isServer = this._mag.isServer(this._cha);
-    const isReceiver = this._mag.isReceiver(this._cha);
-    
-    // 1. 发球员：持球则发球，否则站位
-    if (isServer) {
-        if (this._cha.isP) {
-            if (this._cha.state === ChaState.MOVE) this._cha.move(0, -1);
-            this._tryServe();
+    private _handleServePhase(phase: MatchPhase): void {
+        const isServer = this._mag.isServer(this._cha);
+        const isReceiver = this._mag.isReceiver(this._cha);
+
+        // 1. 发球员：持球则发球，否则站位
+        if (isServer) {
+            if (this._cha.isP) {
+                if (this._cha.state === ChaState.MOVE) this._cha.move(0, -1);
+                this._tryServe();
+                return;
+            }
+            // 发球员站位（移动到自己的发球位置）
+            const pos = this._mag.getPlayerServePosition(this._cha);
+            if (this._distanceTo(pos) > 0.2) {
+                this._moveToward(pos);
+            } else {
+                if (this._cha.state === ChaState.MOVE) this._cha.move(0, -1);
+            }
             return;
         }
-        // 发球员站位（移动到自己的发球位置）
+
+        // 2. 接发球员：移动到球的落点目标区域准备接球
+        if (isReceiver) {
+            const pos = (this._mag as PVE).getServeTarget();
+            if (this._distanceTo(pos) > 0.2) {
+                this._moveToward(pos);
+            } else {
+                if (this._cha.state === ChaState.MOVE) this._cha.move(0, -1);
+            }
+            return;
+        }
+
+        // 3. 其他队友：移动到己方防守站位
         const pos = this._mag.getPlayerServePosition(this._cha);
         if (this._distanceTo(pos) > 0.2) {
             this._moveToward(pos);
         } else {
             if (this._cha.state === ChaState.MOVE) this._cha.move(0, -1);
         }
-        return;
     }
-    
-    // 2. 接发球员：移动到球的落点目标区域准备接球
-    if (isReceiver) {
-        const pos = (this._mag as PVE).getServeTarget();
-        if (this._distanceTo(pos) > 0.2) {
-            this._moveToward(pos);
-        } else {
-            if (this._cha.state === ChaState.MOVE) this._cha.move(0, -1);
-        }
-        return;
-    }
-    
-    // 3. 其他队友：移动到己方防守站位
-    const pos = this._mag.getPlayerServePosition(this._cha);
-    if (this._distanceTo(pos) > 0.2) {
-        this._moveToward(pos);
-    } else {
-        if (this._cha.state === ChaState.MOVE) this._cha.move(0, -1);
-    }
-}
 
     /**
      * 尝试发球：管理蓄力 → 释放的完整流程
      * - 蓄力中：等待蓄力时长到达后释放击球
      * - 未蓄力：检查冷却、状态、球距离后开始蓄力发球
      */
-private _tryServe(): void {
-    const now = Timer.now();
+    private _tryServe(): void {
+        const now = Timer.now();
 
-    if (now - this._lastHitTime < this.hitCooldown) return;
-    if (this._cha.state !== ChaState.IDLE && this._cha.state !== ChaState.MOVE) return;
+        if (now - this._lastHitTime < this.hitCooldown) return;
+        if (this._cha.state !== ChaState.IDLE && this._cha.state !== ChaState.MOVE) return;
 
-    const ballPos = this._ball.pos;
-    const dist2D = Math.sqrt(
-        (this._cha.x - ballPos.x) ** 2 +
-        (this._cha.z - ballPos.z) ** 2
-    );
-    if (dist2D > this._cha.hitRange * 0.9) return;
+        const ballPos = this._ball.pos;
+        const dist2D = Math.sqrt(
+            (this._cha.x - ballPos.x) ** 2 +
+            (this._cha.z - ballPos.z) ** 2
+        );
+        if (dist2D > this._cha.hitRange * 0.9) return;
 
-    this._cha.move(0, -1);
-    const stroke = this._calcServeStroke();
-        this._cha.hit(stroke, this._ball);
+        this._cha.move(0, -1);
+        const stroke = this._calcServeStroke();
+        this._mag.hit(stroke, this._cha);
         this._lastHitTime = now;   // ★ 关键：更新击球时间
     }
 
@@ -197,137 +197,137 @@ private _tryServe(): void {
      * - 球落对方 → 回防到默认站位
      * 最后限制位置在己方半场
      */
-private _handleRallyPhase(): void {
-    const now = Timer.now();
+    private _handleRallyPhase(): void {
+        const now = Timer.now();
 
-    // 前摇/后摇期间不干预，让 cha.update 推进状态
-    if (this._cha.state === ChaState.HIT_WINDUP || this._cha.state === ChaState.HIT_RECOVERY) {
-        return;
-    }
+        // 前摇/后摇期间不干预，让 cha.update 推进状态
+        if (this._cha.state === ChaState.HIT_WINDUP || this._cha.state === ChaState.HIT_RECOVERY) {
+            return;
+        }
 
-    const ballPhy = (this._ball as any).phy;
-    if (!ballPhy || !ballPhy.state) {
-        this._cha.move(0, -1);
-        return;
-    }
+        const ballPhy = (this._ball as any).phy;
+        if (!ballPhy || !ballPhy.state) {
+            this._cha.move(0, -1);
+            return;
+        }
 
 
-    const ballPos = ballPhy.state.pos;
-    const ballVel = ballPhy.state.vel;
+        const ballPos = ballPhy.state.pos;
+        const ballVel = ballPhy.state.vel;
 
-    this._predictLandingPoint(ballPos, ballVel);
+        this._predictLandingPoint(ballPos, ballVel);
 
-    const dx = this._predictedPos.x - this._cha.x;
-    const dz = this._predictedPos.z - this._cha.z;
-    const distToLanding = Math.sqrt(dx * dx + dz * dz);
+        const dx = this._predictedPos.x - this._cha.x;
+        const dz = this._predictedPos.z - this._cha.z;
+        const distToLanding = Math.sqrt(dx * dx + dz * dz);
 
-    const ballDistXZ = Math.sqrt(
-        (this._cha.x - ballPos.x) ** 2 +
-        (this._cha.z - ballPos.z) ** 2
-    );
+        const ballDistXZ = Math.sqrt(
+            (this._cha.x - ballPos.x) ** 2 +
+            (this._cha.z - ballPos.z) ** 2
+        );
 
-    const ballSpeed = Math.sqrt(ballVel.x ** 2 + ballVel.y ** 2 + ballVel.z ** 2);
+        const ballSpeed = Math.sqrt(ballVel.x ** 2 + ballVel.y ** 2 + ballVel.z ** 2);
 
-    // 计算球靠近 AI 的速度（XZ 平面投影），用于提前量判定
-    const dirToAiX = this._cha.x - ballPos.x;
-    const dirToAiZ = this._cha.z - ballPos.z;
-    const dirLen = Math.sqrt(dirToAiX * dirToAiX + dirToAiZ * dirToAiZ);
-    let approachSpeed = 0;
-    if (dirLen > 0.01) {
-        approachSpeed = (ballVel.x * dirToAiX + ballVel.z * dirToAiZ) / dirLen;
-    }
-    // 球到达 AI 位置的时间（秒），不减阈值——提前量预留前摇时间
-    const timeToReach = approachSpeed > 0.1 ? dirLen / approachSpeed : 100;
+        // 计算球靠近 AI 的速度（XZ 平面投影），用于提前量判定
+        const dirToAiX = this._cha.x - ballPos.x;
+        const dirToAiZ = this._cha.z - ballPos.z;
+        const dirLen = Math.sqrt(dirToAiX * dirToAiX + dirToAiZ * dirToAiZ);
+        let approachSpeed = 0;
+        if (dirLen > 0.01) {
+            approachSpeed = (ballVel.x * dirToAiX + ballVel.z * dirToAiZ) / dirLen;
+        }
+        // 球到达 AI 位置的时间（秒），不减阈值——提前量预留前摇时间
+        const timeToReach = approachSpeed > 0.1 ? dirLen / approachSpeed : 100;
 
-    // 预测前摇完成时球的高度，用于判断届时是否可击
-    // 实际前摇时间 = upTime * 200ms（与 cha.ts update 中 windupTarget 一致）
-    const windupSec = this._cha.upTime * 0.2;
-    const futureY = ballPos.y + ballVel.y * windupSec - 0.5 * 9.8 * windupSec * windupSec;
+        // 预测前摇完成时球的高度，用于判断届时是否可击
+        // 实际前摇时间 = upTime * 200ms（与 cha.ts update 中 windupTarget 一致）
+        const windupSec = this._cha.upTime * 0.2;
+        const futureY = ballPos.y + ballVel.y * windupSec - 0.5 * 9.8 * windupSec * windupSec;
 
-    // --- 获取同队队友（双打时） ---
-    let teammate: Cha | null = null;
-    if (this._mag.mode === MatchMode.DOUBLE) {
-        const teammates = this._mag.getTeamPlayers(this._team).filter(p => p !== this._cha);
-        if (teammates.length > 0) teammate = teammates[0];
-    }
+        // --- 获取同队队友（双打时） ---
+        let teammate: Cha | null = null;
+        if (this._mag.mode === MatchMode.DOUBLE) {
+            const teammates = this._mag.getTeamPlayers(this._team).filter(p => p !== this._cha);
+            if (teammates.length > 0) teammate = teammates[0];
+        }
 
-  const isHittable = futureY < 8.0 && futureY > -2.0;
-    const isOnCooldown = now - this._lastHitTime < this.hitCooldown;
-    const canHit = this._canHitNow(ballDistXZ, isHittable, isOnCooldown, timeToReach, distToLanding, futureY);
+        const isHittable = futureY < 8.0 && futureY > -2.0;
+        const isOnCooldown = now - this._lastHitTime < this.hitCooldown;
+        const canHit = this._canHitNow(ballDistXZ, isHittable, isOnCooldown, timeToReach, distToLanding, futureY);
 
-    // ===== 调试：AI 决策信息（限频200ms） =====
-    if (now - this._lastDebugLog > 200) {
-        this._lastDebugLog = now;
-        const distXZ = Math.sqrt((this._cha.x - ballPos.x) ** 2 + (this._cha.z - ballPos.z) ** 2);
-        console.log(`%c[AI:${this._cha.id}] 决策 phase=RALLYING state=${this._cha.state}
+        // ===== 调试：AI 决策信息（限频200ms） =====
+        if (now - this._lastDebugLog > 200) {
+            this._lastDebugLog = now;
+            const distXZ = Math.sqrt((this._cha.x - ballPos.x) ** 2 + (this._cha.z - ballPos.z) ** 2);
+            console.log(`%c[AI:${this._cha.id}] 决策 phase=RALLYING state=${this._cha.state}
   球位置=(${ballPos.x.toFixed(2)},${ballPos.y.toFixed(2)},${ballPos.z.toFixed(2)}) 球速=${ballSpeed.toFixed(1)}
   AI位置=(${this._cha.x.toFixed(2)},${this._cha.y.toFixed(2)},${this._cha.z.toFixed(2)})
-  球XZ距离=${distXZ.toFixed(2)} hitRange=${this._cha.hitRange} hitRange*1.5=${(this._cha.hitRange*1.5).toFixed(2)}
+  球XZ距离=${distXZ.toFixed(2)} hitRange=${this._cha.hitRange} hitRange*1.5=${(this._cha.hitRange * 1.5).toFixed(2)}
   落点=(${this._predictedPos.x.toFixed(2)},${this._predictedPos.z.toFixed(2)}) 到落点距离=${distToLanding.toFixed(2)}
   approachSpeed=${approachSpeed.toFixed(1)} timeToReach=${timeToReach.toFixed(2)}s upTime=${windupSec}s
   futureY=${futureY.toFixed(2)} isHittable=${isHittable} isOnCooldown=${isOnCooldown} canHit=${canHit}
   lastHitCha=${this._mag.lastHitCha?.id ?? -1} currentHitTeam=${this._mag.currentHitTeam} myTeam=${this._team}
   isServeShot=${this._mag.isServeShot} isReceiver=${this._mag.isReceiver(this._cha)}`, "color: #00FFFF;");
-    }
-
-    if (canHit) {
-        this._executeHit(now);
-        return;
-    }
-
-    // 判断落点是否在自己半场
-    const willLandOnMySide = (this._team === TeamSide.LEFT && this._predictedPos.x < 0.5) ||
-                             (this._team === TeamSide.RIGHT && this._predictedPos.x > -0.5);
-
-    // 双打分工：如果落点在自己半场，比较自己和队友谁更接近落点
-    let shouldChase = false;
-    if (willLandOnMySide) {
-        if (teammate) {
-            // 计算落点到队友的距离
-            const dxTeammate = this._predictedPos.x - teammate.x;
-            const dzTeammate = this._predictedPos.z - teammate.z;
-            const distToLandingTeammate = Math.sqrt(dxTeammate * dxTeammate + dzTeammate * dzTeammate);
-            // 如果自己离落点更近，或者队友距离太远（超过3米），则由自己接
-            shouldChase = (distToLanding < distToLandingTeammate - 0.5) || (distToLandingTeammate > 3.0);
-        } else {
-            // 单打：只要是自己的半场就追
-            shouldChase = true;
         }
-    }
 
-    // 另外，发球后第一拍必须由接发球员接（原有逻辑保留）
-    const isServeReceiver = (!this._mag.isServeShot || this._mag.isReceiver(this._cha));
+        if (canHit) {
+            this._executeHit(now);
+            return;
+        }
 
-    if (shouldChase && isServeReceiver && distToLanding > 0.3) {
-        // 追落点
-        this._moveToward(this._predictedPos);
-    } else if (shouldChase && isServeReceiver && distToLanding <= 0.3) {
-        // 已到落点附近，但球还在空中，微调位置
-        if (ballPos.y < 3.0) {
-            const ballXZ = { x: ballPos.x, z: ballPos.z };
-            const distToBallXZ = this._distanceTo(ballXZ);
-            if (distToBallXZ > 0.3) {
-                this._moveToward(ballXZ);
+        // 判断落点是否在自己半场
+        const willLandOnMySide = (this._team === TeamSide.LEFT && this._predictedPos.x < 0.5) ||
+            (this._team === TeamSide.RIGHT && this._predictedPos.x > -0.5);
+
+        // 双打分工：如果落点在自己半场，比较自己和队友谁更接近落点
+        let shouldChase = false;
+        if (willLandOnMySide) {
+            if (teammate) {
+                // 计算落点到队友的距离
+                const dxTeammate = this._predictedPos.x - teammate.x;
+                const dzTeammate = this._predictedPos.z - teammate.z;
+                const distToLandingTeammate = Math.sqrt(dxTeammate * dxTeammate + dzTeammate * dzTeammate);
+                // 如果自己离落点更近，或者队友距离太远（超过3米），则由自己接
+                shouldChase = (distToLanding < distToLandingTeammate - 0.5) || (distToLandingTeammate > 3.0);
+            } else {
+                // 单打：只要是自己的半场就追
+                shouldChase = true;
+            }
+        }
+
+        // 另外，发球后第一拍必须由接发球员接（原有逻辑保留）
+        const isServeReceiver = (!this._mag.isServeShot || this._mag.isReceiver(this._cha));
+
+        if (shouldChase && isServeReceiver && distToLanding > 0.3) {
+            // 追落点
+            this._moveToward(this._predictedPos);
+        } else if (shouldChase && isServeReceiver && distToLanding <= 0.3) {
+            // 已到落点附近，但球还在空中，微调位置
+            if (ballPos.y < 3.0) {
+                const ballXZ = { x: ballPos.x, z: ballPos.z };
+                const distToBallXZ = this._distanceTo(ballXZ);
+                if (distToBallXZ > 0.3) {
+                    this._moveToward(ballXZ);
+                } else {
+                    if (this._cha.state === ChaState.MOVE) this._cha.move(0, -1);
+                }
             } else {
                 if (this._cha.state === ChaState.MOVE) this._cha.move(0, -1);
             }
         } else {
-            if (this._cha.state === ChaState.MOVE) this._cha.move(0, -1);
+            // 不需要追球：回到防守位置
+            const defendX = this._team === TeamSide.LEFT ? -3.5 : 3.5;
+            const defendPos = { x: defendX, z: 0 };
+            const distToDefend = this._distanceTo(defendPos);
+            if (distToDefend > 0.5) {
+                this._moveToward(defendPos);
+            } else {
+                if (this._cha.state === ChaState.MOVE) this._cha.move(0, -1);
+            }
         }
-    } else {
-        // 不需要追球：回到防守位置
-        const defendX = this._team === TeamSide.LEFT ? -3.5 : 3.5;
-        const defendPos = { x: defendX, z: 0 };
-        const distToDefend = this._distanceTo(defendPos);
-        if (distToDefend > 0.5) {
-            this._moveToward(defendPos);
-        } else {
-            if (this._cha.state === ChaState.MOVE) this._cha.move(0, -1);
-        }
-    }
 
-    this._clampPosition();
-}
+        this._clampPosition();
+    }
 
     /**
      * 预测球落点：基于当前球位置和速度，用抛物线公式计算球降到 targetHitHeight 时的 XZ 坐标
@@ -350,7 +350,7 @@ private _handleRallyPhase(): void {
             const sqrtDisc = Math.sqrt(disc);
             const t1 = (-b + sqrtDisc) / (2 * a);
             const t2 = (-b - sqrtDisc) / (2 * a);
-            
+
             if (t1 > 0 && t2 > 0) t = Math.min(t1, t2);
             else if (t1 > 0) t = t1;
             else if (t2 > 0) t = t2;
@@ -371,9 +371,8 @@ private _handleRallyPhase(): void {
      * 判断当前是否可以击球，逐条检查并输出不击球原因
      * - 冷却中
      * - 球高度不可击（太高或太低）
-     * - AI 不在落点附近（还没到位）
-     * - 提前量：球将在前摇时间（upTime）内到达才蓄力，蓄力完成时球刚好到
-     * - 球距离安全上限
+     * - 球不在击球范围：若离预测落点太远→未到位（需移动）；否则→等球进入范围
+     *   球在击球范围内时直接跳过距离判定，避免因落点远而错过身边球
      * - 双打同队刚击球
      * - 自己刚击球
      * - 发球后非接球员不能击球
@@ -393,17 +392,20 @@ private _handleRallyPhase(): void {
             this._debugLog(`不击球: 球高度不可击 futureY=${futureY.toFixed(2)} (需0.1~4.5)`);
             return false;
         }
-        if (distToLanding > this._cha.hitRange * 1.5) {
-            this._debugLog(`不击球: 未到位 distToLanding=${distToLanding.toFixed(2)} > ${(this._cha.hitRange * 1.5).toFixed(2)}`);
-            return false;
-        }
-        if (ballDistXZ > this._cha.hitRange) {
-            this._debugLog(`不击球: 球不在击球范围 ballDistXZ=${ballDistXZ.toFixed(2)} > hitRange=${this._cha.hitRange}`);
-            return false;
-        }
-        if (this._mag.mode === MatchMode.DOUBLE && this._mag.currentHitTeam === this._team) {
+        // 硬性规则判定优先：同队队友刚击球（排除自己）/ 自己刚击球 / 发球后非接球员
+        if (this._mag.mode === MatchMode.DOUBLE && this._mag.currentHitTeam === this._team && this._mag.lastHitCha !== this._cha) {
             this._debugLog(`不击球: 同队刚击球 currentHitTeam=${this._mag.currentHitTeam} myTeam=${this._team}`);
             return false;
+        }
+        // 双打：同队队友正在前摇/后摇（已开始击球但未完成），自己不击球，避免同队两人同时击球
+        if (this._mag.mode === MatchMode.DOUBLE) {
+            const teammateHitting = this._mag.getTeamPlayers(this._team).some(p =>
+                p !== this._cha && (p.state === ChaState.HIT_WINDUP || p.state === ChaState.HIT_RECOVERY)
+            );
+            if (teammateHitting) {
+                this._debugLog(`不击球: 同队正在击球`);
+                return false;
+            }
         }
         if (this._mag.lastHitCha === this._cha) {
             this._debugLog(`不击球: 自己刚击球 lastHitCha=${this._mag.lastHitCha?.id}`);
@@ -411,6 +413,16 @@ private _handleRallyPhase(): void {
         }
         if (this._mag.isServeShot && !this._mag.isReceiver(this._cha)) {
             this._debugLog(`不击球: 发球后非接球员 isReceiver=${this._mag.isReceiver(this._cha)}`);
+            return false;
+        }
+        // 球在击球范围内（hitRange*1.5，与 cha._executeHit 击球范围一致）→ 可击球；
+        // 球不在范围时再用落点距离判断是否未到位
+        if (Laya.Vector3.distance(this._ball.pos, this._cha.pos) > this._cha.hitRange) {
+            if (distToLanding > this._cha.hitRange * 1.5) {
+                this._debugLog(`不击球: 未到位 distToLanding=${distToLanding.toFixed(2)} > ${(this._cha.hitRange * 1.5).toFixed(2)}`);
+                return false;
+            }
+            this._debugLog(`不击球: 球不在击球范围 ballDistXZ=${ballDistXZ.toFixed(2)} > ${(this._cha.hitRange * 1.5).toFixed(2)}`);
             return false;
         }
         return true;
@@ -434,25 +446,29 @@ private _handleRallyPhase(): void {
      * - 其他状态不击球
      * @param now 当前时间戳
      */
- private _executeHit(now: number): void {
-    const ballPos = this._ball.pos;
-    const distXZ = Math.sqrt((this._cha.x - ballPos.x) ** 2 + (this._cha.z - ballPos.z) ** 2);
-    if (this._cha.state === ChaState.IDLE || this._cha.state === ChaState.MOVE) {
-        this._cha.move(0, -1);
-        const stroke = this._calcRallyStroke();
-        console.log(`%c[AI:${this._cha.id}] 执行击球! state=${this._cha.state} power=${stroke.power.toFixed(0)}
+    private _executeHit(now: number): void {
+        const ballPos = this._ball.pos;
+        const dist = Laya.Vector3.distance(this._ball.pos, this._cha.pos)
+        if (this._cha.state === ChaState.IDLE || this._cha.state === ChaState.MOVE) {
+            this._cha.move(0, -1);
+            const stroke = this._calcRallyStroke();
+            console.log(`%c[AI:${this._cha.id}] 执行击球! state=${this._cha.state} power=${stroke.power.toFixed(0)}
   球位置=(${ballPos.x.toFixed(2)},${ballPos.y.toFixed(2)},${ballPos.z.toFixed(2)})
   AI位置=(${this._cha.x.toFixed(2)},${this._cha.y.toFixed(2)},${this._cha.z.toFixed(2)})
-  球XZ距离=${distXZ.toFixed(2)} hitRange=${this._cha.hitRange} upTime=${this._cha.upTime}`, "color: #00FF00; font-weight:bold;");
-        this._cha.hit(stroke, this._ball);
-        this._lastHitTime = now;
-    } else {
-        console.log(`%c[AI:${this._cha.id}] 无法击球: state=${this._cha.state} (非IDLE/MOVE)
+  球距离=${dist.toFixed(2)} hitRange=${this._cha.hitRange} upTime=${this._cha.upTime}`, "color: #00FF00; font-weight:bold;");
+            this._mag.hit(stroke, this._cha);
+            this._lastHitTime = now;
+            Timer.setTimeout(200, () => {
+                console.log("执行击球：：：：：")
+                this._mag.hit(undefined, this._cha);
+            })
+        } else {
+            console.log(`%c[AI:${this._cha.id}] 无法击球: state=${this._cha.state} (非IDLE/MOVE)
   球位置=(${ballPos.x.toFixed(2)},${ballPos.y.toFixed(2)},${ballPos.z.toFixed(2)})
   AI位置=(${this._cha.x.toFixed(2)},${this._cha.y.toFixed(2)},${this._cha.z.toFixed(2)})
-  球XZ距离=${distXZ.toFixed(2)}`, "color: #FF0000; font-weight:bold;");
+  球XZ距离=${dist.toFixed(2)}`, "color: #FF0000; font-weight:bold;");
+        }
     }
-}
     /**
      * 朝目标点移动：计算世界方向并转换为角色局部移动角度
      * 距离 < 0.01 时停止移动

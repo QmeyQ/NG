@@ -2,24 +2,20 @@
  * MapManager - 基于网格的空间索引结构
  * 支持按层级（layout）、区域（cellKey）高效查询对象，包含全局对象存储和性能监控统计
  */
-export class MapManager {
+/**
+ * MapManager - 基于网格的空间索引结构
+ * 支持按层级（layout）、区域（cellKey）高效查询对象，包含全局对象存储
+ * 提供 info() 返回总对象数和使用的层级数
+ */
+export class MPMD {
     /** 网格基础大小（像素） */
     private gridSize: number;
 
     /** 网格存储：layout -> cellKey -> Set<Object> */
-    private gridMap: Map<number, Map<string, Set<any>>>;
+    private gridMap: Map<string, Map<string, Set<any>>>;
 
     /** 全局对象存储（无坐标信息的对象） */
     private globalObjects: Set<any>;
-
-    /** 按层级存储的区域对象 */
-    private layoutObjects: Map<number, Set<any>>;
-
-    /** 性能监控统计 */
-    private stats: {
-        totalQueries: number;
-        lastQueryTime: number;
-    };
 
     /**
      * 创建地图管理器
@@ -31,14 +27,8 @@ export class MapManager {
         }
 
         this.gridSize = gridSize;
-        this.gridMap = new Map<number, Map<string, Set<any>>>();
+        this.gridMap = new Map<string, Map<string, Set<any>>>();
         this.globalObjects = new Set<any>();
-        this.layoutObjects = new Map<number, Set<any>>();
-
-        this.stats = {
-            totalQueries: 0,
-            lastQueryTime: 0
-        };
     }
 
     /**
@@ -52,7 +42,7 @@ export class MapManager {
             throw new Error("无效对象：必须是一个非空对象");
         }
 
-        // 处理全局对象（无坐标信息）
+        // 处理全局对象（无坐标信息且未指定层级）
         if ((obj.x === undefined || obj.y === undefined) && layout === undefined) {
             this.globalObjects.add(obj);
             return;
@@ -60,35 +50,34 @@ export class MapManager {
 
         // 确定对象层级（优先使用参数，其次使用对象属性，默认为0）
         const finalLayout = layout !== undefined ? layout : (obj.layout ?? 0);
-        //检查layout属性，没有则添加
+        const layoutKey = String(finalLayout);
+
+        // 确保对象有 layout 属性（用于排序等）
         if (!obj.hasOwnProperty('layout')) {
             Object.defineProperty(obj, 'layout', {
                 value: finalLayout,
                 writable: true,
             });
-        }
-        else
-            obj.layout = finalLayout; // 确保对象有layout属性
-
-        // 初始化层级存储
-        if (!this.layoutObjects.has(finalLayout)) {
-            this.layoutObjects.set(finalLayout, new Set<any>());
-            this.gridMap.set(finalLayout, new Map<string, Set<any>>());
+        } else {
+            obj.layout = finalLayout;
         }
 
-        // 添加到层级集合
-        this.layoutObjects.get(finalLayout)!.add(obj);
+        // 初始化该层级的网格
+        if (!this.gridMap.has(layoutKey)) {
+            this.gridMap.set(layoutKey, new Map<string, Set<any>>());
+        }
 
-        if (obj.x === undefined || obj.y === undefined) return;
-        // 添加到空间索引
-        this._addToSpatialIndex(obj, finalLayout);
+        // 如果有坐标，添加到空间索引
+        if (obj.x !== undefined && obj.y !== undefined) {
+            this._addToSpatialIndex(obj, layoutKey);
+        }
     }
 
     /**
      * 从系统中移除对象
      * @param obj 要移除的对象
      */
-    removeObject(obj: any): void {
+    del(obj: any): void {
         if (!obj) return;
 
         // 移除全局对象
@@ -97,57 +86,63 @@ export class MapManager {
             return;
         }
 
-        // 移除区域对象
-        const layout: number = obj.layout ?? 0;
-        if (this.layoutObjects.has(layout)) {
-            const layoutSet = this.layoutObjects.get(layout)!;
-            if (layoutSet.has(obj)) {
-                layoutSet.delete(obj);
-                this._removeFromSpatialIndex(obj, layout);
+        // 移除区域对象：从对应层级网格中删除
+        const layout = obj.layout;
+        if (layout !== undefined) {
+            const layoutKey = String(layout);
+            const layoutGrid = this.gridMap.get(layoutKey);
+            if (layoutGrid) {
+                // 遍历所有单元格删除该对象
+                for (const [cellKey, cellSet] of layoutGrid) {
+                    if (cellSet.has(obj)) {
+                        cellSet.delete(obj);
+                        if (cellSet.size === 0) {
+                            layoutGrid.delete(cellKey);
+                        }
+                    }
+                }
+                // 如果该层级下所有单元格都空了，可移除整个层级（可选）
+                if (layoutGrid.size === 0) {
+                    this.gridMap.delete(layoutKey);
+                }
             }
         }
     }
 
     /**
      * 多功能查询接口
-     * @param rectOrLayout 查询区域 [x, y, ex, ey] 或层级
-     * @param layout 筛选层级（可选）
+     * @param rectOrLayout 查询区域 [x, y, ex, ey] 或层级（字符串/数字）
+     * @param layout 筛选层级（可选，仅在区域查询时有效）
      * @returns 匹配的对象集合
      */
-    get(rectOrLayout?: any, layout?: any): Set<any> {
-        const startTime: number = Laya.timer.currTimer;
+    get(rectOrLayout?: [number, number, number, number] | any, layout?: any): Set<any> {
         let result: Set<any> = new Set<any>();
 
-        // 处理不同参数组合
         if (Array.isArray(rectOrLayout)) {
             // 情况1：区域查询
             if (rectOrLayout.length !== 4) {
                 throw new Error("区域参数必须为[x, y, ex, ey]格式的数组");
             }
-
-            // 执行区域查询
             const [x, y, ex, ey] = rectOrLayout;
             const width: number = ex - x;
             const height: number = ey - y;
-
             this._queryArea(x, y, width, height, result, layout);
-        }
-        else if (rectOrLayout !== undefined) {
-            // 情况2：获取指定层级对象
+        } else if (rectOrLayout !== undefined) {
+            // 情况2：获取指定层级所有对象
             result = this._getByLayout(rectOrLayout);
-        }
-        else {
+        } else {
             // 情况3：获取所有对象
             result = this._getAllObjects();
         }
 
-        // 更新性能统计
-        this.stats.totalQueries++;
-        this.stats.lastQueryTime = Laya.timer.currTimer - startTime;
-
         return result;
     }
 
+    /**
+     * 按时间添加对象（时间整除网格大小作为层级）
+     * @param time 时间值
+     * @param obj 要添加的对象
+     */
     public addByTime(time: number, obj: any): void {
         const layout = Math.floor(time / this.gridSize);
         this.add(obj, layout);
@@ -165,9 +160,8 @@ export class MapManager {
     /**
      * 清空所有对象
      */
-    clearAll(): void {
+    clear(): void {
         this.globalObjects.clear();
-        this.layoutObjects.clear();
         this.gridMap.clear();
     }
 
@@ -177,7 +171,7 @@ export class MapManager {
      * @param keepObjects 是否保留现有对象，默认true
      * @returns 之前的网格信息
      */
-    updateGridSize(newSize: number, keepObjects: boolean = true): { size: number, objects: Set<any> } {
+    grid(newSize: number, keepObjects: boolean = true): { size: number, objects: Set<any> } {
         if (newSize <= 0) {
             throw new Error("网格尺寸必须大于0");
         }
@@ -188,14 +182,32 @@ export class MapManager {
         };
 
         this.gridSize = newSize;
+        // 保存所有对象以便重建
+        const allObjects = prevGrid.objects;
+
+        // 清空网格
         this.gridMap.clear();
 
         // 重建空间索引
         if (keepObjects) {
-            this.layoutObjects.forEach((set, layout) => {
-                this.gridMap.set(layout, new Map<string, Set<any>>());
-                set.forEach(obj => this._addToSpatialIndex(obj, layout));
+            // 按原层级分组重建（保留原有 layout 属性）
+            const layoutGroups = new Map<string, Set<any>>();
+            allObjects.forEach(obj => {
+                if (obj.x !== undefined && obj.y !== undefined) {
+                    const lay = String(obj.layout ?? 0);
+                    if (!layoutGroups.has(lay)) {
+                        layoutGroups.set(lay, new Set());
+                    }
+                    layoutGroups.get(lay)!.add(obj);
+                }
+                // 全局对象（无坐标）不加入网格，保留在 globalObjects 中
             });
+            // 重建每个层级
+            for (const [lay, set] of layoutGroups) {
+                const layoutGrid = new Map<string, Set<any>>();
+                this.gridMap.set(lay, layoutGrid);
+                set.forEach(obj => this._addToSpatialIndex(obj, lay));
+            }
         }
 
         return prevGrid;
@@ -216,51 +228,38 @@ export class MapManager {
             if (a.layout !== b.layout) {
                 return dir * (a.layout - b.layout);
             }
-
             // 其次按Y轴排序
             if (a.y !== b.y) {
                 return dir * (a.y - b.y);
             }
-
             // 最后按X轴排序
             return dir * (a.x - b.x);
         });
     }
 
     /**
-     * 获取系统统计信息
-     * @returns 包含各种统计数据的对象
+     * 获取系统信息
+     * @returns 包含总对象数和总层级数的对象
      */
-    getStats(): {
-        gridSize: number;
-        totalObjects: number;
-        globalObjects: number;
-        usedLayouts: number;
-        gridCells: number;
-        lastQueryTime: string;
-        queryCount: number;
-    } {
-        let totalObjects: number = this.globalObjects.size;
-        let gridCells: number = 0;
-
-        this.layoutObjects.forEach((set, layout) => {
-            totalObjects += set.size;
-            if (this.gridMap.has(layout)) {
-                gridCells += this.gridMap.get(layout)!.size;
+    info(): { total: number; LT: number } {
+        let total = this.globalObjects.size;
+        // 遍历所有层级累加区域对象
+        for (const [layoutKey, layoutGrid] of this.gridMap) {
+            const cellSet = new Set<any>();
+            for (const [cellKey, objSet] of layoutGrid) {
+                objSet.forEach(obj => cellSet.add(obj));
             }
-        });
-
+            total += cellSet.size;
+        }
         return {
-            gridSize: this.gridSize,
-            totalObjects,
-            globalObjects: this.globalObjects.size,
-            usedLayouts: this.layoutObjects.size,
-            gridCells,
-            lastQueryTime: `${this.stats.lastQueryTime.toFixed(2)}ms`,
-            queryCount: this.stats.totalQueries
+            total: total,
+            LT: this.gridMap.size
         };
     }
 
+    getTC(){
+        return this.gridMap.size * this.gridSize - this.gridSize + this.gridMap.keys.length == 0 ? 0 : this.gridMap.get((this.gridMap.keys as any)[this.gridMap.keys.length - 1])?.size;
+    }
     /**
      * 优化存储（清理空单元格）
      * @param minEmpty 触发优化的最小空单元数，默认10
@@ -272,7 +271,6 @@ export class MapManager {
         this.gridMap.forEach((layoutGrid) => {
             const emptyCells: string[] = [];
 
-            // 收集空单元格
             layoutGrid.forEach((cellSet, cellKey) => {
                 if (cellSet.size === 0) {
                     emptyCells.push(cellKey);
@@ -280,7 +278,6 @@ export class MapManager {
                 }
             });
 
-            // 清理空单元格
             emptyCells.forEach(cellKey => layoutGrid.delete(cellKey));
         });
 
@@ -290,9 +287,9 @@ export class MapManager {
     /**
      * 将对象添加到空间索引
      * @param obj 要添加的对象
-     * @param layout 对象所在层级
+     * @param layout 对象所在层级（已转为字符串）
      */
-    private _addToSpatialIndex(obj: any, layout: number): void {
+    private _addToSpatialIndex(obj: any, layout: string): void {
         const cells: Set<string> = this._getObjectCells(obj);
         const layoutGrid: Map<string, Set<any>> = this.gridMap.get(layout)!;
 
@@ -301,28 +298,6 @@ export class MapManager {
                 layoutGrid.set(cellKey, new Set<any>());
             }
             layoutGrid.get(cellKey)!.add(obj);
-        });
-    }
-
-    /**
-     * 从空间索引中移除对象
-     * @param obj 要移除的对象
-     * @param layout 对象所在层级
-     */
-    private _removeFromSpatialIndex(obj: any, layout: number): void {
-        const cells: Set<string> = this._getObjectCells(obj);
-        const layoutGrid: Map<string, Set<any>> = this.gridMap.get(layout)!;
-
-        cells.forEach(cellKey => {
-            if (layoutGrid.has(cellKey)) {
-                const cellSet: Set<any> = layoutGrid.get(cellKey)!;
-                cellSet.delete(obj);
-
-                // 清理空单元格
-                if (cellSet.size === 0) {
-                    layoutGrid.delete(cellKey);
-                }
-            }
         });
     }
 
@@ -343,7 +318,6 @@ export class MapManager {
         const startY: number = Math.floor(y / this.gridSize);
         const endY: number = Math.floor((y + height) / this.gridSize);
 
-        // 遍历所有覆盖的单元格
         for (let cx: number = startX; cx <= endX; cx++) {
             for (let cy: number = startY; cy <= endY; cy++) {
                 cells.add(`${cx},${cy}`);
@@ -363,28 +337,28 @@ export class MapManager {
      * @param layout 筛选层级（可选）
      */
     private _queryArea(x: number, y: number, width: number, height: number,
-        resultSet: Set<any>, layout?: any): void {
+                        resultSet: Set<any>, layout?: any): void {
         const startX: number = Math.floor(x / this.gridSize);
         const endX: number = Math.floor((x + width) / this.gridSize);
         const startY: number = Math.floor(y / this.gridSize);
         const endY: number = Math.floor((y + height) / this.gridSize);
 
         // 确定要查询的层级
-        const layouts: number[] = layout !== undefined
-            ? [layout]
-            : Array.from(this.layoutObjects.keys());
+        let layouts: string[];
+        if (layout !== undefined) {
+            layouts = [String(layout)];
+        } else {
+            layouts = Array.from(this.gridMap.keys());
+        }
 
-        // 遍历所有相关层级
         for (const currentLayout of layouts) {
-            const layoutGrid: Map<string, Set<any>> | undefined = this.gridMap.get(currentLayout);
+            const layoutGrid = this.gridMap.get(currentLayout);
             if (!layoutGrid) continue;
 
-            // 遍历所有相关单元格
             for (let cx: number = startX; cx <= endX; cx++) {
                 for (let cy: number = startY; cy <= endY; cy++) {
                     const cellKey: string = `${cx},${cy}`;
                     if (layoutGrid.has(cellKey)) {
-                        // 精确检查对象是否在区域内
                         layoutGrid.get(cellKey)!.forEach(obj => {
                             if (this._isInRect(obj, x, y, width, height)) {
                                 resultSet.add(obj);
@@ -411,37 +385,39 @@ export class MapManager {
         const objEx: number = obj.x + objWidth;
         const objEy: number = obj.y + objHeight;
 
-        // 轴对齐矩形碰撞检测
         return obj.x < x + width &&
-            objEx > x &&
-            obj.y < y + height &&
-            objEy > y;
+               objEx > x &&
+               obj.y < y + height &&
+               objEy > y;
     }
 
     /**
-     * 获取所有对象
+     * 获取所有对象（包括全局对象和所有网格中的区域对象）
      * @returns 包含所有对象的集合
      */
     private _getAllObjects(): Set<any> {
-        const all: Set<any> = new Set<any>(this.globalObjects);
+        var result = new Set<any>(this.globalObjects);
 
-        this.layoutObjects.forEach(set => {
-            set.forEach(obj => all.add(obj));
-        });
+        for (var [layoutKey, layoutGrid] of this.gridMap) {
+            for (var [cellKey, objSet] of layoutGrid) {
+                objSet.forEach(obj => result.add(obj));
+            }
+        }
 
-        return all;
+        return result;
     }
 
     /**
-     * 按层级获取对象
-     * @param layout 层级
-     * @returns 包含该层级所有对象的集合
+     * 按层级获取该层级所有对象（区域对象，不包括全局对象）
+     * @param layout 层级（任意类型，内部转为字符串）
+     * @returns 该层级所有对象的集合
      */
-    private _getByLayout(layout: number): Set<any> {
-        const result: Set<any> = new Set<any>();
-        // 添加该层级的区域对象
-        
-        (this.layoutObjects.get(layout) || new Set<any>())?.forEach(obj => result.add(obj));
+    private _getByLayout(layout: any): Set<any> {
+        const result = new Set<any>();
+        if(this.gridMap.get(String(layout)))
+        for (const [cellKey, objSet] of this.gridMap.get(String(layout))) {
+            objSet.forEach(obj => result.add(obj));
+        }
         return result;
     }
 }
@@ -471,9 +447,14 @@ export class MPM {
         });
     }
 
-    off(event: string, cb: Function): void {
+    off(event?: string, cb?: Function): void {
+        if(!event)
+            this._handlers.clear();
         const set = this._handlers.get(event);
-        if (set) set.delete(cb);
+        if(cb)
+            if (set) set.delete(cb);
+        else
+            this._handlers.delete(event);
     }
 
     /**

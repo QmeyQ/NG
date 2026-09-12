@@ -42,7 +42,7 @@
             ]
           },
           "p1": {
-            "_$ref": "xg8b5p48"
+            "_$ref": "7c382671"
           },
           "p2": null,
           "p3": null,
@@ -130,74 +130,6 @@
           ]
         },
         {
-          "_$id": "xg8b5p48",
-          "_$prefab": "23bd3f5b-70be-4f08-858a-e143ffef01cb",
-          "name": "cha",
-          "active": true,
-          "layer": 0,
-          "transform": {
-            "localPosition": {
-              "_$type": "Vector3",
-              "x": -1.8378543435773513,
-              "y": 1.409519650279399,
-              "z": -1.1343686935879886
-            },
-            "localRotation": {
-              "_$type": "Quaternion",
-              "x": 0.008726411513887955,
-              "y": -0.005235768825257317,
-              "z": 0.000045691839473905984,
-              "w": 0.9999482158487781
-            }
-          },
-          "_$comp": [
-            {
-              "_$override": "Animator",
-              "controller": {
-                "_$uuid": "25372f81-5a20-4b5f-b543-d09eea7755e3",
-                "_$type": "AnimationController"
-              }
-            }
-          ],
-          "_$child": [
-            {
-              "_$id": "j2v1nzpp",
-              "_$type": "Camera",
-              "name": "Camera",
-              "transform": {
-                "localPosition": {
-                  "_$type": "Vector3",
-                  "x": 1.3911605423189144e-8,
-                  "y": 1.4539402044658694,
-                  "z": -2.0320624764923356
-                },
-                "localRotation": {
-                  "_$type": "Quaternion",
-                  "x": -4.9426000429506514e-17,
-                  "y": -0.9952273953833443,
-                  "z": -0.09758294665813569,
-                  "w": 2.840608190279863e-16
-                },
-                "localScale": {
-                  "_$type": "Vector3",
-                  "x": 1,
-                  "y": 0.9999999767174294,
-                  "z": 0.9999999767174294
-                }
-              },
-              "fieldOfView": 59,
-              "nearPlane": 0.3,
-              "farPlane": 1000,
-              "clearColor": {
-                "_$type": "Color",
-                "r": 0.39215686274509803,
-                "g": 0.5843137254901961,
-                "b": 0.9294117647058824
-              }
-            }
-          ]
-        },
-        {
           "_$id": "4r2ntxc4",
           "_$type": "Camera",
           "name": "CameraS_L",
@@ -211,10 +143,10 @@
             },
             "localRotation": {
               "_$type": "Quaternion",
-              "x": -0.3933605112852851,
-              "y": -0.5875946801676978,
-              "z": -0.39336051128528504,
-              "w": 0.5875946801676978
+              "x": -0.3933605112852852,
+              "y": -0.5875946801676979,
+              "z": -0.39336051128528515,
+              "w": 0.5875946801676979
             },
             "localScale": {
               "_$type": "Vector3",
@@ -367,6 +299,61 @@
               "maxBounces": 1024
             }
           ]
+        },
+        {
+          "_$id": "7c382671",
+          "_$prefab": "8750ce52-ab7c-485f-b730-7561c1dcf370",
+          "name": "base",
+          "active": true,
+          "layer": 0,
+          "transform": {
+            "localPosition": {
+              "_$type": "Vector3",
+              "x": 2.8399999141693115,
+              "y": 0.8999999761581421,
+              "z": 1.0299999713897705
+            },
+            "localRotation": {
+              "_$type": "Quaternion",
+              "x": 8.652363547856368e-10,
+              "y": -3.240418600114481e-9,
+              "z": -5.779699829844275e-9
+            },
+            "localScale": {
+              "_$type": "Vector3",
+              "x": 0.9999999403953553,
+              "y": 1,
+              "z": 1
+            }
+          },
+          "_$child": [
+            {
+              "_$id": "p7o2cxjq",
+              "_$type": "Camera",
+              "name": "Camera",
+              "transform": {
+                "localPosition": {
+                  "_$type": "Vector3",
+                  "x": 3.1080823736928664e-7,
+                  "y": 1.5469915047470288,
+                  "z": -3.7059972485854384
+                },
+                "localRotation": {
+                  "_$type": "Quaternion",
+                  "y": 1,
+                  "w": 6.123233995736766e-17
+                }
+              },
+              "nearPlane": 0.3,
+              "farPlane": 1000,
+              "clearColor": {
+                "_$type": "Color",
+                "r": 0.39215686274509803,
+                "g": 0.5843137254901961,
+                "b": 0.9294117647058824
+              }
+            }
+          ]
         }
       ]
     },
@@ -419,40 +406,6 @@
           "anchorY": 0.5,
           "isMain": true,
           "positionSpeed": null
-        },
-        {
-          "_$id": "vxohe26u",
-          "_$type": "Sprite",
-          "name": "Sprite",
-          "x": 286,
-          "y": -252,
-          "width": 200,
-          "height": 50,
-          "anchorX": 0.5,
-          "anchorY": 0.5,
-          "visible": false,
-          "_gcmds": [
-            {
-              "_$type": "DrawPolyCmd",
-              "x": 0,
-              "y": 0,
-              "points": [
-                100,
-                0,
-                200,
-                25,
-                100,
-                50,
-                0,
-                25,
-                0,
-                25
-              ],
-              "lineWidth": 1,
-              "lineColor": "#000000",
-              "fillColor": "#ffffff"
-            }
-          ]
         },
         {
           "_$id": "xhcvryoq",
@@ -539,8 +492,52 @@
           "valign": "middle",
           "leading": 2,
           "letterSpacing": 0
+        },
+        {
+          "_$id": "t96imdew",
+          "_$prefab": "b4521a63-ee87-4b39-8324-d1c29b403467",
+          "name": "Sprite",
+          "active": true,
+          "x": -64,
+          "y": 816,
+          "width": 728,
+          "height": 74,
+          "rotation": 0,
+          "visible": true,
+          "alpha": 0.4,
+          "value": 33,
+          "_$child": [
+            {
+              "_$override": "k3702cls",
+              "src": "res://f9f5a35b-0440-43a8-ab59-0f3a17d67467",
+              "autoSize": false,
+              "background": null,
+              "y": 0,
+              "x": 0,
+              "visible": true,
+              "alpha": 0.19
+            },
+            {
+              "_$override": "ju7q5zn6",
+              "color": "#ff5b5b",
+              "alpha": 0.41
+            }
+          ]
         }
       ]
+    },
+    {
+      "_$id": "as33p3lf",
+      "_$type": "SoundNode",
+      "name": "Sound",
+      "active": false,
+      "x": 32,
+      "y": 44,
+      "width": 1116,
+      "height": 2436,
+      "source": "res://f4456cfa-7a4b-47cc-b328-e4ac5f00b05c",
+      "loop": 0,
+      "autoPlay": true
     }
   ]
 }
