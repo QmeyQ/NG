@@ -9,6 +9,9 @@ import { Code, PackInfo } from "./code";
 // ========== 简化的索引结构 ==========
 interface PackIndex {
     v: string;                     // 包的包头版本
+    url: string;                   // 服务器地址
+    etag?: string;                 // 服务器 ETag
+    lm?: string;                   // 服务器 Last-Modified
     files: Record<string, number>; // 文件路径 -> 大小 (bytes)
 }
 
@@ -77,8 +80,12 @@ export class Res {
             if (cached && !force) {
                 try {
                     const idx: PackIndex = JSON.parse(cached);
+                    if (!idx.url || idx.url !== url) {
+                        idx.url = url;
+                        Res._net.storage.set(indexKey, JSON.stringify(idx), () => {});
+                    }
                     Res._packMap.set(packName, { index: idx, url });
-                    Res._activePackName? packName:undefined;
+                    Res._activePackName ? packName : undefined;
                     // console.log(`[Res] 找到本地索引 [${packName}]，文件数: ${Object.keys(idx.files).length}, 版本: ${idx.v}`);
 
                     // 2. 校验本地文件完整性
@@ -96,7 +103,7 @@ export class Res {
                     });
                 } catch (e) {
                     console.warn('[Res] 索引解析失败，重新下载', e);
-                    Res._downloadAndExtract(url, true, packName, onComplete );
+                    Res._downloadAndExtract(url, true, packName, onComplete);
                 }
                 return;
             }
@@ -108,7 +115,7 @@ export class Res {
 
     static then(onFulfilled: (info: PackInfo) => void, onRejected?: (error: string) => void): void {
         if (Res._urlPromise) {
-            Res._urlPromise.then(onFulfilled).catch(onRejected || (() => {}));
+            Res._urlPromise.then(onFulfilled).catch(onRejected || (() => { }));
         }
     }
 
@@ -140,6 +147,7 @@ export class Res {
             force,
             cache: true,
             onProgress: (percent: number, s: number, l: number, t: number) => {
+                console.log(url, percent, s, l, t)
                 Res.onDownloadProgress?.(url, percent, s, l, t);
             },
             onComplete: (blob: Blob) => {
@@ -162,6 +170,7 @@ export class Res {
 
                             const index: PackIndex = {
                                 v: packInfo.version || '1.0',
+                                url,
                                 files: {}
                             };
 
@@ -192,15 +201,22 @@ export class Res {
                                 Res._packMap.set(packName, { index, url });
                                 Res._activePackName = packName;
                                 const indexKey = `res_idx::${packName}`;
-                                Res._net.storage.set(indexKey, JSON.stringify(index), () => {
-                                    // console.log('[Res] 索引已保存');
-                                    Res._net.cacheRemove(`res_file_${url}`, () => {
-                                        console.log('[Res] 整包 Blob 已删除');
+                                const saveIndex = () => {
+                                    Res._net.storage.set(indexKey, JSON.stringify(index), () => {
+                                        // console.log('[Res] 索引已保存');
+                                        Res._net.cRemove(`res_file_${url}`, () => {
+                                            console.log('[Res] 整包 Blob 已删除');
+                                        });
+                                        Res._analyzeGroupsFromIndex(packName);
+                                        const fakePackInfo = { files: Res._buildFileTree(index) } as PackInfo;
+                                        onComplete?.(fakePackInfo);
+                                        Res._urlResolve?.(fakePackInfo);
                                     });
-                                    Res._analyzeGroupsFromIndex(packName);
-                                    const fakePackInfo = { files: Res._buildFileTree(index) } as PackInfo;
-                                    onComplete?.(fakePackInfo);
-                                    Res._urlResolve?.(fakePackInfo);
+                                };
+                                Res._fetchServerInfo(url, (info) => {
+                                    if (info.etag) index.etag = info.etag;
+                                    if (info.lm) index.lm = info.lm;
+                                    saveIndex();
                                 });
                             });
                         },
@@ -338,6 +354,72 @@ export class Res {
             });
         });
     }
+
+    // ==================== 版本对比 ====================
+
+    /**
+     * 对比本地包和服务器包版本（通过 HEAD 请求获取 ETag/Last-Modified，不下载文件）
+     * - 无 url：对比所有本地包
+     * - 有 url：对比指定包
+     */
+    static vers(url: string, cb: (result: { packName: string; url: string; localEtag: string | null; serverEtag: string | null; localLm: string | null; serverLm: string | null; needUpdate: boolean }) => void): void;
+    static vers(cb: (results: { packName: string; url: string; localEtag: string | null; serverEtag: string | null; localLm: string | null; serverLm: string | null; needUpdate: boolean }[]) => void): void;
+    static vers(arg1: any, arg2?: any): void {
+        Res.init();
+        if (typeof arg1 === 'function') {
+            const cb = arg1 as (results: any[]) => void;
+            Res._net.storage.getKeys((keys) => {
+                const idxKeys = keys.dataKeys.filter((k: string) => k.startsWith('res_idx::'));
+                if (idxKeys.length === 0) { cb([]); return; }
+                const results: any[] = [];
+                let pending = idxKeys.length;
+                const done = () => { if (--pending === 0) cb(results); };
+                idxKeys.forEach((ik: string) => {
+                    Res._net.storage.get(ik, (str: string | null) => {
+                        if (!str) { done(); return; }
+                        try {
+                            const idx: PackIndex = JSON.parse(str);
+                            const packName = ik.substring('res_idx::'.length);
+                            const serverUrl = idx.url || '';
+                            if (!serverUrl) { done(); return; }
+                            Res._fetchServerInfo(serverUrl, (info) => {
+                                const needUpdate = (info.etag && idx.etag && info.etag !== idx.etag) ||
+                                    (!info.etag && info.lm && idx.lm && info.lm !== idx.lm);
+                                results.push({ packName, url: serverUrl, localEtag: idx.etag || null, serverEtag: info.etag || null, localLm: idx.lm || null, serverLm: info.lm || null, needUpdate });
+                                done();
+                            });
+                        } catch { done(); }
+                    });
+                });
+            });
+        } else {
+            const url = arg1 as string;
+            const cb = arg2 as (result: any) => void;
+            const packName = Res._extractPackName(url);
+            const indexKey = `res_idx::${packName}`;
+            Res._net.storage.get(indexKey, (str: string | null) => {
+                let localEtag: string | null = null, localLm: string | null = null;
+                if (str) {
+                    try { const idx = JSON.parse(str) as PackIndex; localEtag = idx.etag || null; localLm = idx.lm || null; } catch {}
+                }
+                Res._fetchServerInfo(url, (info) => {
+                    const needUpdate = (info.etag && localEtag && info.etag !== localEtag) ||
+                        (!info.etag && info.lm && localLm && info.lm !== localLm);
+                    cb({ packName, url, localEtag, serverEtag: info.etag || null, localLm, serverLm: info.lm || null, needUpdate });
+                });
+            });
+        }
+    }
+
+    /** 通过 HEAD 请求获取服务器文件信息（ETag/Last-Modified，不触发下载） */
+    private static _fetchServerInfo(url: string, cb: (info: { etag: string | null; lm: string | null }) => void): void {
+        fetch(url, { method: 'HEAD' })
+            .then(res => {
+                cb({ etag: res.headers.get('ETag'), lm: res.headers.get('Last-Modified') });
+            })
+            .catch(() => cb({ etag: null, lm: null }));
+    }
+
 
     // ==================== 异步获取资源（加载并缓存） ====================
     static get(path: string, type?: 'blob' | 'auto'): Promise<any>;
@@ -519,7 +601,8 @@ export class Res {
         const url = URL.createObjectURL(blob);
 
         const finish = (obj: any) => {
-            URL.revokeObjectURL(url);
+            if(url != obj)
+                URL.revokeObjectURL(url);
             callback(obj);
         };
 
@@ -545,6 +628,15 @@ export class Res {
                 console.error(`[Res] 动画片段加载失败: ${filePath}`, e);
                 finish(null);
             });
+        } else if (ext === 'mp3' || ext === 'wav' || ext === 'ogg' || ext === 'm4a' || ext === 'aac') {
+            try{
+            // Laya.loader.load( url, Blob).then(sound => {
+                //console.log(sound)
+                finish(url);
+            }catch(err: any) {
+                console.error(`[Res] 音频加载失败: ${filePath}`, err);
+                finish(null);
+            };
         } else {
             console.log(`[Res] 未知类型，返回 Blob: ${filePath}`);
             finish(blob);
@@ -805,8 +897,11 @@ export class Res {
         console.warn(`[Res] 包不存在: ${packName}`);
         return false;
     }
-
-    static clear(): void {
+    static clear(key:string): void {
+        if(key){
+            Res._cache.delete(key);
+            return;
+        }
         Res._cache.clear();
         console.log('[Res] 内存缓存已清空');
     }

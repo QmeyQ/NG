@@ -100,7 +100,7 @@
                 "_$tmpl": "itemRender"
               },
               "repeatX": 2,
-              "repeatY": 5,
+              "repeatY": 4,
               "spaceX": 6,
               "spaceY": 91,
               "scrollType": 3,

@@ -1,18 +1,32 @@
-/**net.ts
- * Net(url: string=null, pingInterval: number = 30000) - 初始化网络连接，url为WebSocket服务器地址，pingInterval为心跳间隔时间(毫秒)，默认30000。
- * connect(callback: (isSuc: boolean, errorMES: string) => void, url = undefined) - 建立WebSocket连接，isSuc返回连接是否成功，errorMES返回错误信息(连接失败时)。
- * disconnect(code: number = 1000, reason: string = '') - 断开WebSocket连接，code为断开状态码(默认1000正常关闭)，reason为断开原因描述。
- * send(type: any, data: any): boolean - 发送消息到服务器，type为消息类型(使用MSG_TYPE常量)，data为消息数据，返回发送是否成功。
- * on(event: string, callback: Function) - 注册事件监听器，event为事件名称('connect', 'message', 'error'等)，callback为事件回调函数。
- * off(event: string, callback: Function) - 移除事件监听器，event为事件名称，callback为要移除的回调函数。
- * download(url: string, options: any = {}) - 下载文件，url为文件下载地址，options为下载选项{key: 文件标识(默认使用url), force: 是否强制重新下载(忽略缓存), onProgress: 进度回调函数(percent: number), onComplete: 完成回调函数(blob: Blob, fromCache: boolean), onError: 错误回调函数(error: string)}。
- * pauseDownload(key: string) - 暂停下载任务，key为下载任务标识。
- * resumeDownload(key: string) - 恢复下载任务，key为下载任务标识。
- * cacheGet(key: string, callback: (blob: any) => void) - 从缓存获取文件，key为文件标识，callback回调函数参数为文件数据(Blob)。
- * cacheClear(callback: (success: boolean) => void) - 清空所有缓存，callback回调函数参数为操作是否成功。
- * cacheInfo(callback: (info: { used: number, quota: number, percentage: number }) => void) - 获取缓存信息，callback回调函数参数包含used: 已使用字节数, quota: 总配额字节数, percentage: 使用百分比。
- * destroy() - 销毁实例，清理所有连接和定时器。
- * 消息类型常量MSG_TYPE: CONNECTED:0(连接成功), JOIN_ROOM:1(加入房间), LEAVE_ROOM:2(离开房间), MESSAGE:3(普通消息), ZONE_UPDATE:4(区域更新), ZONE_REMOVE:5(区域移除), ZONE_QUERY:6(区域查询), ZONE_RESULT:7(区域查询结果), PING:8(心跳请求), PONG:9(心跳响应), ERROR:10(错误消息)。
+/**
+ * Net.ts
+ * download(url: 资源 URL, opts?: object) - 下载资源
+ *  - opts: key: 缓存键（默认使用 url），force: 是否强制重新下载（忽略缓存），默认 false
+ *    cache: 是否启用缓存，默认 true
+ *    onProgress: (percent, speed, loaded, total)
+ *    onComplete: (blob, fromCache)
+ *    onError: (errorMsg)
+ * pause(key?: string) - 暂停下载，无参时暂停所有正在下载的任务
+ * resume(key?: string) - 恢复下载，无参时恢复所有已暂停的任务，有参时恢复指定 key 对应的任务
+ * clear() - 清空所有下载任务、队列和活跃记录（不删除缓存文件）
+ * forceNormal(key: string) - 强制将指定任务切换为整包下载模式（放弃分片续传）
+ * cGet(key: string, callback: (blob: Blob | null) => void) - 从缓存获取文件
+ * cClear(callback: (success: boolean) => void) - 清空所有缓存数据
+ * cRemove(key: string, callback: (success: boolean) => void) - 删除指定缓存文件
+ * info(callback: (info: any) => void) - 查询所有任务列表及缓存用量
+ * info(url: string, callback: (info: any) => void) - 查询指定 URL 对应的任务详情和缓存状态
+ * on(event: string, callback: Function) - 注册事件监听，支持事件：'downloadComplete', 'downloadError', 'downloadProgress', 'downloadPaused'
+ * off(event?: string, callback?: Function) - 移除事件监听，无参时清除所有事件；有参时移除指定事件的指定回调
+ * destroy() - 销毁实例，暂停所有下载并清理定时器
+ *  - downloadComplete: (key, blob, fromCache)
+ *  - downloadError: (key, errorMsg)
+ *  - downloadProgress: (key, percent, speed, loaded, total)
+ *  - downloadPaused: (key, loaded, total)
+ * 内部机制：
+ *  - 采用智能分片下载策略（默认分片 64KB），支持断点续传
+ *  - 并发控制：最大总并发数 3，最大分片并发数 10
+ *  - 自动降级：当服务器不支持 Range 请求或分片失败时切换为整包下载
+ *  - 重试机制：基础重试 3 次，有成功分片后提升至 10 次
  */
 
 /**

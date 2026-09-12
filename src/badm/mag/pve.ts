@@ -5,9 +5,9 @@
  */
 import { Mag, MatchPhase, TeamSide, CourtCfg, MatchMode } from "./mag";
 export { MatchPhase, TeamSide, CourtCfg, MatchMode };
-import { Ball } from "../ball";
+import { Ball } from "../obj/ball";
 import { AIControl, AIDifficulty } from "../NPC/ai";
-import { Cha } from "../cha";
+import { Cha } from "../obj/cha";
 
 export class PVE extends Mag {
     /** AI 控制器列表，每个非本地角色对应一个 AIControl */

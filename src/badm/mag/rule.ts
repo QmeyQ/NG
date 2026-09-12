@@ -3,9 +3,9 @@
  * 接收 Mag 引用，通过 this._mag.xxx 操作所有共享状态
  * 自己注册 Ball 事件，处理所有判罚
  */
-import { Cha, StrokeParams } from "../cha";
-import { Ball } from "../ball";
-import { NetHitInfo } from "../phyCfg";
+import { Cha, StrokeParams } from "../obj/cha";
+import { Ball } from "../obj/ball";
+import { NetHitInfo } from "../engine/phyCfg";
 import { Timer } from "../../libs/time";
 import { Mag } from "./mag";
 
@@ -356,7 +356,7 @@ export class Rule {
 
     /**
      * 将球分配给当前发球员：设置发球员球权，重置物理状态
-     * 不清除 cha 的 ball 引用（初始化时已传递）
+     * cha 不再持有 Ball 对象，持球通过 isP 标记和 Mag 的持球跟随逻辑处理
      */
     private _assignBall(): void {
         const m = this._mag;

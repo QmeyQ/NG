@@ -1,0 +1,514 @@
+[
+  {
+    "main": "base.fbx",
+    "uuid": "8750ce52-ab7c-485f-b730-7561c1dcf370",
+    "subCount": 13,
+    "files": [
+      {
+        "id": "0",
+        "ext": "lh",
+        "file": "lh\\base.lh",
+        "size": 362378
+      },
+      {
+        "id": "lm0",
+        "ext": "lm",
+        "file": "lm\\body.001.lm",
+        "size": 10671
+      },
+      {
+        "id": "lm1",
+        "ext": "lm",
+        "file": "lm\\hair.lm",
+        "size": 10815
+      },
+      {
+        "id": "lm2",
+        "ext": "lm",
+        "file": "lm\\Racket.001.lm",
+        "size": 10659
+      },
+      {
+        "id": "lm3",
+        "ext": "lm",
+        "file": "lm\\shirt.001.lm",
+        "size": 10659
+      },
+      {
+        "id": "lm4",
+        "ext": "lm",
+        "file": "lm\\shoes.lm",
+        "size": 10659
+      },
+      {
+        "id": "lm5",
+        "ext": "lm",
+        "file": "lm\\shorts.001.lm",
+        "size": 10659
+      },
+      {
+        "id": "lmat0",
+        "ext": "lmat",
+        "file": "lmat\\body.lmat",
+        "size": 661
+      },
+      {
+        "id": "lmat1",
+        "ext": "lmat",
+        "file": "lmat\\hair.lmat",
+        "size": 661
+      },
+      {
+        "id": "lmat2",
+        "ext": "lmat",
+        "file": "lmat\\racket.lmat",
+        "size": 663
+      },
+      {
+        "id": "lmat3",
+        "ext": "lmat",
+        "file": "lmat\\shirt.lmat",
+        "size": 662
+      },
+      {
+        "id": "lmat4",
+        "ext": "lmat",
+        "file": "lmat\\shoes.lmat",
+        "size": 662
+      },
+      {
+        "id": "lmat5",
+        "ext": "lmat",
+        "file": "lmat\\shorts.lmat",
+        "size": 663
+      }
+    ]
+  },
+  {
+    "main": "court.fbx",
+    "uuid": "0d67e488-b658-427f-a24e-9add580694fa",
+    "subCount": 11,
+    "files": [
+      {
+        "id": "0",
+        "ext": "lh",
+        "file": "lh\\court.lh",
+        "size": 5062
+      },
+      {
+        "id": "lm0",
+        "ext": "lm",
+        "file": "lm\\floor.lm",
+        "size": 7304
+      },
+      {
+        "id": "lm1",
+        "ext": "lm",
+        "file": "lm\\net.lm",
+        "size": 500
+      },
+      {
+        "id": "lm2",
+        "ext": "lm",
+        "file": "lm\\pole.1.lm",
+        "size": 856
+      },
+      {
+        "id": "lm3",
+        "ext": "lm",
+        "file": "lm\\pole.lm",
+        "size": 856
+      },
+      {
+        "id": "lmat0",
+        "ext": "lmat",
+        "file": "lmat\\æè´¨.lmat",
+        "size": 351
+      },
+      {
+        "id": "lmat1",
+        "ext": "lmat",
+        "file": "lmat\\inner.lmat",
+        "size": 355
+      },
+      {
+        "id": "lmat2",
+        "ext": "lmat",
+        "file": "lmat\\net.lmat",
+        "size": 688
+      },
+      {
+        "id": "lmat3",
+        "ext": "lmat",
+        "file": "lmat\\nettop.lmat",
+        "size": 351
+      },
+      {
+        "id": "lmat4",
+        "ext": "lmat",
+        "file": "lmat\\outer.lmat",
+        "size": 358
+      },
+      {
+        "id": "lmat5",
+        "ext": "lmat",
+        "file": "lmat\\whiteL.lmat",
+        "size": 337
+      }
+    ]
+  },
+  {
+    "main": "girl.fbx",
+    "uuid": "c4d80210-eb92-42f9-bbe5-64cc4f510b65",
+    "subCount": 23,
+    "files": [
+      {
+        "id": "0",
+        "ext": "lh",
+        "file": "lh\\girl.lh",
+        "size": 481916
+      },
+      {
+        "id": "lani0",
+        "ext": "lani",
+        "file": "lani\\pole_down.lani",
+        "size": 81581
+      },
+      {
+        "id": "lani1",
+        "ext": "lani",
+        "file": "lani\\pole_pole_diving.lani",
+        "size": 303032
+      },
+      {
+        "id": "lani2",
+        "ext": "lani",
+        "file": "lani\\pole_pole_flathit_off.001.lani",
+        "size": 98302
+      },
+      {
+        "id": "lani3",
+        "ext": "lani",
+        "file": "lani\\pole_pole_flathit_off.002.lani",
+        "size": 98239
+      },
+      {
+        "id": "lani4",
+        "ext": "lani",
+        "file": "lani\\pole_pole_flathit.lani",
+        "size": 98996
+      },
+      {
+        "id": "lani5",
+        "ext": "lani",
+        "file": "lani\\pole_pole_hitoff.lani",
+        "size": 136124
+      },
+      {
+        "id": "lani6",
+        "ext": "lani",
+        "file": "lani\\pole_pole_jumphit.lani",
+        "size": 111455
+      },
+      {
+        "id": "lani7",
+        "ext": "lani",
+        "file": "lani\\pole_pole_left.lani",
+        "size": 87739
+      },
+      {
+        "id": "lani8",
+        "ext": "lani",
+        "file": "lani\\pole_pole_stand_off.lani",
+        "size": 79065
+      },
+      {
+        "id": "lani9",
+        "ext": "lani",
+        "file": "lani\\pole_pole_up.lani",
+        "size": 82298
+      },
+      {
+        "id": "lm0",
+        "ext": "lm",
+        "file": "lm\\body.lm",
+        "size": 1450894
+      },
+      {
+        "id": "lm1",
+        "ext": "lm",
+        "file": "lm\\hair.lm",
+        "size": 330184
+      },
+      {
+        "id": "lm2",
+        "ext": "lm",
+        "file": "lm\\racket.lm",
+        "size": 1057884
+      },
+      {
+        "id": "lm3",
+        "ext": "lm",
+        "file": "lm\\shirt.lm",
+        "size": 488304
+      },
+      {
+        "id": "lm4",
+        "ext": "lm",
+        "file": "lm\\shoes.lm",
+        "size": 151712
+      },
+      {
+        "id": "lm5",
+        "ext": "lm",
+        "file": "lm\\shorts.lm",
+        "size": 53746
+      },
+      {
+        "id": "lmat0",
+        "ext": "lmat",
+        "file": "lmat\\body.lmat",
+        "size": 661
+      },
+      {
+        "id": "lmat1",
+        "ext": "lmat",
+        "file": "lmat\\hair.lmat",
+        "size": 661
+      },
+      {
+        "id": "lmat2",
+        "ext": "lmat",
+        "file": "lmat\\Material.001.lmat",
+        "size": 669
+      },
+      {
+        "id": "lmat3",
+        "ext": "lmat",
+        "file": "lmat\\shirt.lmat",
+        "size": 662
+      },
+      {
+        "id": "lmat4",
+        "ext": "lmat",
+        "file": "lmat\\shoes.lmat",
+        "size": 662
+      },
+      {
+        "id": "lmat5",
+        "ext": "lmat",
+        "file": "lmat\\shorts.lmat",
+        "size": 663
+      }
+    ]
+  },
+  {
+    "main": "game/BagList.lh",
+    "uuid": "b7799c91-363b-4f1f-acce-023b9b533b3a",
+    "subCount": 2,
+    "files": [
+      {
+        "id": "info",
+        "ext": "json",
+        "file": "json\\info.json",
+        "size": 199
+      },
+      {
+        "id": "info2",
+        "ext": "json",
+        "file": "json\\info2.json",
+        "size": 254
+      }
+    ]
+  },
+  {
+    "main": "game/ball.fbx",
+    "uuid": "38e3fc6b-3dc3-4b81-9d1c-d4eb09857961",
+    "subCount": 3,
+    "files": [
+      {
+        "id": "0",
+        "ext": "lh",
+        "file": "lh\\ball.lh",
+        "size": 1537
+      },
+      {
+        "id": "lm0",
+        "ext": "lm",
+        "file": "lm\\çé«.002.lm",
+        "size": 226892
+      },
+      {
+        "id": "lmat0",
+        "ext": "lmat",
+        "file": "lmat\\æè³ª.002.lmat",
+        "size": 355
+      }
+    ]
+  },
+  {
+    "main": "game/load.ls",
+    "uuid": "15eb7196-7863-4146-bb6a-061f1bcae159",
+    "subCount": 2,
+    "files": [
+      {
+        "id": "info",
+        "ext": "json",
+        "file": "json\\info.json",
+        "size": 206
+      },
+      {
+        "id": "info2",
+        "ext": "json",
+        "file": "json\\info2.json",
+        "size": 254
+      }
+    ]
+  },
+  {
+    "main": "game/match.ls",
+    "uuid": "bb166a08-6768-4747-a8f3-e4f9d5f2dbad",
+    "subCount": 2,
+    "files": [
+      {
+        "id": "info",
+        "ext": "json",
+        "file": "json\\info.json",
+        "size": 289
+      },
+      {
+        "id": "info2",
+        "ext": "json",
+        "file": "json\\info2.json",
+        "size": 254
+      }
+    ]
+  },
+  {
+    "main": "game/menu.ls",
+    "uuid": "7340a7af-2f0b-4812-be44-9739fb6e5b09",
+    "subCount": 2,
+    "files": [
+      {
+        "id": "info",
+        "ext": "json",
+        "file": "json\\info.json",
+        "size": 356
+      },
+      {
+        "id": "info2",
+        "ext": "json",
+        "file": "json\\info2.json",
+        "size": 254
+      }
+    ]
+  },
+  {
+    "main": "game/Scene.ls",
+    "uuid": "41c736bc-9e4d-455c-8140-6edae3cdd251",
+    "subCount": 2,
+    "files": [
+      {
+        "id": "info",
+        "ext": "json",
+        "file": "json\\info.json",
+        "size": 290
+      },
+      {
+        "id": "info2",
+        "ext": "json",
+        "file": "json\\info2.json",
+        "size": 307
+      }
+    ]
+  },
+  {
+    "main": "game/select.ls",
+    "uuid": "911201b6-aa50-4d62-8e96-cafa5f4e8bfb",
+    "subCount": 2,
+    "files": [
+      {
+        "id": "info",
+        "ext": "json",
+        "file": "json\\info.json",
+        "size": 148
+      },
+      {
+        "id": "info2",
+        "ext": "json",
+        "file": "json\\info2.json",
+        "size": 254
+      }
+    ]
+  },
+  {
+    "main": "game/trace.ls",
+    "uuid": "9b931ecf-fde9-44dd-acf3-15f8dc807965",
+    "subCount": 2,
+    "files": [
+      {
+        "id": "info",
+        "ext": "json",
+        "file": "json\\info.json",
+        "size": 279
+      },
+      {
+        "id": "info2",
+        "ext": "json",
+        "file": "json\\info2.json",
+        "size": 254
+      }
+    ]
+  },
+  {
+    "main": "~/internal/glTFShader/glTFPBR.shader",
+    "uuid": "47594d2d-b167-4fa1-ac9d-8c6c9b3e1755",
+    "subCount": 1,
+    "files": [
+      {
+        "id": "0",
+        "ext": "shader",
+        "file": "shader\\0.shader",
+        "size": 15854
+      }
+    ]
+  },
+  {
+    "main": "~/internal/particle/shader/Particle2D.shader",
+    "uuid": "6409b745-8c3b-47a8-80ac-18a1137fd292",
+    "subCount": 1,
+    "files": [
+      {
+        "id": "0",
+        "ext": "shader",
+        "file": "shader\\0.shader",
+        "size": 2147
+      }
+    ]
+  },
+  {
+    "main": "~/internal/UI/comp.atlascfg",
+    "uuid": "0cd83347-c4f7-4b85-9328-bcf4c0119250",
+    "subCount": 3,
+    "files": [
+      {
+        "id": "atlas0",
+        "ext": "atlas",
+        "file": "atlas\\comp.atlas",
+        "size": 10329
+      },
+      {
+        "id": "img0",
+        "ext": "json",
+        "file": "json\\comp.png",
+        "size": 287
+      },
+      {
+        "id": "img0",
+        "ext": "png",
+        "file": "png\\comp.png",
+        "size": 322761
+      }
+    ]
+  }
+]

@@ -1,5 +1,5 @@
-import { Cha } from "./cha";
-import { Ball } from "./ball";
+import { Cha } from "./obj/cha";
+import { Ball } from "./obj/ball";
 
 export interface Collider {
     type: 'cha' | 'ball' | 'net';

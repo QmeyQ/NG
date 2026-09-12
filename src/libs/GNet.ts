@@ -183,7 +183,7 @@ export class Gnet {
           this.isInitialized = false;
           callback(err);
         });
-        
+
       this.client.onInitResult((resultCode: number) => {
         if (resultCode === GOBE.ErrorCode.COMMON_OK) {
           this.isInitialized = true;
@@ -289,7 +289,7 @@ export class Gnet {
           this._cachedRoomPlayerId = p.playerId;
           return p.playerId;
         }
-      } catch (e) {}
+      } catch (e) { }
     }
     return '';
   }
@@ -384,14 +384,14 @@ export class Gnet {
       .then((room: any) => {
         this.updateRoomOwnerCache(room);
         this.notifyRoomChange(room);
-        
-      // 发送系统消息（失败不影响主流程）
+
+        // 发送系统消息（失败不影响主流程）
         try {
           this.sendSystemMessage(`${this.getCurrentPlayerId()} 创建了房间`);
         } catch (e) {
           console.warn("sendSystemMessage failed:", e);
         }
-        
+
         callback(null, room);
       })
       .catch((err: Error) => callback(err));
@@ -426,7 +426,7 @@ export class Gnet {
       .then((room: any) => {
         this.updateRoomOwnerCache(room);
         this.notifyRoomChange(room);
-        
+
         // 发送消息（失败不影响主流程）
         try {
           this.sendToRoomOwner(MessageType.PLAYER_JOIN, JSON.stringify({
@@ -438,7 +438,7 @@ export class Gnet {
         } catch (e) {
           console.warn("joinRoom message send failed:", e);
         }
-        
+
         callback(null, room);
       })
       .catch((err: Error) => callback(err));
@@ -455,7 +455,7 @@ export class Gnet {
     }
 
     const leavingPlayerId = this.getCurrentPlayerId();
-    
+
     // 在离开房间前发送消息（离开后 room 为 null）
     try {
       if (leavingPlayerId !== this.getRoomOwnerId()) {
@@ -468,7 +468,7 @@ export class Gnet {
     } catch (e) {
       console.warn("leaveRoom message send failed:", e);
     }
-    
+
     this.client.leaveRoom()
       .then((client: any) => {
         this.updateRoomOwnerCache(null);
@@ -511,7 +511,7 @@ export class Gnet {
     if (!roomOwnerId || roomOwnerId === this.getCurrentPlayerId()) {
       return false;
     }
-    
+
     this.sendToClient(type, msg, [roomOwnerId]);
     return true;
   }
@@ -595,7 +595,7 @@ export class Gnet {
       console.warn("Only room owner can broadcast messages");
       return false;
     }
-    
+
     this.sendToClient(type, msg);
     return true;
   }
@@ -634,12 +634,12 @@ export class Gnet {
       const customProperties = room.customRoomProperties ? JSON.parse(room.customRoomProperties) : {};
       customProperties.newOwnerId = newOwnerId;
       customProperties.transferTime = Date.now();
-      
+
       this.updateRoom(undefined, JSON.stringify(customProperties));
-      
+
       // 发送系统消息
       this.sendSystemMessage(`房主已将权限转移给 ${newOwnerId}`);
-      
+
       callback(null, { success: true, newOwnerId });
     } catch (err) {
       callback(err as Error);
@@ -658,19 +658,19 @@ export class Gnet {
 
     try {
       // 更新房间状态
-      const customProperties = this.getRoom()?.customRoomProperties ? 
+      const customProperties = this.getRoom()?.customRoomProperties ?
         JSON.parse(this.getRoom().customRoomProperties) : {};
       customProperties.status = RoomStatus.GAMING;
       customProperties.gameStartTime = Date.now();
-      
+
       this.updateRoom(undefined, JSON.stringify(customProperties));
-      
+
       // 广播游戏开始消息
       this.broadcastFromOwner(MessageType.GAME_START, JSON.stringify({
         startTime: Date.now(),
         roomId: this.getRoom()?.roomId
       }));
-      
+
       // 如果启用了帧同步，则开始帧同步
       if (customProperties.enableFrameSync) {
         this.startFrameSync(callback);
@@ -695,21 +695,21 @@ export class Gnet {
 
     try {
       // 更新房间状态
-      const customProperties = this.getRoom()?.customRoomProperties ? 
+      const customProperties = this.getRoom()?.customRoomProperties ?
         JSON.parse(this.getRoom().customRoomProperties) : {};
       customProperties.status = RoomStatus.ENDED;
       customProperties.gameEndTime = Date.now();
       customProperties.gameResult = result;
-      
+
       this.updateRoom(undefined, JSON.stringify(customProperties));
-      
+
       // 广播游戏结束消息
       this.broadcastFromOwner(MessageType.GAME_END, JSON.stringify({
         endTime: Date.now(),
         result,
         roomId: this.getRoom()?.roomId
       }));
-      
+
       // 如果正在帧同步，则停止
       this.stopFrameSync((err) => {
         if (err) {
@@ -751,10 +751,10 @@ export class Gnet {
       reason: reason,
       timestamp: Date.now()
     }), [playerId]);
-    
+
     // 发送系统消息
     this.sendSystemMessage(`玩家 ${playerId} 已被房主踢出${reason ? `，原因：${reason}` : ''}`);
-    
+
     callback(null, { success: true, playerId, reason });
   }
 
@@ -867,21 +867,21 @@ export class Gnet {
     room.startFrameSync()
       .then(() => callback(null))
       .catch((err: any) => {
-           if (err.errorCode === 101114 || (err.message && err.message.includes("already start frame sync"))) {
-               console.warn("[Gnet] 房间已在帧同步中，继续执行...");
-               callback(null); // 忽略已开启帧同步的错误
-           } else if (err.errorCode === 101118 || (err.message && err.message.includes("invalid room status"))) {
-               // 尝试先停止再开始
-               console.warn("[Gnet] 房间状态无效，尝试停止后重新开始帧同步...");
-               room.stopFrameSync().then(() => {
-                   room.startFrameSync().then(() => callback(null)).catch((e: any) => callback(e));
-               }).catch((e: any) => {
-                   console.warn("[Gnet] 停止帧同步失败，忽略错误继续...", e);
-                   callback(null); // 如果停止也失败，直接继续，让游戏尝试运行
-               });
-           } else {
-               callback(err);
-           }
+        if (err.errorCode === 101114 || (err.message && err.message.includes("already start frame sync"))) {
+          console.warn("[Gnet] 房间已在帧同步中，继续执行...");
+          callback(null); // 忽略已开启帧同步的错误
+        } else if (err.errorCode === 101118 || (err.message && err.message.includes("invalid room status"))) {
+          // 尝试先停止再开始
+          console.warn("[Gnet] 房间状态无效，尝试停止后重新开始帧同步...");
+          room.stopFrameSync().then(() => {
+            room.startFrameSync().then(() => callback(null)).catch((e: any) => callback(e));
+          }).catch((e: any) => {
+            console.warn("[Gnet] 停止帧同步失败，忽略错误继续...", e);
+            callback(null); // 如果停止也失败，直接继续，让游戏尝试运行
+          });
+        } else {
+          callback(err);
+        }
       });
   }
   static stopFrameSync(callback: VoidCallback): void {
@@ -1073,6 +1073,14 @@ export class Gnet {
     }
   }
 
+  static off(event?: string) {
+    if (event)
+      this._mpm.off(event);
+    else{
+      this._mpm.off();
+    }
+  }
+
   static getAvailableRoomsPaged(
     pageNumber: number,
     pageSize: number = 10,
@@ -1158,10 +1166,10 @@ export class Gnet {
 
     try {
       const room = this.getRoom();
-      const customProperties = room?.customRoomProperties ? 
+      const customProperties = room?.customRoomProperties ?
         JSON.parse(room.customRoomProperties) : {};
       customProperties.status = status;
-      
+
       this.updateRoom(undefined, JSON.stringify(customProperties));
       callback(null, { success: true, status });
     } catch (err) {

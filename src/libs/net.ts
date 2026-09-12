@@ -1,874 +1,690 @@
 /**
  * Net - 网络通信类，负责资源包的下载、缓存、断点续传
- * 引用 IDBStorage 做本地持久化和 Timer 做定时控制，内置调试日志和十六进制 dump 工具
+ * 使用 MPM 管理事件分发，IDBStorage 做本地持久化，Timer 做定时控制
  */
 import { IDBStorage } from "./IDBStorage";
 import { Timer } from "./time";
-
-// ======================== 调试工具 ========================
-const DEBUG_ENABLED = true;
-
-function debugLog(prefix: string, ...args: any[]): void {
-    if (!DEBUG_ENABLED) return;
-    const timestamp = new Date().toISOString().slice(11, 23);
-    console.log(`[Net-DEBUG][${timestamp}] ${prefix}`, ...args);
-}
-
-function padZero(num: number, len: number): string {
-    let str = num.toString(16);
-    while (str.length < len) str = '0' + str;
-    return str;
-}
-
-function hexDump(data: any, maxBytes: number = 64): string {
-    if (!data) return '[null]';
-    try {
-        let bytes: Uint8Array;
-        if (data instanceof ArrayBuffer) {
-            bytes = new Uint8Array(data);
-        } else if (data instanceof Blob) {
-            return `[Blob size=${data.size}]`;
-        } else if (typeof data === 'string') {
-            if (data.startsWith('data:')) return `[DataURL length=${data.length}]`;
-            try {
-                const binary = atob(data);
-                bytes = new Uint8Array(binary.length);
-                for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-            } catch {
-                bytes = new TextEncoder().encode(data);
-            }
-        } else {
-            return `[Unknown type: ${typeof data}]`;
-        }
-        const len = Math.min(bytes.length, maxBytes);
-        const hexParts: string[] = [];
-        for (let i = 0; i < len; i++) hexParts.push(padZero(bytes[i], 2).toUpperCase());
-        return hexParts.join(' ') + (bytes.length > maxBytes ? '...' : '');
-    } catch (e) {
-        return `[Error: ${e}]`;
-    }
-}
-
-function logBlobHex(prefix: string, blob: Blob, maxBytes: number = 64): void {
-    if (!DEBUG_ENABLED) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-        const hex = hexDump(reader.result, maxBytes);
-        debugLog(prefix, `Blob size=${blob.size}, hex=[${hex}]`);
-    };
-    reader.onerror = () => debugLog(prefix, `Blob读取失败`);
-    reader.readAsArrayBuffer(blob.slice(0, maxBytes));
-}
+import { MPM } from "./mpm";
 
 // ======================== 常量与类型 ========================
 
-const DOWNLOAD_STATE = {
-    PENDING: 'pending',
-    DOWNLOADING: 'downloading',
-    PAUSED: 'paused',
-    COMPLETED: 'completed',
-    ERROR: 'error',
-    CANCELLED: 'cancelled'
+/** 下载状态枚举 */
+const DST = {
+    PENDING: 'p',
+    DOWNLOADING: 'd',
+    PAUSED: '=',
+    COMPLETED: 'f',
+    ERROR: 'e',
+    CANCELLED: 'x'
 } as const;
 
-interface ChunkInfo {
-    index: number;
-    start: number;
-    end: number;
-    loaded: boolean;
-    blobKey?: string;
-    failCount: number;
-}
-
-interface ChunkedDownloadState {
-    taskKey: string;
+/** 下载任务接口（内联分片状态） */
+interface DTask {
+    /** 下载 URL */
     url: string;
-    totalSize: number;
-    chunkSize: number;
-    chunks: ChunkInfo[];
-    anySuccess: boolean;
-    mimeType?: string;
-    etag?: string;
-    lastModified?: number;
-}
-
-interface DownloadTask {
-    id: string;
-    url: string;
+    /** 缓存键 */
     key: string;
-    state: typeof DOWNLOAD_STATE[keyof typeof DOWNLOAD_STATE];
-    loaded: number;
-    total: number;
-    resumable: boolean;
-    startTime: number;
-    retries: number;
-    controller: AbortController | null;
-    onProgress?: (percent: number, speed: number, loaded: number, total: number) => void;
-    onComplete?: (blob: Blob, fromCache: boolean) => void;
-    onError?: (error: string) => void;
-    onStateChange?: (state: string) => void;
-    lastProgressUpdate: number;
-    lastLoaded: number;
-    cache?: boolean;
-
-    // [FIX] 添加字段用于传递已读取的 chunkState，避免二次读取不一致
-    _chunkState?: ChunkedDownloadState;
+    /** 当前状态 */
+    st: typeof DST[keyof typeof DST];
+    /** 已下载字节数 */
+    ld: number;
+    /** 总字节数 */
+    tot: number;
+    /** 是否可断点续传 */
+    rs: boolean;
+    /** 开始时间戳 */
+    stT: number;
+    /** 重试次数 */
+    rt: number;
+    /** AbortController */
+    ctrl: AbortController | null;
+    /** 进度回调 (百分比, 速度, 已下载, 总量) */
+    onP?: (percent: number, speed: number, loaded: number, total: number) => void;
+    /** 完成回调 (Blob, 是否来自缓存) */
+    onC?: (blob: Blob, fromCache: boolean) => void;
+    /** 错误回调 */
+    onE?: (err: string) => void;
+    /** 状态变更回调 */
+    onSC?: (st: string) => void;
+    /** 上次进度更新时间 */
+    lPU: number;
+    /** 上次已下载量 */
+    lL: number;
+    /** 是否缓存 */
+    c?: boolean;
+    /** 分片大小（字节） */
+    cSize: number;
+    /** 分片完成标记数组 */
+    chunks: boolean[];
+    /** 分片失败次数数组 */
+    failCnt: number[];
+    /** 是否有任意分片成功过 */
+    anyS: boolean;
 }
+
+/** 计算分片起始字节偏移 */
+function ckStart(i: number, cSize: number): number { return i * cSize; }
+
+/** 计算分片结束字节偏移（含） */
+function ckEnd(i: number, cSize: number, tot: number): number { return Math.min(ckStart(i, cSize) + cSize - 1, tot - 1); }
+
+/** 计算分片期望大小 */
+function ckSize(i: number, cSize: number, tot: number): number { return ckEnd(i, cSize, tot) - ckStart(i, cSize) + 1; }
+
+/** 生成分片缓存键 */
+function ckKey(key: string, i: number): string { return `${key}_chunk_${i}`; }
 
 export class Net {
+    /** IDB 存储实例 */
     public storage: IDBStorage;
-    private events: { [key: string]: Function[] } = {};
+    /** 事件管理器（MPM 事件分发） */
+    private _mpm: MPM = new MPM();
 
-    private downloadTasks: Map<string, DownloadTask> = new Map();
-    private activeDownloads: Set<string> = new Set();
-    private maxConcurrent: number = 3;
-    private downloadTimeout: number = 120000;
-    private maxRetries: number = 3;
-    private downloadQueue: string[] = [];
+    /** 下载任务表（key → DTask） */
+    private tasks: Map<string, DTask> = new Map();
+    /** 活跃下载集合 */
+    private active: Set<string> = new Set();
+    /** 最大并发下载数 */
+    public maxC: number = 3;
+    /** 下载超时时间（ms） */
+    public DTO: number = 120000;
+    /** 最大重试次数 */
+    public maxR: number = 3;
+    /** 下载等待队列 */
+    private queue: string[] = [];
 
-    private chunkSize: number = 64 * 1024;
-    private maxChunkConcurrent: number = 3;
-    private baseChunkRetries: number = 3;
-    private boostedChunkRetries: number = 10;
+    /** 默认分片大小（64KB） */
+    public cSize: number = 64 * 1024;
+    /** 最大分片并发数 */
+    public maxCC: number = 20;
+    /** 基础分片重试次数 */
+    public baseCR: number = 3;
+    /** 提升后分片重试次数 */
+    public boostCR: number = 10;
 
+    /** 构造函数：初始化 IDB 存储 */
     constructor() {
         this.storage = new IDBStorage();
     }
 
-    // ======================== 事件系统 ========================
-    private _emit(event: string, ...args: any[]): void {
-        const listeners = this.events[event];
-        if (!listeners) return;
-        listeners.forEach(cb => { try { cb(...args); } catch (e) { console.error(e); } });
+    // ======================== 事件系统（MPM） ========================
+
+    /** 注册事件监听 */
+    on(event: 'downloadComplete' | 'downloadError' | 'downloadProgress' | 'downloadPaused', cb: Function): void {
+        this._mpm.on(event, cb);
     }
 
-    on(event: string, callback: Function): void {
-        if (typeof callback === 'function') (this.events[event] || (this.events[event] = [])).push(callback);
-    }
-
-    off(event: string, callback: Function): void {
-        const listeners = this.events[event];
-        if (listeners) this.events[event] = listeners.filter(cb => cb !== callback);
+    /** 移除事件监听（无参时清掉所有事件） */
+    off(event?: string, cb?: Function): void {
+        this._mpm.off(event, cb);
     }
 
     // ======================== 下载入口 ========================
-    download(url: string, options: any = {}): void {
-        const { key = url, force = false, cache = true, onProgress, onComplete, onError } = options;
-        debugLog(`[download] 开始 key=${key}, force=${force}, cache=${cache}`);
 
-        const existingTask = this.downloadTasks.get(key);
-        if (existingTask) {
-            if (existingTask.state === DOWNLOAD_STATE.DOWNLOADING) {
-                this._emit('downloadError', key, '任务已在进行中');
-                onError?.('任务已在进行中');
+    /**
+     * 下载资源
+     * @param url 资源 URL
+     * @param opts 选项 { key, force, cache, onProgress, onComplete, onError }
+     */
+    download(url: string, opts: any = {}): void {
+        if(opts.cache == undefined){
+            opts.cache = true;
+        }
+        if (this.tasks.get(url)) {
+            if (this.tasks.get(url).st === DST.DOWNLOADING) {
+                this._mpm.emit('downloadError', url, '任务已在进行中');
+                opts.onError?.('任务已在进行中');
                 return;
             }
-            if (existingTask.state === DOWNLOAD_STATE.PAUSED) {
-                this.resumeDownload(key);
-                return;
-            }
+            if (this.tasks.get(url).st === DST.PAUSED) { this.resume(url); return; }
         }
 
-        if (!force) {
-            this.cacheGet(key, (cached: any) => {
+        if (!opts.force) {
+            this.cGet(url, (cached: any) => {
                 if (cached) {
-                    debugLog(`[download] 缓存命中 key=${key}`);
-                    logBlobHex(`[download] 缓存数据 key=${key}`, cached);
-                    this._emit('downloadComplete', key, cached, true);
-                    onComplete?.(cached, true);
+                    this._mpm.emit('downloadComplete', url, cached, true);
+                    opts.onComplete?.(cached, true);
                     return;
                 }
-                this._resumeFromChunkState(key, (task) => {
+                this._resume(url, (task) => {
                     if (task) {
-                        task.onProgress = onProgress;
-                        task.onComplete = onComplete;
-                        task.onError = onError;
-                        task.cache = cache;
-                        this._startDownload(task);
-                    } else {
-                        const newTask: DownloadTask = {
-                            id: key, url, key, state: DOWNLOAD_STATE.PENDING,
-                            loaded: 0, total: 0, resumable: true,
-                            startTime: Timer.now(),
-                            retries: 0, controller: null,
-                            onProgress, onComplete, onError,
-                            lastProgressUpdate: 0, lastLoaded: 0, cache
-                        };
-                        this.downloadTasks.set(key, newTask);
-                        this._startChunkedDownload(newTask);
+                        task.onP = opts.onProgress; task.onC = opts.onComplete; task.onE = opts.onError; task.c = opts.cache;
+                        this._start(task);
+                        return;
                     }
                 });
             });
-        } else {
-            const newTask: DownloadTask = {
-                id: key, url, key, state: DOWNLOAD_STATE.PENDING,
-                loaded: 0, total: 0, resumable: true,
-                startTime: Timer.now(),
-                retries: 0, controller: null,
-                onProgress, onComplete, onError,
-                lastProgressUpdate: 0, lastLoaded: 0, cache
-            };
-            this.downloadTasks.set(key, newTask);
-            this._startNormalDownload(newTask);
+            return;
         }
+        var t:DTask = {
+            url, key:url, st: DST.PENDING,
+            ld: 0, tot: 0, rs: true, stT: Timer.now(),
+            rt: 0, ctrl: null, onP:opts.onProgress, onC:opts.onComplete , onE:opts.onError,
+            lPU: 0, lL: 0, c: opts.cache,
+            cSize: this.cSize, chunks: [], failCnt: [], anyS: false
+        };
+        this.tasks.set(url, t);
+        if (!opts.full) this._startChunked(t); else this._startNormal(t);
     }
 
-    pauseDownload(key: string): void {
-        const task = this.downloadTasks.get(key);
-        if (!task || task.state !== DOWNLOAD_STATE.DOWNLOADING) return;
-        debugLog(`[pause] key=${key}`);
-        if (task.controller) {
-            task.controller.abort();
-            task.controller = null;
-        }
-        task.state = DOWNLOAD_STATE.PAUSED;
-        this.activeDownloads.delete(key);
-        this._emit('downloadPaused', key, task.loaded, task.total);
-        task.onStateChange?.(DOWNLOAD_STATE.PAUSED);
-        this._processDownloadQueue();
+    /** 暂停下载（无参时暂停所有） */
+    pause(key?: string): void {
+        if (!key) { this.tasks.forEach((t, k) => { if (t.st === DST.DOWNLOADING) this.pause(k); }); return; }
+        const t = this.tasks.get(key);
+        if (!t || t.st !== DST.DOWNLOADING) return;
+        if (t.ctrl) { t.ctrl.abort(); t.ctrl = null; }
+        t.st = DST.PAUSED;
+        this.active.delete(key);
+        this._mpm.emit('downloadPaused', key, t.ld, t.tot);
+        t.onSC?.(DST.PAUSED);
+        this._processQ();
     }
 
-    resumeDownload(key: string): void {
-        const task = this.downloadTasks.get(key);
-        if (!task || task.state !== DOWNLOAD_STATE.PAUSED) return;
-        debugLog(`[resume] key=${key}`);
-        task.state = DOWNLOAD_STATE.PENDING;
-        task.retries = 0;
-        this._startDownload(task);
+    /** 恢复下载（无参时恢复所有） */
+    resume(key?: string): void {
+        if (!key) { this.tasks.forEach((t, k) => { if (t.st === DST.PAUSED) this.resume(k); }); return; }
+        const t = this.tasks.get(key);
+        if (!t || t.st !== DST.PAUSED) return;
+        t.st = DST.PENDING; t.rt = 0;
+        this._start(t);
     }
 
-    pauseAllDownloads(): void {
-        this.downloadTasks.forEach((task, key) => {
-            if (task.state === DOWNLOAD_STATE.DOWNLOADING) this.pauseDownload(key);
-        });
+    /** 清空下载队列 */
+    clear(): void {
+        this.pause();
+        this.tasks.clear();
+        this.active.clear();
+        this.queue = [];
     }
 
-    resumeAllDownloads(): void {
-        this.downloadTasks.forEach((task, key) => {
-            if (task.state === DOWNLOAD_STATE.PAUSED) this.resumeDownload(key);
-        });
-    }
-
-    clearDownloadQueue(): void {
-        this.pauseAllDownloads();
-        this.downloadTasks.clear();
-        this.activeDownloads.clear();
-        this.downloadQueue = [];
-    }
-
-    // [FIX] 修改 _resumeFromChunkState，同时将解析出的 chunkState 挂到 task 上
-    private _resumeFromChunkState(key: string, callback: (task: DownloadTask | null) => void): void {
-        const stateKey = `${key}_chunks_state`;
-        this.storage.get(stateKey, (chunkStateStr: string | null) => {
-            if (!chunkStateStr) {
-                callback(null);
-                return;
-            }
-            let chunkState: ChunkedDownloadState;
+    /** 从持久化状态恢复断点续传任务 */
+    private _resume(key: string, cb: (task: DTask | null) => void): void {
+        const sk = `${key}_chunks_state`;
+        this.storage.get(sk, (str: string | null) => {
+            if (!str) { cb(null); return; }
             try {
-                chunkState = JSON.parse(chunkStateStr);
-            } catch (e) {
-                callback(null);
-                return;
-            }
-            const url = chunkState.url;
-            if (!url) {
-                callback(null);
-                return;
-            }
-            const totalSize = chunkState.totalSize;
-
-            const task: DownloadTask = {
-                id: key,
-                url: url,
-                key: key,
-                state: DOWNLOAD_STATE.PENDING,
-                loaded: chunkState.chunks.filter(c => c.loaded).reduce((acc, c) => acc + (c.end - c.start + 1), 0),
-                total: totalSize,
-                resumable: true,
-                startTime: Timer.now(),
-                retries: 0,
-                controller: null,
-                cache: true,
-                lastProgressUpdate: 0,
-                lastLoaded: 0,
-                // [FIX] 将解析出的 chunkState 挂载到 task 上，供后续直接使用
-                _chunkState: chunkState
-            };
-            this.downloadTasks.set(key, task);
-            debugLog(`[resume] 从持久状态恢复任务 ${key}，已下载 ${task.loaded}/${task.total} 字节`);
-            callback(task);
+                const s = JSON.parse(str);
+                if (!s.url) { cb(null); return; }
+                const t: DTask = {
+                    url: s.url, key, st: DST.PENDING,
+                    ld: s.chunks.filter((c: boolean) => c).reduce((acc: number, _: any, i: number) => acc + ckSize(i, s.cSize, s.tot), 0),
+                    tot: s.tot, rs: true, stT: Timer.now(), rt: 0, ctrl: null,
+                    c: true, lPU: 0, lL: 0,
+                    cSize: s.cSize, chunks: s.chunks, failCnt: new Array(s.chunks.length).fill(0), anyS: s.anyS
+                };
+                this.tasks.set(key, t);
+                cb(t);
+            } catch { cb(null); }
         });
     }
 
-    forceNormalDownload(key: string): void {
-        const task = this.downloadTasks.get(key);
-        if (!task) return;
-        this.pauseDownload(key);
-        this._cleanupChunkTempFiles(key, () => {
+    /** 强制切换到整包下载 */
+    forceNormal(key: string): void {
+        const t = this.tasks.get(key);
+        if (!t) return;
+        this.pause(key);
+        this._cleanup(key, () => {
             this.storage.delete(`${key}_chunks_state`, () => {});
-            task.state = DOWNLOAD_STATE.PENDING;
-            task.loaded = 0;
-            task.total = 0;
-            task.retries = 0;
-            if (task.controller) {
-                task.controller.abort();
-                task.controller = null;
-            }
-            // [FIX] 清除挂载的 chunkState
-            task._chunkState = undefined;
-            debugLog(`[forceNormal] 切换到整包下载 key=${key}`);
-            this._startNormalDownload(task);
+            t.st = DST.PENDING; t.ld = 0; t.tot = 0; t.rt = 0;
+            if (t.ctrl) { t.ctrl.abort(); t.ctrl = null; }
+            t.chunks = []; t.failCnt = []; t.anyS = false;
+            this._startNormal(t);
         });
     }
 
-    cacheGet(key: string, callback: (blob: any) => void): void {
-        this.storage.getFile(key, callback);
-    }
+    /** 获取缓存文件 */
+    cGet(key: string, cb: (blob: any) => void): void { this.storage.getFile(key, cb); }
 
-    cacheClear(callback: (success: boolean) => void): void {
+    /** 清空所有缓存 */
+    cClear(cb: (ok: boolean) => void): void {
         this.storage.getKeys((keys) => {
             keys.dataKeys.forEach(k => { if (k.endsWith('_resume')) this.storage.deleteFile(k, () => {}); });
         });
-        this.storage.clear(callback);
+        this.storage.clear(cb);
     }
 
-    cacheRemove(key: string, callback: (success: boolean) => void): void {
+    /** 移除指定缓存 */
+    cRemove(key: string, cb: (ok: boolean) => void): void {
         this.storage.deleteFile(`${key}_resume`, () => {});
-        this.storage.deleteFile(key, callback);
+        this.storage.deleteFile(key, cb);
     }
 
-    cacheInfo(callback: (info: { used: number, quota: number, percentage: number }) => void): void {
-        this.storage.getUsage(callback);
+    /**
+     * 查询任务和缓存信息
+     * - 无 url：返回所有任务列表及状态和缓存用量
+     * - 有 url：返回该 url 对应任务详情和缓存状态
+     */
+    info(cb: (info: any) => void): void;
+    info(url: string, cb: (info: any) => void): void;
+    info(arg1: any, arg2?: any): void {
+        if (typeof arg1 === 'function') {
+            const cb = arg1;
+            const tasks = Array.from(this.tasks.values()).map(t => ({
+                url: t.url, key: t.key,
+                state: t.st, loaded: t.ld, total: t.tot,
+                progress: t.tot > 0 ? Math.round((t.ld / t.tot) * 100) : 0,
+                cached: t.c, retries: t.rt,
+                chunks: t.chunks.length, doneChunks: t.chunks.filter(c => c).length
+            }));
+            this.storage.getUsage((usage) => cb({ tasks, usage }));
+        } else {
+            const url = arg1, cb = arg2;
+            const tasks = Array.from(this.tasks.values()).filter(t => t.url === url).map(t => ({
+                url: t.url, key: t.key,
+                state: t.st, loaded: t.ld, total: t.tot,
+                progress: t.tot > 0 ? Math.round((t.ld / t.tot) * 100) : 0,
+                cached: t.c, retries: t.rt,
+                chunks: t.chunks, doneChunks: t.chunks.filter(c => c).length
+            }));
+            this.cGet(url, (blob: any) => {
+                cb({ tasks, cached: !!blob, cacheSize: blob?.size || 0 });
+            });
+        }
     }
 
     // ======================== 核心下载调度 ========================
-    private _startDownload(task: DownloadTask): void {
-        if (this.activeDownloads.size >= this.maxConcurrent) {
-            if (this.downloadQueue.indexOf(task.id) === -1) this.downloadQueue.push(task.id);
+
+    /** 启动下载（受并发数限制） */
+    private _start(t: DTask): void {
+        if (this.active.size >= this.maxC) {
+            if (this.queue.indexOf(t.key) === -1) this.queue.push(t.key);
             return;
         }
-        this.activeDownloads.add(task.id);
-        task.state = DOWNLOAD_STATE.DOWNLOADING;
-        task.startTime = Timer.now();
-        debugLog(`[_start] key=${task.id}`);
-        task.onStateChange?.(DOWNLOAD_STATE.DOWNLOADING);
-        // [FIX] 传递 task 以便内部使用挂载的 chunkState
-        this._startChunkedDownload(task);
+        this.active.add(t.key);
+        t.st = DST.DOWNLOADING; t.stT = Timer.now();
+        t.onSC?.(DST.DOWNLOADING);
+        this._startChunked(t);
     }
 
-    private _processDownloadQueue(): void {
-        while (this.activeDownloads.size < this.maxConcurrent && this.downloadQueue.length > 0) {
-            const taskId = this.downloadQueue.shift()!;
-            const task = this.downloadTasks.get(taskId);
-            if (task && task.state === DOWNLOAD_STATE.PENDING) this._startDownload(task);
+    /** 处理下载队列 */
+    private _processQ(): void {
+        while (this.active.size < this.maxC && this.queue.length > 0) {
+            const id = this.queue.shift()!;
+            const t = this.tasks.get(id);
+            if (t && t.st === DST.PENDING) this._start(t);
         }
     }
 
     // ======================== 智能分片下载 ========================
-    // [FIX] _startChunkedDownload 保持不变，但内部 _executeChunkedDownload 会使用 task._chunkState
-    private _startChunkedDownload(task: DownloadTask): void {
-        this._fetchFileSize(task).then(totalSize => {
-            if (totalSize <= 0) {
-                debugLog(`[chunked] 无法获取文件大小，降级普通下载`);
-                this._startNormalDownload(task);
-                return;
-            }
-            task.total = totalSize;
-            const chunkCount = Math.ceil(totalSize / this.chunkSize);
-            debugLog(`[chunked] 总分片数: ${chunkCount}, 每片 ${this.chunkSize} 字节`);
-            this._executeChunkedDownload(task, chunkCount);
-        }).catch(() => {
-            debugLog(`[chunked] 获取文件大小失败，降级普通下载`);
-            this._startNormalDownload(task);
-        });
+
+    /** 启动分片下载 */
+    private _startChunked(t: DTask): void {
+        this._fetchSize(t).then(tot => {
+            if (tot <= 0) { this._startNormal(t); return; }
+            t.tot = tot;
+            this._execChunked(t, Math.ceil(tot / t.cSize));
+        }).catch(() => { this._startNormal(t); });
     }
 
-    private _fetchFileSize(task: DownloadTask): Promise<number> {
+    /** 通过 HEAD 请求获取文件大小 */
+    private _fetchSize(t: DTask): Promise<number> {
         return new Promise((resolve, reject) => {
-            const controller = new AbortController();
-            const timeoutId = setTimeout(() => {
-                controller.abort();
-                reject(new Error('timeout'));
-            }, 10000);
-
-            fetch(task.url, { method: 'HEAD', signal: controller.signal })
-                .then(response => {
-                    clearTimeout(timeoutId);
-                    const length = response.headers.get('Content-Length');
-                    if (length) {
-                        resolve(parseInt(length, 10));
-                    } else {
-                        this._fetchSizeViaRange(task).then(resolve).catch(reject);
-                    }
+            const ctrl = new AbortController();
+            const tid = setTimeout(() => { ctrl.abort(); reject(new Error('timeout')); }, 10000);
+            fetch(t.url, { method: 'HEAD', signal: ctrl.signal })
+                .then(res => {
+                    clearTimeout(tid);
+                    const len = res.headers.get('Content-Length');
+                    if (len) resolve(parseInt(len, 10));
+                    else this._fetchRange(t).then(resolve).catch(reject);
                 })
-                .catch(err => {
-                    clearTimeout(timeoutId);
-                    this._fetchSizeViaRange(task).then(resolve).catch(reject);
-                });
+                .catch(() => { clearTimeout(tid); this._fetchRange(t).then(resolve).catch(reject); });
         });
     }
 
-    private _fetchSizeViaRange(task: DownloadTask): Promise<number> {
-        return fetch(task.url, { headers: { Range: 'bytes=0-0' } })
-            .then(response => {
-                const range = response.headers.get('Content-Range');
-                if (range) {
-                    const match = range.match(/\/(\d+)/);
-                    if (match) return parseInt(match[1], 10);
-                }
-                return response.headers.get('Content-Length') ? parseInt(response.headers.get('Content-Length')!, 10) : 0;
+    /** 通过 Range 请求获取文件大小 */
+    private _fetchRange(t: DTask): Promise<number> {
+        return fetch(t.url, { headers: { Range: 'bytes=0-0' } })
+            .then(res => {
+                const range = res.headers.get('Content-Range');
+                if (range) { const m = range.match(/\/(\d+)/); if (m) return parseInt(m[1], 10); }
+                return res.headers.get('Content-Length') ? parseInt(res.headers.get('Content-Length')!, 10) : 0;
             });
     }
 
-    // [FIX] 核心修改：优先使用 task._chunkState，避免 IDB 重复读取导致状态被重置
-    private _executeChunkedDownload(task: DownloadTask, totalChunks: number): void {
-        const chunkStateKey = `${task.key}_chunks_state`;
-        const controller = new AbortController();
-        task.controller = controller;
+    /** 执行分片下载核心逻辑 */
+    private _execChunked(t: DTask, totalChunks: number): void {
+        const sk = `${t.key}_chunks_state`;
+        const ctrl = new AbortController();
+        t.ctrl = ctrl;
 
-        // [FIX] 如果 task 上已有从 resume 传递过来的 _chunkState，直接使用，不再读 IDB
-        const useCachedState = task._chunkState;
-        const processWithState = (cachedState: ChunkedDownloadState | null, useDirect: boolean) => {
-            let chunks: ChunkInfo[];
-            let anySuccess = false;
-            let completedCount = 0;
-            let totalDownloaded = 0;
+        if (t.chunks.length === 0) {
+            t.chunks = new Array(totalChunks).fill(false);
+            t.failCnt = new Array(totalChunks).fill(0);
+        }
 
-            const initChunks = (): ChunkInfo[] => {
-                const arr: ChunkInfo[] = [];
-                for (let i = 0; i < totalChunks; i++) {
-                    const start = i * this.chunkSize;
-                    const end = Math.min(start + this.chunkSize - 1, task.total - 1);
-                    arr.push({
-                        index: i,
-                        start,
-                        end,
-                        loaded: false,
-                        blobKey: `${task.key}_chunk_${i}`,
-                        failCount: 0
-                    });
-                }
-                return arr;
-            };
+        if (t.chunks.length !== totalChunks) {
+            const old = t.chunks;
+            t.chunks = new Array(totalChunks).fill(false);
+            for (let i = 0; i < Math.min(old.length, totalChunks); i++) t.chunks[i] = old[i];
+            t.failCnt = new Array(totalChunks).fill(0);
+        }
 
-            // [FIX] 优先使用直接传入的 chunkState（来自 resume），否则使用 IDB 读取的状态
-            const effectiveState = useDirect ? cachedState : cachedState;
-            if (effectiveState && effectiveState.totalSize === task.total && effectiveState.chunkSize === this.chunkSize) {
-                chunks = effectiveState.chunks;
-                anySuccess = effectiveState.anySuccess || false;
-                debugLog(`[chunked] 恢复断点续传状态，已下载 ${chunks.filter(c => c.loaded).length}/${totalChunks} 分片, anySuccess=${anySuccess}`);
-            } else {
-                chunks = initChunks();
+        let completedCount = t.chunks.filter(c => c).length;
+        let totalDownloaded = completedCount * t.cSize;
+        t.ld = Math.min(totalDownloaded, t.tot);
+
+        const updateProgress = () => {
+            t.ld = totalDownloaded;
+            const now = Timer.now();
+            if (now - t.lPU >= 100) {
+                this._progress(t, t.ld, t.tot);
+                t.lPU = now;
             }
-
-            completedCount = chunks.filter(c => c.loaded).length;
-            totalDownloaded = completedCount * this.chunkSize;
-            task.loaded = Math.min(totalDownloaded, task.total);
-
-            const updateProgress = () => {
-                task.loaded = totalDownloaded;
-                const now = Timer.now();
-                if (now - task.lastProgressUpdate >= 100) {
-                    this._updateProgress(task, task.loaded, task.total);
-                    task.lastProgressUpdate = now;
-                }
-            };
-
-            const saveChunkState = () => {
-                const state: ChunkedDownloadState = {
-                    taskKey: task.key,
-                    url: task.url,
-                    totalSize: task.total,
-                    chunkSize: this.chunkSize,
-                    chunks: chunks,
-                    anySuccess: anySuccess
-                };
-                this.storage.set(chunkStateKey, JSON.stringify(state), () => {});
-            };
-
-            const downloadChunk = async (chunk: ChunkInfo, retryCount = 0): Promise<boolean> => {
-                if (chunk.loaded) {
-                    return new Promise(resolve => {
-                        this.storage.getFile(chunk.blobKey!, (blob: Blob | null) => {
-                            const expectedSize = chunk.end - chunk.start + 1;
-                            if (blob && blob.size === expectedSize) {
-                                totalDownloaded += expectedSize;
-                                debugLog(`[chunked] 分片 ${chunk.index} 已存在且有效，大小 ${blob.size}`);
-                                resolve(true);
-                            } else {
-                                chunk.loaded = false;
-                                chunk.failCount = 0;
-                                completedCount--;
-                                debugLog(`[chunked] 分片 ${chunk.index} 缓存无效，重新下载 (期望${expectedSize}, 实际${blob?.size || 0})`);
-                                resolve(false);
-                            }
-                        });
-                    });
-                }
-
-                const expectedSize = chunk.end - chunk.start + 1;
-                const headers: Record<string, string> = { 'Range': `bytes=${chunk.start}-${chunk.end}` };
-                let timeoutId: any = null;
-
-                try {
-                    const fetchController = new AbortController();
-                    timeoutId = setTimeout(() => fetchController.abort(), 30000);
-
-                    const response = await fetch(task.url, {
-                        headers,
-                        signal: fetchController.signal
-                    });
-                    clearTimeout(timeoutId);
-
-                    if (!response.ok && response.status !== 206) {
-                        if (response.status === 200) {
-                            debugLog(`[chunked] 服务器不支持Range (返回200)，建议手动切换整包下载`);
-                            throw new Error('服务器不支持Range');
-                        }
-                        throw new Error(`HTTP ${response.status}`);
-                    }
-
-                    const arrayBuffer = await response.arrayBuffer();
-                    const chunkData = new Uint8Array(arrayBuffer);
-
-                    if (chunkData.length !== expectedSize) {
-                        const isLastChunk = chunk.end === task.total - 1;
-                        const maxAcceptableSize = isLastChunk ? task.total - chunk.start : expectedSize;
-
-                        if (chunkData.length === 0) {
-                            throw new Error(`分片 ${chunk.index} 返回空数据 (期望 ${expectedSize} 字节)`);
-                        }
-
-                        if (!isLastChunk || chunkData.length !== maxAcceptableSize) {
-                            throw new Error(
-                                `分片 ${chunk.index} 大小不匹配: 期望 ${expectedSize}, 实际 ${chunkData.length}`
-                            );
-                        }
-
-                        debugLog(`[chunked] 最后分片 ${chunk.index} 大小 ${chunkData.length} (期望 ${expectedSize})`);
-                    }
-
-                    const blob = new Blob([chunkData]);
-
-                    await new Promise<void>((resolve, reject) => {
-                        this.storage.setFile(chunk.blobKey!, blob, (success) => {
-                            if (success) {
-                                this.storage.getFile(chunk.blobKey!, (savedBlob: Blob | null) => {
-                                    if (savedBlob && savedBlob.size === chunkData.length) {
-                                        resolve();
-                                    } else {
-                                        reject(new Error(`存储验证失败: 期望 ${chunkData.length}, 实际 ${savedBlob?.size || 0}`));
-                                    }
-                                });
-                            } else {
-                                reject(new Error('存储分片失败'));
-                            }
-                        });
-                    });
-
-                    chunk.loaded = true;
-                    chunk.failCount = 0;
-                    completedCount++;
-                    totalDownloaded += chunkData.length;
-                    if (!anySuccess) {
-                        anySuccess = true;
-                        debugLog(`[chunked] 首次分片成功，所有分片重试次数提升至 ${this.boostedChunkRetries}`);
-                    }
-                    saveChunkState();
-                    updateProgress();
-                    debugLog(`[chunked] 分片 ${chunk.index} 完成并保存，大小 ${chunkData.length}/${expectedSize}`);
-                    return true;
-
-                } catch (error: any) {
-                    if (timeoutId) clearTimeout(timeoutId);
-
-                    if (error.name === 'AbortError') {
-                        debugLog(`[chunked] 分片 ${chunk.index} 请求超时或取消`);
-                        return false;
-                    }
-
-                    chunk.failCount++;
-                    const maxRetries = anySuccess ? this.boostedChunkRetries : this.baseChunkRetries;
-
-                    debugLog(`[chunked] 分片 ${chunk.index} 失败 (连续失败 ${chunk.failCount}/${maxRetries}): ${error.message}`);
-
-                    if (chunk.failCount >= maxRetries) {
-                        debugLog(`[chunked] 分片 ${chunk.index} 达到最大失败次数，任务失败`);
-                        task.state = DOWNLOAD_STATE.ERROR;
-                        this._emit('downloadError', task.key, `分片 ${chunk.index} 下载失败`);
-                        task.onError?.(`分片 ${chunk.index} 下载失败`);
-                        controller.abort();
-                        return false;
-                    }
-
-                    const waitTime = 200 * (retryCount + 1);
-                    await new Promise(r => setTimeout(r, waitTime));
-                    return downloadChunk(chunk, retryCount + 1);
-                }
-            };
-
-            const run = async () => {
-                const pendingChunks = chunks.filter(c => !c.loaded);
-                debugLog(`[chunked] 待下载分片: ${pendingChunks.length}`);
-
-                const queue = [...pendingChunks];
-                const workers = Array(this.maxChunkConcurrent).fill(null).map(async () => {
-                    while (queue.length > 0 && !controller.signal.aborted) {
-                        const chunk = queue.shift()!;
-                        await downloadChunk(chunk);
-                    }
-                });
-                await Promise.all(workers);
-
-                if (controller.signal.aborted) return;
-
-                const allLoaded = chunks.every(c => c.loaded);
-                if (!allLoaded) {
-                    debugLog(`[chunked] 存在未完成分片，任务失败`);
-                    task.state = DOWNLOAD_STATE.ERROR;
-                    this._emit('downloadError', task.key, '部分分片下载失败');
-                    task.onError?.('部分分片下载失败');
-                    return;
-                }
-
-                this._mergeChunksToFinalBlob(task, chunks, chunkStateKey);
-            };
-
-            run().catch(err => {
-                if (!controller.signal.aborted) {
-                    debugLog(`[chunked] 异常: ${err}`);
-                    task.state = DOWNLOAD_STATE.ERROR;
-                    this._emit('downloadError', task.key, err.message);
-                    task.onError?.(err.message);
-                }
-            });
         };
 
-        // [FIX] 使用挂载的 chunkState 或从 IDB 读取
-        if (useCachedState) {
-            processWithState(useCachedState, true);
-        } else {
-            this.storage.get(chunkStateKey, (cachedState: ChunkedDownloadState | null) => {
-                processWithState(cachedState, false);
+        const saveChunkState = () => {
+            this.storage.set(sk, JSON.stringify({
+                url: t.url, tot: t.tot, cSize: t.cSize,
+                chunks: t.chunks, anyS: t.anyS
+            }), () => {});
+        };
+
+        const downloadChunk = async (i: number, retryCount = 0): Promise<boolean> => {
+            if (t.chunks[i]) {
+                return new Promise(resolve => {
+                    const bk = ckKey(t.key, i);
+                    this.storage.getFile(bk, (blob: Blob | null) => {
+                        const exp = ckSize(i, t.cSize, t.tot);
+                        if (blob && blob.size === exp) {
+                            totalDownloaded += exp;
+                            resolve(true);
+                        } else {
+                            t.chunks[i] = false;
+                            t.failCnt[i] = 0;
+                            completedCount--;
+                            resolve(false);
+                        }
+                    });
+                });
+            }
+
+            const exp = ckSize(i, t.cSize, t.tot);
+            const headers: Record<string, string> = { 'Range': `bytes=${ckStart(i, t.cSize)}-${ckEnd(i, t.cSize, t.tot)}` };
+            let tid: any = null;
+
+            try {
+                const fc = new AbortController();
+                tid = setTimeout(() => fc.abort(), 30000);
+
+                const res = await fetch(t.url, { headers, signal: fc.signal });
+                clearTimeout(tid);
+
+                if (!res.ok && res.status !== 206) {
+                    if (res.status === 200) throw new Error('服务器不支持Range');
+                    throw new Error(`HTTP ${res.status}`);
+                }
+
+                const ab = await res.arrayBuffer();
+                const cd = new Uint8Array(ab);
+
+                if (cd.length !== exp) {
+                    const isLast = ckEnd(i, t.cSize, t.tot) === t.tot - 1;
+                    const maxAccept = isLast ? t.tot - ckStart(i, t.cSize) : exp;
+                    if (cd.length === 0) throw new Error(`分片 ${i} 返回空数据`);
+                    if (!isLast || cd.length !== maxAccept) throw new Error(`分片 ${i} 大小不匹配`);
+                }
+
+                const blob = new Blob([cd]);
+                const bk = ckKey(t.key, i);
+
+                await new Promise<void>((resolve, reject) => {
+                    this.storage.setFile(bk, blob, (ok) => {
+                        if (ok) {
+                            this.storage.getFile(bk, (sb: Blob | null) => {
+                                if (sb && sb.size === cd.length) resolve();
+                                else reject(new Error('保存验证失败'));
+                            });
+                        } else { reject(new Error('保存分片失败')); }
+                    });
+                });
+
+                t.chunks[i] = true;
+                t.failCnt[i] = 0;
+                completedCount++;
+                totalDownloaded += cd.length;
+                if (!t.anyS) t.anyS = true;
+                saveChunkState();
+                updateProgress();
+                return true;
+
+            } catch (error: any) {
+                if (tid) clearTimeout(tid);
+                if (error.name === 'AbortError') return false;
+
+                t.failCnt[i]++;
+                const maxRet = t.anyS ? this.boostCR : this.baseCR;
+
+                if (t.failCnt[i] >= maxRet) {
+                    t.st = DST.ERROR;
+                    this._mpm.emit('downloadError', t.key, `分片 ${i} 下载失败`);
+                    t.onE?.(`分片 ${i} 下载失败`);
+                    ctrl.abort();
+                    return false;
+                }
+
+                const wait = 200 * (retryCount + 1);
+                await new Promise(r => setTimeout(r, wait));
+                return downloadChunk(i, retryCount + 1);
+            }
+        };
+
+        const run = async () => {
+            const pending: number[] = [];
+            for (let i = 0; i < t.chunks.length; i++) if (!t.chunks[i]) pending.push(i);
+
+            const q = [...pending];
+            const workers = Array(this.maxCC).fill(null).map(async () => {
+                while (q.length > 0 && !ctrl.signal.aborted) {
+                    const i = q.shift()!;
+                    await downloadChunk(i);
+                }
             });
-        }
+            await Promise.all(workers);
+
+            if (ctrl.signal.aborted) return;
+
+            if (!t.chunks.every(c => c)) {
+                t.st = DST.ERROR;
+                this._mpm.emit('downloadError', t.key, '部分分片下载失败');
+                t.onE?.('部分分片下载失败');
+                return;
+            }
+
+            this._mergeChunks(t, sk);
+        };
+
+        run().catch(err => {
+            if (!ctrl.signal.aborted) {
+                t.st = DST.ERROR;
+                this._mpm.emit('downloadError', t.key, err.message);
+                t.onE?.(err.message);
+            }
+        });
     }
 
-    private _mergeChunksToFinalBlob(task: DownloadTask, chunks: ChunkInfo[], stateKey: string): void {
-        const blobKeys = chunks.map(c => c.blobKey!);
+    /** 合并分片为最终 Blob */
+    private _mergeChunks(t: DTask, sk: string): void {
+        const n = t.chunks.length;
+        const keys: string[] = [];
+        for (let i = 0; i < n; i++) keys.push(ckKey(t.key, i));
 
-        let expectedTotalSize = 0;
-        const sizeMap = new Map<number, number>();
-        chunks.forEach(chunk => {
-            const size = chunk.end - chunk.start + 1;
-            expectedTotalSize += size;
-            sizeMap.set(chunk.index, size);
-        });
+        let expTot = 0;
+        const szMap = new Map<number, number>();
+        for (let i = 0; i < n; i++) {
+            const sz = ckSize(i, t.cSize, t.tot);
+            expTot += sz;
+            szMap.set(i, sz);
+        }
 
         setTimeout(() => {
-            console.log(`[merge] 开始合并，期望总大小: ${expectedTotalSize}`);
-
-            const readPromises = blobKeys.map((key, index) => {
+            const readPs = keys.map((k, idx) => {
                 return new Promise<{ index: number; blob: Blob | null }>((resolve) => {
-                    this.storage.getFile(key, (blob: Blob | null) => {
-                        console.log(`[merge] 读取分片 ${index}, 键: ${key}, blob: ${blob ? `size=${blob.size}` : 'null'}`);
-                        resolve({ index, blob });
-                    });
+                    this.storage.getFile(k, (blob: Blob | null) => resolve({ index: idx, blob }));
                 });
             });
 
-            Promise.all(readPromises).then(results => {
-                const validBlobs: (Blob | null)[] = new Array(chunks.length).fill(null);
-                let missing = false;
-                let actualTotalSize = 0;
+            Promise.all(readPs).then(results => {
+                const blobs: (Blob | null)[] = new Array(n).fill(null);
+                let miss = false;
+                let actTot = 0;
 
                 for (const { index, blob } of results) {
-                    const expectedSize = sizeMap.get(index)!;
-                    if (blob && blob.size === expectedSize) {
-                        validBlobs[index] = blob;
-                        actualTotalSize += blob.size;
-                    } else {
-                        missing = true;
-                        console.warn(`[merge] 分片 ${index} 无效: 期望 ${expectedSize}, 实际 ${blob?.size || 0}`);
-                        chunks[index].loaded = false;
-                    }
+                    const exp = szMap.get(index)!;
+                    if (blob && blob.size === exp) { blobs[index] = blob; actTot += blob.size; }
+                    else { miss = true; t.chunks[index] = false; }
                 }
 
-                if (missing) {
-                    console.error(`[merge] 发现无效分片，重新下载缺失分片`);
-                    this.storage.set(stateKey, JSON.stringify({ chunks }), () => {
-                        this._executeChunkedDownload(task, chunks.length);
-                    });
+                if (miss) {
+                    this.storage.set(sk, JSON.stringify({ chunks: t.chunks }), () => { this._execChunked(t, n); });
                     return;
                 }
 
-                if (actualTotalSize !== task.total) {
-                    console.error(`[merge] 总大小不匹配: 期望 ${task.total}, 实际 ${actualTotalSize}`);
-                    task.state = DOWNLOAD_STATE.ERROR;
-                    this._emit('downloadError', task.key, '文件大小不匹配');
-                    task.onError?.('文件大小不匹配');
+                if (actTot !== t.tot) {
+                    t.st = DST.ERROR;
+                    this._mpm.emit('downloadError', t.key, '文件大小不匹配');
+                    t.onE?.('文件大小不匹配');
                     return;
                 }
 
-                const finalBlob = new Blob(validBlobs.filter(b => b !== null) as Blob[]);
-                debugLog(`[merge] 合并完成，总大小 ${finalBlob.size} (期望 ${task.total})`);
-                logBlobHex(`[merge] 最终数据`, finalBlob, 128);
+                const fb = new Blob(blobs.filter(b => b !== null) as Blob[]);
 
-                this.storage.setFile(task.key, finalBlob, (success) => {
-                    if (success) {
-                        const deleteKeys = [...blobKeys, stateKey, `${task.key}_resume`];
-                        let deleted = 0;
-                        deleteKeys.forEach(key => {
-                            this.storage.delete(key.includes('_chunk_') ? key : key, () => {
-                                if (++deleted === deleteKeys.length) {
-                                    debugLog(`[merge] 清理临时文件完成`);
-                                }
-                            });
+                this.storage.setFile(t.key, fb, (ok) => {
+                    if (ok) {
+                        const delKeys = [...keys, sk, `${t.key}_resume`];
+                        let del = 0;
+                        delKeys.forEach(k => {
+                            this.storage.delete(k, () => { if (++del === delKeys.length) {} });
                         });
-                        this._finalizeDownload(task, finalBlob, false);
-                    } else {
-                        this._handleDownloadError(task, '保存最终文件失败');
-                    }
+                        this._finish(t, fb, false);
+                    } else { this._err(t, '保存最终文件失败'); }
                 });
-            }).catch(err => {
-                console.error(`[merge] 读取分片异常:`, err);
-                this._handleDownloadError(task, '合并分片时发生异常');
-            });
+            }).catch(() => { this._err(t, '合并分片时发生异常'); });
         }, 100);
     }
 
     // ======================== 普通完整下载 ========================
-    private _startNormalDownload(task: DownloadTask): void {
-        debugLog(`[normal] 开始普通下载 key=${task.id}`);
-        const controller = new AbortController();
-        task.controller = controller;
-        task.loaded = 0;
-        task.total = 0;
 
-        const timeoutPromise = new Promise<never>((_, reject) => {
-            const timer = setTimeout(() => reject(new Error('timeout')), this.downloadTimeout);
-            controller.signal.addEventListener('abort', () => clearTimeout(timer));
+    /** 启动普通整包下载（非分片模式） */
+    private _startNormal(t: DTask): void {
+        const ctrl = new AbortController();
+        t.ctrl = ctrl; t.ld = 0; t.tot = 0;
+
+        const tp = new Promise<never>((_, reject) => {
+            const timer = setTimeout(() => reject(new Error('timeout')), this.DTO);
+            ctrl.signal.addEventListener('abort', () => clearTimeout(timer));
         });
 
-        Promise.race([
-            fetch(task.url, { signal: controller.signal }),
-            timeoutPromise
-        ])
-            .then(async response => {
-                if (!response.ok) throw new Error(`HTTP ${response.status}`);
-                const contentLength = response.headers.get('Content-Length');
-                if (contentLength) task.total = parseInt(contentLength, 10);
+        Promise.race([fetch(t.url, { signal: ctrl.signal }), tp])
+            .then(async res => {
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                const cl = res.headers.get('Content-Length');
+                if (cl) t.tot = parseInt(cl, 10);
 
-                const reader = response.body?.getReader();
+                const reader = res.body?.getReader();
                 if (!reader) throw new Error('无响应流');
 
-                const chunks: Uint8Array[] = [];
-                let received = 0;
-                let lastUpdate = Timer.now();
+                const parts: Uint8Array[] = [];
+                let recv = 0;
+                let lastUpd = Timer.now();
 
                 while (true) {
                     const { done, value } = await reader.read();
                     if (done) break;
-                    chunks.push(value);
-                    received += value.length;
-                    task.loaded = received;
+                    parts.push(value);
+                    recv += value.length;
+                    t.ld = recv;
 
                     const now = Timer.now();
-                    if (now - lastUpdate >= 100) {
-                        this._updateProgress(task, task.loaded, task.total);
-                        lastUpdate = now;
+                    if (now - lastUpd >= 100) {
+                        this._progress(t, t.ld, t.tot);
+                        lastUpd = now;
                     }
                 }
 
-                const blob = new Blob(chunks);
-                debugLog(`[normal] 下载完成，大小 ${blob.size}`);
-                logBlobHex(`[normal] 数据内容`, blob);
+                const blob = new Blob(parts);
+                console.log("下载" ,  blob.size)
                 return blob;
             })
             .then(blob => {
-                this.storage.setFile(task.key, blob, success => {
-                    if (success) {
-                        this._cleanupChunkTempFiles(task.key, () => {
-                            this.storage.deleteFile(`${task.key}_resume`, () => {});
-                            this._finalizeDownload(task, blob, false);
+                this.storage.setFile(t.key, blob, ok => {
+                    if (ok) {
+                        this._cleanup(t.key, () => {
+                            this.storage.deleteFile(`${t.key}_resume`, () => {});
+                            this._finish(t, blob, false);
                         });
-                    } else {
-                        this._handleDownloadError(task, '存储失败');
-                    }
+                    } else { this._err(t, '保存失败'); }
                 });
             })
             .catch(error => {
                 if (error.name === 'AbortError') return;
-                debugLog(`[normal] 下载失败: ${error.message}`);
-                this._handleDownloadError(task, `下载失败: ${error.message}`);
+                this._err(t, `下载失败: ${error.message}`);
             });
     }
 
-    private _cleanupChunkTempFiles(baseKey: string, callback: () => void): void {
+    /** 清理分片临时文件 */
+    private _cleanup(baseKey: string, cb: () => void): void {
         this.storage.getKeys((keys) => {
-            const chunkKeys = keys.fileKeys.filter((k: string) => k.startsWith(`${baseKey}_chunk_`));
-            if (chunkKeys.length === 0) {
-                this.storage.delete(`${baseKey}_chunks_state`, () => callback());
+            const ck = keys.fileKeys.filter((k: string) => k.startsWith(`${baseKey}_chunk_`));
+            if (ck.length === 0) {
+                this.storage.delete(`${baseKey}_chunks_state`, () => cb());
                 return;
             }
-
-            let pending = chunkKeys.length;
-            chunkKeys.forEach((key: string) => {
-                this.storage.deleteFile(key, () => {
-                    if (--pending === 0) {
-                        this.storage.delete(`${baseKey}_chunks_state`, () => callback());
-                    }
+            let pending = ck.length;
+            ck.forEach((k: string) => {
+                this.storage.deleteFile(k, () => {
+                    if (--pending === 0) this.storage.delete(`${baseKey}_chunks_state`, () => cb());
                 });
             });
         });
     }
 
-    private _finalizeDownload(task: DownloadTask, blob: Blob, fromCache: boolean): void {
-        this.activeDownloads.delete(task.id);
-        task.state = DOWNLOAD_STATE.COMPLETED;
-        this._emit('downloadComplete', task.id, blob, fromCache);
-        task.onComplete?.(blob, fromCache);
-        task.onStateChange?.(DOWNLOAD_STATE.COMPLETED);
-        this.downloadTasks.delete(task.id);
-        this._processDownloadQueue();
+    /** 完成下载 */
+    private _finish(t: DTask, blob: Blob, fromCache: boolean): void {
+        this.active.delete(t.key);
+        t.st = DST.COMPLETED;
+        this._mpm.emit('downloadComplete', t.key, blob, fromCache);
+        t.onC?.(blob, fromCache);
+        t.onSC?.(DST.COMPLETED);
+        this.tasks.delete(t.key);
+        this._processQ();
     }
 
-    private _updateProgress(task: DownloadTask, loaded: number, total: number): void {
-        const percent = total > 0 ? Math.round((loaded / total) * 100) : 0;
-        let speed = 0;
+    /** 更新下载进度 */
+    private _progress(t: DTask, ld: number, tot: number): void {
+        const pct = tot > 0 ? Math.round((ld / tot) * 100) : 0;
+        let spd = 0;
         const now = Timer.now();
-        if (task.lastLoaded > 0) {
-            const timeDiff = now - task.lastProgressUpdate;
-            const loadedDiff = loaded - task.lastLoaded;
-            speed = timeDiff > 0 ? (loadedDiff / timeDiff) * 1000 : 0;
+        if (t.lL > 0) {
+            const td = now - t.lPU;
+            const ldDiff = ld - t.lL;
+            spd = td > 0 ? (ldDiff / td) * 1000 : 0;
         }
-        task.lastLoaded = loaded;
-        task.lastProgressUpdate = now;
-        this._emit('downloadProgress', task.id, percent, speed, loaded, total);
-        task.onProgress?.(percent, speed, loaded, total);
+        t.lL = ld;
+        t.lPU = now;
+        this._mpm.emit('downloadProgress', t.key, pct, spd, ld, tot);
+        t.onP?.(pct, spd, ld, tot);
     }
 
-    private _handleDownloadError(task: DownloadTask, error: string): void {
-        task.controller = null;
-        this.activeDownloads.delete(task.id);
-        if (task.retries < this.maxRetries) {
-            task.retries++;
-            task.state = DOWNLOAD_STATE.PENDING;
-            const delay = 1000 * task.retries;
-            debugLog(`[_error] 重试 ${task.retries}/${this.maxRetries}, 延迟${delay}ms`);
-            Timer.setTimeout(delay, () => this._startDownload(task));
+    /** 处理下载错误（含重试逻辑） */
+    private _err(t: DTask, err: string): void {
+        t.ctrl = null;
+        this.active.delete(t.key);
+        if (t.rt < this.maxR) {
+            t.rt++; t.st = DST.PENDING;
+            Timer.setTimeout(1000 * t.rt, () => this._start(t));
         } else {
-            task.state = DOWNLOAD_STATE.ERROR;
-            this._emit('downloadError', task.id, error);
-            task.onError?.(error);
-            task.onStateChange?.(DOWNLOAD_STATE.ERROR);
-            this._processDownloadQueue();
+            t.st = DST.ERROR;
+            this._mpm.emit('downloadError', t.key, err);
+            t.onE?.(err);
+            t.onSC?.(DST.ERROR);
+            this._processQ();
         }
     }
 
+    /** 销毁：暂停所有下载并清理定时器 */
     destroy(): void {
-        this.pauseAllDownloads();
+        this.pause();
         Timer.destroy();
     }
 }

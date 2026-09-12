@@ -2,195 +2,115 @@
   "out": "1.br",
   "magic": "BRP1",
   "version": "1.0",
-  "fileCount": 46,
-  "rawSize": 4096912,
-  "containerSize": 4098424,
-  "brSize": 1803246,
-  "ratio": 0.44,
+  "fileCount": 26,
+  "rawSize": 16226052,
+  "containerSize": 16226872,
+  "brSize": 12534796,
+  "ratio": 0.7725,
   "files": [
     {
-      "path": "court.fbx/lh/court.lh",
-      "size": 5062
+      "path": "girl/au/hit.MP3",
+      "size": 3811
     },
     {
-      "path": "court.fbx/lm/floor.lm",
-      "size": 7304
-    },
-    {
-      "path": "court.fbx/lm/net.lm",
-      "size": 500
-    },
-    {
-      "path": "court.fbx/lm/pole.1.lm",
-      "size": 856
-    },
-    {
-      "path": "court.fbx/lm/pole.lm",
-      "size": 856
-    },
-    {
-      "path": "court.fbx/lmat/inner.lmat",
-      "size": 355
-    },
-    {
-      "path": "court.fbx/lmat/net.lmat",
-      "size": 688
-    },
-    {
-      "path": "court.fbx/lmat/nettop.lmat",
-      "size": 351
-    },
-    {
-      "path": "court.fbx/lmat/outer.lmat",
-      "size": 358
-    },
-    {
-      "path": "court.fbx/lmat/whiteL.lmat",
-      "size": 337
-    },
-    {
-      "path": "court.fbx/lmat/æè´¨.lmat",
-      "size": 351
-    },
-    {
-      "path": "girl/lani/back.lani",
-      "size": 93522
+      "path": "girl/au/hitF.MP3",
+      "size": 2557
     },
     {
       "path": "girl/lani/diving.lani",
-      "size": 511690
+      "size": 303032
     },
     {
-      "path": "girl/lani/Empty_up.001.lani",
-      "size": 466
-    },
-    {
-      "path": "girl/lani/Empty_up.lani",
-      "size": 2139
-    },
-    {
-      "path": "girl/lani/flathit.001.lani",
-      "size": 76501
-    },
-    {
-      "path": "girl/lani/flathit.002.lani",
-      "size": 59802
+      "path": "girl/lani/down.lani",
+      "size": 81581
     },
     {
       "path": "girl/lani/flathit.lani",
-      "size": 58166
+      "size": 98996
     },
     {
-      "path": "girl/lani/lani13.lani",
-      "size": 172037
+      "path": "girl/lani/hitoff.lani",
+      "size": 136124
     },
     {
-      "path": "girl/lani/lani14.lani",
-      "size": 169508
-    },
-    {
-      "path": "girl/lani/lani18.lani",
-      "size": 134698
+      "path": "girl/lani/jumphit.lani",
+      "size": 111455
     },
     {
       "path": "girl/lani/left.lani",
-      "size": 72381
-    },
-    {
-      "path": "girl/lani/lefthit.001.lani",
-      "size": 95197
-    },
-    {
-      "path": "girl/lani/lefthit.lani",
-      "size": 92694
-    },
-    {
-      "path": "girl/lani/pole_flathit.lani",
-      "size": 99038
-    },
-    {
-      "path": "girl/lani/pole_pole_diving.lani",
-      "size": 510418
-    },
-    {
-      "path": "girl/lani/pole_pole_lefthit.lani",
-      "size": 146501
-    },
-    {
-      "path": "girl/lani/pole_stand.lani",
-      "size": 128374
-    },
-    {
-      "path": "girl/lani/pole_up.001.lani",
-      "size": 83406
-    },
-    {
-      "path": "girl/lani/pole_up.lani",
-      "size": 84260
-    },
-    {
-      "path": "girl/lani/right.lani",
-      "size": 73759
+      "size": 87739
     },
     {
       "path": "girl/lani/stand.lani",
-      "size": 128427
+      "size": 79065
     },
     {
       "path": "girl/lani/up.lani",
-      "size": 93520
+      "size": 82298
     },
     {
-      "path": "girl/lh/cha.lh",
-      "size": 357454
+      "path": "girl/lh/girl.lh",
+      "size": 481916
     },
     {
       "path": "girl/lm/body.lm",
-      "size": 337968
-    },
-    {
-      "path": "girl/lm/face.lm",
-      "size": 155390
+      "size": 1450894
     },
     {
       "path": "girl/lm/hair.lm",
-      "size": 61050
+      "size": 330184
+    },
+    {
+      "path": "girl/lm/racket.lm",
+      "size": 1057884
     },
     {
       "path": "girl/lm/shirt.lm",
-      "size": 68682
+      "size": 488304
     },
     {
       "path": "girl/lm/shoes.lm",
-      "size": 103750
+      "size": 151712
     },
     {
       "path": "girl/lm/shorts.lm",
-      "size": 106938
+      "size": 53746
     },
     {
-      "path": "girl/lmat/Body_Unlit.002.lmat",
-      "size": 359
+      "path": "girl/lmat/body.lmat",
+      "size": 661
     },
     {
-      "path": "girl/lmat/Cloth_Black.001.lmat",
-      "size": 360
+      "path": "girl/lmat/hair.lmat",
+      "size": 661
     },
     {
-      "path": "girl/lmat/Cloth_Denim.002.lmat",
-      "size": 360
+      "path": "girl/lmat/racket.lmat",
+      "size": 669
     },
     {
-      "path": "girl/lmat/Face_Tooth.002.lmat",
-      "size": 359
+      "path": "girl/lmat/shirt.lmat",
+      "size": 662
     },
     {
-      "path": "girl/lmat/Hair_black.002.lmat",
-      "size": 359
+      "path": "girl/lmat/shoes.lmat",
+      "size": 662
     },
     {
-      "path": "girl/lmat/Sailor_White.002.lmat",
-      "size": 361
+      "path": "girl/lmat/shorts.lmat",
+      "size": 663
+    },
+    {
+      "path": "girl/tex/body.png",
+      "size": 504836
+    },
+    {
+      "path": "girl/tex/hair.jpg",
+      "size": 10250688
+    },
+    {
+      "path": "girl/tex/racket.png",
+      "size": 465252
     }
   ]
 }

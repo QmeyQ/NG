@@ -1,12 +1,13 @@
-import { Cha } from "./badm/cha";
+import { Cha } from "./badm/obj/cha";
 import { Res } from "./libs/res";
 import { AIControl, AIDifficulty } from "./badm/NPC/ai";
 import { Control } from "./badm/control";
-import { UI } from "./badm/ui";
-import { Ball } from "./badm/ball";
+import { UI } from "./badm/engine/ui";
+import { Ball } from "./badm/obj/ball";
 import { PVE } from "./badm/mag/pve";   // 新增
 import { PVP } from "./badm/mag/pvp";   // 新增
 import { Gnet } from "./libs/GNet";
+import { Au } from "./libs/au";
 
 
 const { regClass, property, Browser } = Laya;
@@ -63,10 +64,9 @@ export class NewScript extends Laya.Script {
         Res._net.on('downloadComplete', (key: string, blob: Blob, fromCache: boolean) => {
             console.log('complete', key, fromCache);
         });
-
-        Res.url("http://normalgame.cn/nor.br", (list) => {
+        Res.vers("http://normalgame.cn/nor.br", (result) => {
+            console.log("version：", result);            Res.url("http://normalgame.cn/nor.br", result.localLm != result.serverLm, (list) => {
             console.log("资源加载：", list);
-            this.ui.setProgress();
             this.ballO = new Ball(this.ball);
 
             // 读取玩家数量和模式
@@ -93,16 +93,15 @@ export class NewScript extends Laya.Script {
                 const info = this.mag.getDisplayInfo();
                 this.ui.setScore(info.left, info.right, info.status, info.reason);
             };
-            
+
             // 如果是 PVP 模式，进行网络绑定
             if (this.isPvp) {
                 this.localCha = (this.mag as PVP).setup();
             } else {
                 // PVE 模式：本地玩家为第一个角色，其余角色挂 AI
                 this.localCha = this.mag.players[0];
-                const pve = this.mag as PVE;
-                pve.setLocalCha(this.localCha);
-                pve.setupDefaultAI(this.ballO);
+                (this.mag as PVE).setLocalCha(this.localCha);
+                (this.mag as PVE).setupDefaultAI(this.ballO);
             }
 
             // 显示玩家信息
@@ -129,18 +128,43 @@ export class NewScript extends Laya.Script {
                     if (this.localCha.x > 0) {
                         params.angH = (params.angH + 180) % 360;
                     }
-                    this.ui.setHitIndicator(true, params.angV);
+                    const ballPos = this.ballO.pos;
+                    const cha = this.localCha;
+                    const distXZ = Math.sqrt((ballPos.x - cha.x) ** 2 + (ballPos.z - cha.z) ** 2);
+                    const heightDiff = ballPos.y - cha.y;
+                    let power = params.power;
+                    if (heightDiff > 1.2 && distXZ < cha.hitRange * 1.2) {
+                        power = Math.min(power, cha.power);
+                    } else if (distXZ > cha.hitRange * 0.8 && distXZ <= cha.hitRange) {
+                        power = Math.min(power, cha.power);
+                    }
+                    params.power = Math.max(3, power);
+                    this.ui.setHitIndicator(true, params.power);
                 } else {
                     this.ui.setHitIndicator(false);
-                    this.localCha.hit({ angH: -1, angV: -1, power: -1 ,spi:null});
                 }
                 if (this.isPvp) {
                     (this.mag as PVP).syncAction({ type: 'hit', params });
                 }
-                this.localCha.hit(params, this.ballO);
+                this.mag.hit(params, this.localCha);
             };
 
-            this.ui.setProgress();
+            this.ballO.on('hit', () => {
+                // 计算音量（0~100），距离越近音量越大
+                let vol = Math.min(100,
+                    Math.max(0, (10 - Laya.Vector3.distance(this.ballO.pos, this.localCha.pos)) * 10));
+                // 如果希望音量与距离成正比，则改为：let vol = Math.min(100, (distance / maxDistance) * 100);
+                Au.play("hit", vol);
+            });
+
+
+            this.localCha.on("load", (LC:number) => {
+                console.log("资源加载：", LC)
+                if(LC <= 0)
+                this.ui.setProgress();
+            else
+                this.ui.setProgress("加载角色："+LC, (100-LC)*100);
+            })
         });
 
         // 球网透明（保持不变）
@@ -156,6 +180,8 @@ export class NewScript extends Laya.Script {
                 }
             }
         }
+        })
+        
     }
 
     onUpdate(): void {
@@ -192,7 +218,7 @@ export class NewScript extends Laya.Script {
         }
         const myId = Gnet.getCurrentPlayerId() || leftId;
         const roomPlayers = Gnet.getPlayers().map((p: any) => p.playerId).join(', ');
-        console.log( `[NewScript] 当前玩家: ${myId}, 房间玩家: ${Gnet.getRoomPlayerId()}`);
+        console.log(`[NewScript] 当前玩家: ${myId}, 房间玩家: ${Gnet.getRoomPlayerId()}`);
         this.ui.setPlayerInfo(myId, Gnet.getRoomPlayerId() || leftId);
     }
 
