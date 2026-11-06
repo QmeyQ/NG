@@ -1,126 +1,873 @@
-import { Gnet } from "./libs/GNet";
-import { Res } from "./libs/res";
+import { Gnet } from "./libs/gobe/net";
 import { Timer } from "./libs/time";
-const { regClass, property } = Laya;
+import { Au } from "./libs/au";
+import { Cloud } from "./libs/cloud";
+import { Dialog } from "./ui/DIalog";
+import { SceneNav } from "./libs/nav";
+import * as NetBoot from "./libs/netboot";
+import { QA } from "./libs/gobe/qa";
+import * as Msg from "./libs/gobe/msg";
+import * as Proto from "./libs/pvpProto";
+const { regClass } = Laya;
 
+/**
+ * load - 匹配页(match.ls)
+ *
+ * 流程(服务逻辑已切换为 Cloud 用户体系):
+ *   1) 进入即取 Cloud 用户(slecet.ts 同源 userid)作 Gnet openId
+ *      联机会话已由选局页随登录/注册初始化好, 这里只在连接失败/accesstoken 到期时单独重取再连
+ *   2) Gnet 就绪后直接开始随机匹配(单人 2 人 / 双人 4 人随机)
+ *   3) 满员 → 角色分配协商(first/final/okplay) → 跳游戏场景
+ *   4) 中心"匹配中"按钮: 匹配中点击=取消, 空闲点击=重新匹配
+ *      - 两态: 匹配中(白圆+橙字+粒子发散+大幅呼吸) / 未匹配(over 橙圆+白字+小呼吸)
+ *      - 呼吸 = up 背景圆描边 lineWidth 正弦波动(不动按钮 scale/位置, 防 Relation 布局联动)
+ *      - 粒子色跟按钮当前态: hover(over 橙圆)=橙系 / 常态(up 白圆)=白系
+ */
 @regClass()
 export class load extends Laya.Script {
 
-    private roomList: Laya.List;
-    private createRoomBtn: Laya.Button;
-    private refreshBtn: Laya.Button;
-    private statusText: Laya.Text;
-    private prevPageBtn: Laya.Button;
-    private nextPageBtn: Laya.Button;
-    private pageInfoText: Laya.Text;
-    private roomIdInput: Laya.TextInput;
-    private joinByIdBtn: Laya.Button;
-    private quickMatchBtn: Laya.Button;
-    private list: Laya.List
-    private pvp: Laya.Text;
-    private pve: Laya.Text;
-    private pve1: Laya.Button;
-    private pve2: Laya.Button;
+    /** match.ls 中心"匹配中"按钮 */
+    private matchBtn: any = null;
 
+    /** match.ls 左上角"返回"按钮(取消匹配并返回上一场景) */
+    private backBtn: any = null;
+
+    /** pve(单打训练 1v1人机) / pve2(双打训练 2v2人机) 按钮 */
+    private pveBtn: any = null;
+    private pve2Btn: any = null;
+
+    /** 玩家标识(遵循 slecet.ts 的 Cloud 用户体系, Gnet openId = Cloud userid) */
     private openId: string = "";
-    private roomListData: any[] = [];
-
-    // 分页相关数据
-    private currentPage: number = 1;
-    private pageSize: number = 10;
-    private totalPages: number = 1;
-
-    // 服务器分页信息
-    private totalRooms: number = 0;
-    private offset: string | number = "";
-    private hasNext: 0 | 1 = 0;
-
-    private serverOffset: string | number | null = null; // 服务器偏移量
-    private offsetHistory: (string | number | null)[] = [null]; // offset 历史栈，支持上一页
-
-    // 显示的房间列表
-    private displayRoomList: any[] = [];
-    private allRoomListData: any[] = []; // 所有从服务器获取的房间数据
-
-    private nextServerOffset: string | null = null; // 服务器下次请求的offset
-
 
     // 匹配状态
     private isMatching: boolean = false;
-    private matchMaxPlayers: number = 4;
+    /** 已成功进入匹配房间，但仍可能等待房间满员开始对局。 */
+    private _matchSucceeded: boolean = false;
+    private matchMaxPlayers: number = 2;
     private _gameStarted: boolean = false;
     private _isProcessing: boolean = false;
+    /** 匹配请求序号：取消/重试后，迟到的旧请求回调不得再把界面切回成功态。 */
+    private _matchAttemptSeq: number = 0;
 
     // 角色分配协商
     private _collectedAssignments: Map<string, { playerId: string, roleId: number }[]> = new Map();
     private _finalAssignment: { playerId: string, roleId: number }[] | null = null;
     private _assignmentResolved: boolean = false;
     private _resolveTimer: string | null = null;
-    private _confirmedPlayers: Set<string> = new Set();
-    private static readonly ASSIGN_SEND_SCOPE: number = 1;
 
-    // 游戏场景 UUID
-    private static readonly SCENE_URL: string = "res://41c736bc-9e4d-455c-8140-6edae3cdd251";
+    // 游戏场景(game 分包内相对路径: uuid 通道断链——fileconfig 空, uuidMap 无映射, res://uuid 加载静默失败)
+    private static readonly SCENE_URL: string = "game/badm.ls";
 
-    private isLoading: boolean = false;
+    // —— 按钮视觉效果 ——
+    /** 粒子容器(挂按钮父级, 定位按钮中心, 不动按钮子树) */
+    private _fxLayer: any = null;
+    /** 帧循环 id */
+    private _fxTimer: any = null;
+    /** 动画帧计数 */
+    private _fxT: number = 0;
+    /** 匹配中动态点计数 1~6 ("匹配中" → "匹配中." → ... "匹配中......") */
+    private _dots: number = 0;
 
-    // 当前显示的房间列表
-    private currentRoomList: any[] = [];
+    /** 匹配文案前缀: 按人数区分单/双打 */
+    private _matchPrefix(): string {
+        return this.matchMaxPlayers === 2 ? "单打匹配中" : "双打匹配中";
+    }
+    /** up 态背景节点(按钮子树内 lineWidth 最大的 DrawCircleCmd 背景, 新版四态均 lineWidth=100, 严格大于比较命中首个即 up) */
+    private _btnBg: any = null;
+    /** 呼吸描边宽度基线 */
+    private _bgBase: number = 100;
+    /** 鼠标是否悬停按钮(over 态切橙圆, 粒子跟随变色) */
+    private _btnHover: boolean = false;
+    /** 主动取消标志(吞掉离开房间触发的解散事件, 防"取消后又自动重匹配") */
+    private _userCancel: boolean = false;
+    /** 返回按钮防重(退出匹配异步期间连点只触发一次) */
+    private _backing: boolean = false;
+    /** 下一次连接作废手上的 accesstoken 单独重取(连接失败置位, 用一次即清; 防重入由 netboot 队列负责) */
+    private _forceToken: boolean = false;
+    /** 当前 client 已绑定匹配回调的实例，避免场景复用/重连后重复绑定 */
+    private _boundMatchClient: any = null;
+    /** 断线重连定时器与状态 */
+    private _reconnectTimer: string | null = null;
+    private _reconnectAttempts: number = 0;
+    private _reconnecting: boolean = false;
+    /** 页面进入时主动尝试恢复既有 GOBE 会话；不等同于自动开始新匹配。 */
+    private _autoReconnectOnEnter: boolean = false;
+    /** 服务端报 101106/104101 时，说明旧房间仍占用玩家身份，必须先恢复旧房间，禁止新匹配。 */
+    private _roomRecoveryRequired: boolean = false;
+    private _networkListenersBound: boolean = false;
+    /** 匹配进房后的"等满员"看门狗: 只有自己的房不会自己长人, 到点要退房重新排队 */
+    private _matchWaitTid: string | null = null;
+    private _matchWaitRetries: number = 0;
+    private _disconnectRoom: any = null;
+    private _rcvDisconnect: ((player: any, event?: any) => void) | null = null;
+    private _onBrowserOnline = (): void => {
+        if (!this._gameStarted && (this._matchSucceeded || Gnet.getRoom() || this.isMatching)) {
+            this._roomRecoveryRequired = true;
+            this._autoReconnectOnEnter = true;
+        }
+        this._scheduleReconnect(250);
+    };
+    private _onBrowserOffline = (): void => {
+        if (this._gameStarted) return;
+        console.warn("[load] 网络断开，等待恢复后重连");
+        Dialog.toast("网络已断开，正在等待重连", 1500);
+    };
+    /** 活跃粒子 */
+    private _parts: { node: any; ang: number; dist: number; spd: number; life: number; max: number; base: number }[] = [];
+    /** 粒子颜色-灰白系(匹配中 up 态圆: fill #e4e4e4 / line #cbcbcb) */
+    private static readonly FX_COLORS_W: string[] = ["#e4e4e4", "#d2d2d2", "#cbcbcb"];
+    /** 粒子颜色-橙系(hover/未匹配 over 态橙圆: fill #ff8a00 / line #d16300) */
+    private static readonly FX_COLORS_O: string[] = ["#ff8a00", "#ffb200", "#d16300"];
 
+    // 预制体根即 owner(match.ls 根 name="Scene2D", 脚本挂根上)——挂载前后都能直接找子节点,
+    // 不依赖 root.getChildByName("Scene2D")(预制体 onAwake 早于 nav 挂 root, 那时查不到)
     private _initSceneNodes(): void {
-        const root = Laya.stage.getChildByName("root") as Laya.Sprite;
+        const root = this.owner as any;
         if (!root) return;
-        const scene2d = root.getChildByName("Scene2D") as Laya.Scene;
-        if (!scene2d) return;
-        this.roomList = this._findNode(scene2d, "List") as Laya.List;
-        this.createRoomBtn = this._findNode(scene2d, "createRoomBtn") as Laya.Button;
-        this.refreshBtn = this._findNode(scene2d, "refreshBtn") as Laya.Button;
-        this.statusText = this._findNode(scene2d, "statusText") as Laya.Text;
-        this.prevPageBtn = this._findNode(scene2d, "prevPageBtn") as Laya.Button;
-        this.nextPageBtn = this._findNode(scene2d, "nextPageBtn") as Laya.Button;
-        this.pageInfoText = this._findNode(scene2d, "pageInfoText") as Laya.Text;
-        this.roomIdInput = this._findNode(scene2d, "roomIdInput") as Laya.TextInput;
-        this.joinByIdBtn = this._findNode(scene2d, "joinByIdBtn") as Laya.Button;
-        this.quickMatchBtn = this._findNode(scene2d, "quickMatchBtn") as Laya.Button;
-        this.list = this._findNode(scene2d, "list") as Laya.List;
-        this.pvp = this._findNode(scene2d, "pvp") as Laya.Text;
-        this.pve = this._findNode(scene2d, "pve") as Laya.Text;
-        this.pve1 = this._findNode(scene2d, "pve1") as Laya.Button;
-        this.pve2 = this._findNode(scene2d, "pve2") as Laya.Button;
+        this.matchBtn = this._findNode(root, "Button");
+        this.backBtn = this._findNode(root, "bButton");
+        this.pveBtn = this._findNode(root, "pve");
+        this.pve2Btn = this._findNode(root, "pve2");
     }
 
     private _findNode(root: Laya.Node, name: string): Laya.Node | null {
-        if (root.name === name) return root;
+        if (!root) return null;
+        if ((root as any).name === name) return root;
         for (let i = 0; i < root.numChildren; i++) {
-            const found = this._findNode(root.getChildAt(i), name);
-            if (found) return found;
+            const f = this._findNode(root.getChildAt(i), name);
+            if (f) return f;
         }
         return null;
     }
 
-    /**
-     * 判断是否为正常房间（有 roomId 且非匹配房间）
-     */
-    private isNormalRoom(room: any): boolean {
-        if (!room || !room.roomId) return false;
-        return true;
+    //组件被激活后执行，此时所有节点和组件均已创建完毕，此方法只执行一次
+    onAwake(): void {
+
+        this._initSceneNodes();
+        QA.installMatch(this);
+
+        // 匹配按钮控制: 匹配中点击=取消, 空闲点击=重新匹配
+        // 禁点击翻转 selected(Check 模式 selected=true 时引擎改显 selectedTitle, 干扰两态文案)
+        // CLICK 绑定移 sceneShow(预制体复用重入统一重绑)
+        if (this.matchBtn) (this.matchBtn as any).changeStateOnClick = false;
+
+        // 返回按钮: 取消匹配并回上一场景(同防 selected 翻转, 否则会显 selectedTitle"购买")
+        if (this.backBtn) (this.backBtn as any).changeStateOnClick = false;
+        this.backBtn?.on(Laya.Event.CLICK, this, this.onBackBtnClick);
+
+        // 人机入口: pve=1v1 单打训练 / pve2=2v2 双打训练(取消匹配后直跳 PVE 场景)
+        if (this.pveBtn) (this.pveBtn as any).changeStateOnClick = false;
+        if (this.pve2Btn) (this.pve2Btn as any).changeStateOnClick = false;
+        this.pveBtn?.on(Laya.Event.CLICK, this, () => this._jumpPve(2));
+        this.pve2Btn?.on(Laya.Event.CLICK, this, () => this._jumpPve(4));
+
+             // 进入即播电子乐 A/B 版对比循环(Tone.js 动态加载, AudioContext 待首次点击解锁后自动续播)
+        // A=旧版字符谱(t=1 停顿模式) / B=原生音符序列(t=0 连奏), 各约 8.4s/8.5s, 9s 切换
+        this._playMusic();
+
+        // match 为预制体条目(永不销毁只摘除, back 复用不重跑 onAwake):
+        // nav 挂 root(首次挂载/back 复用挂回)后派发 sceneShow；这里只初始化网络，不自动匹配
+        (this.owner as any).on("sceneShow", this, this.onSceneShow);
+        
+            this._setBtnMatching(false)
     }
 
     /**
-     * 仅展示当前房间（匹配模式下）
+     * 复用激活(nav sceneShow 事件): 重置上局流程状态、重绑按钮与网络事件，不自动匹配
+     * - 首次挂载触发一次(替代 onAwake 直调 _initUserAndNet, 单点入口防双跑)
+     * - 游戏场景 back 回 match 复用挂回再触发(上局 _gameStarted/协商残留全清)
      */
-    private showCurrentRoomOnly(room: any): void {
-        const roomData = {
-            ...room,
-            playerCount: room.players ? room.players.length : 0,
+    onSceneShow(): void {
+        const hadClient = !!(Gnet as any).client;
+        const hadRoom = !!Gnet.getRoom();
+        const wasAlreadyPlaying = this._gameStarted;
+
+        // openId 要在任何匹配/重连之前就位: 会话通常在选局页就初始化好了(登录时顺带下发 accesstoken),
+        // 那种情况下不会走 _initUserAndNet, 不补这一步 customPlayerProperties.userid 会是空串
+        const cu = Cloud.getUser();
+        if (cu && cu.userid) this.openId = cu.userid;
+
+        this._gameStarted = false;
+        // 页面显示时不自动发起新匹配，但必须优先尝试恢复已存在的 GOBE 会话/房间。
+        this.isMatching = false;
+        this._matchSucceeded = false;
+        this._isProcessing = false;
+        this._backing = false;
+        this._userCancel = false;
+        // 指派状态整体归零(含 seq): 不归零则第二局再也发不出 role_assign
+        this._resetAssignmentState();
+        if (this._resolveTimer) {
+            Timer.clear(this._resolveTimer);
+            this._resolveTimer = null;
+        }
+
+        const btn: any = this.matchBtn;
+        if (btn && !btn.destroyed) {
+            btn.offAllCaller(this);
+            btn.on(Laya.Event.CLICK, this, this.onMatchBtnClick);
+        }
+        this._playMusic();
+        this._startFx();
+        this._bindNetworkListeners();
+        // 页面一进入就检查持久化的旧房间 ID；即使 Room 对象已丢失也应尝试恢复。
+        if (this._getSavedRoomId()) this._roomRecoveryRequired = true;
+
+        if (Gnet.checkInitialized()) {
+            // 在菜单/游戏里挂久了 accesstoken 会过期, 过期后 GOBE 会话必断。
+            // 不在房间里才重取并重连(在房间里的恢复交给下面的 reconnect, 别把会话身份覆盖掉)。
+            if (!NetBoot.tokenValid() && !Gnet.getRoom()) {
+                this._forceToken = true;
+                this._initUserAndNet();
+                return;
+            }
+            this._bindMatchListener();
+            this._bindDisconnectListener();
+            // 如果这是从游戏内返回匹配页，不自动重新进入已结束对局；否则进入页面即恢复已有会话。
+            if (!wasAlreadyPlaying && (hadRoom || hadClient || this._getSavedRoomId())) {
+                this._autoReconnectOnEnter = true;
+                // 本地 Room 丢失但 Client 仍存在时，允许从 SDK lastRoomId 取回旧房间身份。
+                if (!hadRoom && hadClient) this._roomRecoveryRequired = true;
+                this._scheduleReconnect(0);
+            }
+        } else if (hadClient) {
+            // client 已存在但初始化/重连尚未完成时，不能再次 Gnet.init() 覆盖旧 client 与 lastRoomId。
+            this._autoReconnectOnEnter = !wasAlreadyPlaying;
+            this._scheduleReconnect(500);
+        } else {
+            this._initUserAndNet();
+        }
+    }
+
+    /** 播匹配场景多轨背景乐(piano 主奏+bass 八度跳+organ 和弦+完整鼓组, 明快推进) */
+    private _playMusic(): void {
+        Au.bgmPlayRich("match");
+    }
+
+    /** 绑定浏览器网络事件。online 后尝试恢复连接，但不会擅自开始新的匹配。 */
+    private _bindNetworkListeners(): void {
+        if (this._networkListenersBound) return;
+        this._networkListenersBound = true;
+        try {
+            window.addEventListener("online", this._onBrowserOnline);
+            window.addEventListener("offline", this._onBrowserOffline);
+        } catch (e) { }
+    }
+
+    private _unbindNetworkListeners(): void {
+        if (!this._networkListenersBound) return;
+        this._networkListenersBound = false;
+        try {
+            window.removeEventListener("online", this._onBrowserOnline);
+            window.removeEventListener("offline", this._onBrowserOffline);
+        } catch (e) { }
+    }
+
+    /** Gnet 的 onMatch 没有在包装层暴露 off；同一 client 只安装一个监听器，并把事件转发给当前页面实例。 */
+    private _bindMatchListener(): void {
+        const client: any = (Gnet as any).client;
+        if (!client) return;
+        this._boundMatchClient = client;
+        client.__activeLoadMatchController = this;
+        if (client.__loadMatchListenerInstalled) return;
+        client.__loadMatchListenerInstalled = true;
+        Gnet.onMatch((resp: any) => {
+            const active: any = client.__activeLoadMatchController;
+            if (active) active._handleMatchEvent(resp);
+        });
+    }
+
+    private _handleMatchEvent(resp: any): void {
+        // onMatch 事件可能晚于 cancelMatch；而且某些 SDK 错误路径会发 success 事件但没有设置 client.room。
+        // 只有仍在匹配且 client.room 已真实存在时才接纳；实际进入房间由 matchRoom Promise 负责。
+        if (this._gameStarted || this._userCancel || !this.isMatching) {
+            const staleRoom = resp && resp.room;
+            if (staleRoom && Gnet.getRoom() === staleRoom && !this._gameStarted) {
+                Gnet.leaveRoom((e: Error | null) => { if (e) console.warn("[load] 清理取消后迟到的匹配房间失败:", e.message); });
+            }
+            return;
+        }
+        const currentRoom = Gnet.getRoom();
+        if (!currentRoom) {
+            console.warn("[load] 收到 onMatch 事件，但本地 client.room 为空；等待 matchRoom 回调/SDK 恢复，不提前显示匹配成功", resp);
+            return;
+        }
+        console.log("[load] 匹配结果事件确认本地房间:", currentRoom);
+        this.handleRoomJoined(currentRoom, true);
+    }
+
+    /** 监听房间断线事件；只对本玩家断线触发重连。 */
+    private _bindDisconnectListener(): void {
+        const room: any = Gnet.getRoom();
+        if (!room || !room.onDisconnect || this._disconnectRoom === room) return;
+        this._unbindDisconnectListener();
+        this._disconnectRoom = room;
+        this._rcvDisconnect = (player: any) => {
+            const myId = Gnet.getCurrentPlayerId();
+            const disconnectedId = player && (player.playerId || player.id);
+            if (disconnectedId && myId && String(disconnectedId) !== String(myId)) return;
+            if (!this._gameStarted) {
+                this._roomRecoveryRequired = true;
+                this._autoReconnectOnEnter = true;
+                this._scheduleReconnect(500);
+            }
         };
-        this.currentRoomList = [roomData];
-        this.totalRooms = 1;
-        this.totalPages = 1;
-        this.currentPage = 1;
-        this.hasNext = 0;
-        this.updateRoomListUI();
-        this.updatePageInfo();
+        try { room.onDisconnect(this._rcvDisconnect); } catch (e) {
+            this._disconnectRoom = null;
+            this._rcvDisconnect = null;
+        }
+    }
+
+    private _unbindDisconnectListener(): void {
+        if (this._disconnectRoom && this._rcvDisconnect) {
+            try { this._disconnectRoom.onDisconnect?.off?.(this._rcvDisconnect); } catch (e) { }
+        }
+        this._disconnectRoom = null;
+        this._rcvDisconnect = null;
+    }
+
+    /** 指数退避重连。只恢复原连接/原匹配意图，不会把普通进页变成自动匹配。 */
+    private _scheduleReconnect(delayMs: number = 1000): void {
+        if (this._gameStarted || this._backing || this._userCancel || this._reconnectTimer) return;
+        this._reconnectTimer = Timer.setTimeout(delayMs, () => {
+            this._reconnectTimer = null;
+            this._tryReconnect();
+        });
+    }
+
+    /** 当前用户对应的本地房间缓存键；仅保存房间 ID，不保存任何认证密钥。 */
+    private _roomCacheKey(): string {
+        const user = Cloud.getUser();
+        const uid = this.openId || Gnet.getOpenId() || (user && user.userid) || "";
+        return uid ? `laya_gobe_last_room_${uid}` : "";
+    }
+
+    private _getSavedRoomId(): string {
+        const key = this._roomCacheKey();
+        if (key) {
+            try {
+                const cached = window.localStorage.getItem(key);
+                if (cached) return String(cached);
+            } catch (e) { }
+        }
+        // SDK 的 lastRoomId 可能在主动离房后仍保留；仅在明确遇到断线/101106 恢复任务时才采用。
+        if (this._roomRecoveryRequired || this._matchSucceeded) {
+            const client: any = (Gnet as any).client;
+            const sdkRoomId = client && client.lastRoomId;
+            if (sdkRoomId) return String(sdkRoomId);
+        }
+        return "";
+    }
+
+    private _saveRoomId(room: any): void {
+        const roomId = room && (room.id || room.roomId || room.roomID);
+        const key = this._roomCacheKey();
+        if (!roomId || !key) return;
+        try { window.localStorage.setItem(key, String(roomId)); } catch (e) { }
+    }
+
+    private _clearSavedRoomId(room?: any): void {
+        const key = this._roomCacheKey();
+        if (!key) return;
+        const current = this._getSavedRoomId();
+        const roomId = room && (room.id || room.roomId || room.roomID);
+        if (roomId && current && String(roomId) !== String(current)) return;
+        try { window.localStorage.removeItem(key); } catch (e) { }
+    }
+
+    /**
+     * 调试/自动化用: 直接建一房两人房(不经过匹配池)。
+     * 与 joinRoomById 配套。为什么需要: 随机匹配依赖华为侧池子, 而池子里会长时间挂着"只剩一个
+     * 已离线玩家"的鬼房(实测挂 16 分钟), 期间 matchRoom 可能迟迟不给结果 —— 那与被测协议无关。
+     * 建房 + 按号进房得到的房间结构同房后匹配出来的完全一样(role_assign 仍然由房主单源发)。
+     */
+    public createRoomForTest(): void {
+        if (this._gameStarted || this._isProcessing) return;
+        // 作废上一次取消的迟到收尾(它只对它那一代的房间负责)
+        this._matchAttemptSeq++;
+        const cu = Cloud.getUser();
+        this._isProcessing = true;
+        this.isMatching = true;
+        this._setBtnMatching(true);
+        Gnet.createRoom('qa-' + this.openId + '-' + Date.now(), 2, (err: Error | null, room: any) => {
+            this._isProcessing = false;
+            if (err || !room) {
+                console.warn('[load] 建房失败:', err && err.message ? err.message : '无房间返回');
+                this.isMatching = false;
+                this._setBtnFail();
+                return;
+            }
+            console.log('[load] 已建房:', room.id || room.roomId);
+            this._saveRoomId(room);
+            this._matchSucceeded = true;
+            this._setBtnMatched();
+            this.handleRoomJoined(room, false);
+        }, { roomType: 'demo', enableFrameSync: true });
+    }
+
+    /**
+     * 按房间号直接加入(调试接口用, 走的正是产品里已有的"按 id 恢复房间"这条路)。
+     * 为什么要它: 华为匹配池会把只残留 1 人的房一直挂着(实测 16 分钟前的房还在列表里,
+     * 里面那个玩家早就退房了), 于是随机匹配每次都各开一个新房, 两个客户端永远配不上对。
+     * 真机联机不受影响(玩家本来就是各自随机匹配), 这里只是让自动化能确定性地凑齐一房两人。
+     */
+    public joinRoomById(roomId: string): void {
+        if (!roomId || this._gameStarted || this._isProcessing) return;
+        // 同 createRoomForTest: 本次进房属于新的一代, 迟到的取消收尾不得再清状态
+        this._matchAttemptSeq++;
+        this._isProcessing = true;
+        this.isMatching = true;
+        this._setBtnMatching(true);
+        const cu = Cloud.getUser();
+        Gnet.joinRoom(roomId, (err: Error | null, room: any) => {
+            this._isProcessing = false;
+            if (err || !room) {
+                console.warn('[load] 按房间号加入失败:', err && err.message ? err.message : '无房间返回');
+                this.isMatching = false;
+                this._setBtnFail();
+                return;
+            }
+            this._saveRoomId(room);
+            this._matchSucceeded = true;
+            this._setBtnMatched();
+            this.handleRoomJoined(room, false);
+        }, {
+            // Gnet.joinRoom 自己按 playerName/teamId 组 customPlayerProperties, 这里给它身份字段
+            playerName: (cu && cu.name) || this.openId
+        });
+    }
+
+    /** 旧 Client 仍在但 room 为空时，GOBE 的 Client 类型没有 reconnect()；应按 lastRoomId 重新 join 原房间。 */
+    private _joinPreviousRoom(roomId: string, playerConfig: any): void {
+        if (!roomId || this._reconnecting || this._gameStarted || this._backing || this._userCancel) return;
+        this._reconnecting = true;
+        console.warn(`[load] 本地 Room 为空，尝试通过旧房间 ID 恢复: ${roomId}`);
+        Gnet.joinRoom(roomId, (err: Error | null, restoredRoom: any) => {
+            this._reconnecting = false;
+            if (!err && restoredRoom) {
+                this._reconnectAttempts = 0;
+                this._roomRecoveryRequired = false;
+                this._autoReconnectOnEnter = false;
+                this._saveRoomId(restoredRoom);
+                this._bindMatchListener();
+                this._bindDisconnectListener();
+                this.isMatching = true;
+                this._matchSucceeded = true;
+                this._setBtnMatched();
+                console.log("[load] 通过旧房间 ID 恢复成功");
+                this.handleRoomJoined(restoredRoom, true);
+                return;
+            }
+
+            this._reconnectAttempts++;
+            console.warn("[load] 按旧房间 ID 恢复失败:", err && err.message ? err.message : err);
+            // 限制恢复次数，避免永远卡在“匹配成功”且按钮不可用。失败后回到可操作态。
+            if (this._reconnectAttempts >= 3) {
+                this._roomRecoveryRequired = false;
+                this._autoReconnectOnEnter = false;
+                this._matchSucceeded = false;
+                this.isMatching = false;
+                this._isProcessing = false;
+                this._setBtnFail();
+                Dialog.toast("恢复旧房间失败，请点击按钮重新匹配", 2500);
+                console.error("[load] 旧房间恢复连续失败，已解除恢复锁，不再无限重试");
+                return;
+            }
+            this._scheduleReconnect(Math.min(6000, 1000 * this._reconnectAttempts));
+        });
+    }
+
+    private _tryReconnect(): void {
+        if (this._gameStarted || this._backing || this._userCancel || this._reconnecting) return;
+        if (typeof navigator !== "undefined" && navigator.onLine === false) {
+            this._scheduleReconnect(2500);
+            return;
+        }
+
+        const client: any = (Gnet as any).client;
+        const room: any = Gnet.getRoom();
+        const cu = Cloud.getUser();
+        const playerConfig = {
+            customPlayerStatus: 0,
+            customPlayerProperties: JSON.stringify({
+                playerName: (cu && cu.name) || this.openId || Gnet.getOpenId(),
+                head: (cu && cu.head) || "",
+                flag: (cu && cu.flag) || "",
+                userid: this.openId || Gnet.getOpenId(),
+                joinTime: Date.now()
+            })
+        };
+
+        // 优先让当前 Room 自身恢复，保留 SDK 内部的房间身份与玩家会话。
+        if (room && typeof room.reconnect === "function") {
+            this._reconnecting = true;
+            Promise.resolve(room.reconnect(playerConfig)).then(() => {
+                this._reconnecting = false;
+                this._reconnectAttempts = 0;
+                this._roomRecoveryRequired = false;
+                this._autoReconnectOnEnter = false;
+                this._saveRoomId(Gnet.getRoom() || room);
+                this._bindDisconnectListener();
+                console.log("[load] 原房间重连成功");
+                if (!this._gameStarted) {
+                    this.isMatching = true;
+                    this._matchSucceeded = true;
+                    this._setBtnMatched();
+                    this.handleRoomJoined(Gnet.getRoom() || room, true);
+                }
+            }).catch((err: any) => {
+                this._reconnecting = false;
+                this._reconnectAttempts++;
+                console.warn("[load] 原房间重连失败:", err && err.message ? err.message : err);
+                this._scheduleReconnect(Math.min(10000, 1000 * Math.pow(2, Math.min(this._reconnectAttempts, 3))));
+            });
+            return;
+        }
+
+        // client 存在但 init 还未完成时，等待现有 client 完成初始化，不能重建 client 丢掉 lastRoomId。
+        if (client && !Gnet.checkInitialized()) {
+            if (this._autoReconnectOnEnter || this._roomRecoveryRequired || this._matchSucceeded) {
+                this._scheduleReconnect(1000);
+            }
+            return;
+        }
+
+        // GOBE.d.ts 中 Client 没有 reconnect()；Room 才有 reconnect()。
+        // Room 丢失时必须使用 SDK 保留的 lastRoomId 或本地持久化 ID 调 joinRoom，不能调用不存在的 client.reconnect。
+        if (client && Gnet.checkInitialized() && (this._autoReconnectOnEnter || this._roomRecoveryRequired || this._matchSucceeded)) {
+            const oldRoomId = this._getSavedRoomId();
+            if (oldRoomId) {
+                this._joinPreviousRoom(oldRoomId, playerConfig);
+                return;
+            }
+            // 没有旧房间 ID 就无法通过客户端 API 精确恢复原房间；有限重试后解锁，避免永远卡死。
+            this._reconnectAttempts++;
+            if (this._reconnectAttempts >= 3) {
+                this._roomRecoveryRequired = false;
+                this._autoReconnectOnEnter = false;
+                this._matchSucceeded = false;
+                this.isMatching = false;
+                this._isProcessing = false;
+                this._setBtnFail();
+                Dialog.toast("未找到旧房间信息，请点击按钮重新匹配", 2500);
+                console.error("[load] 当前 Client 无 Room 且没有 lastRoomId；停止无限重试并恢复按钮操作");
+            } else {
+                this._scheduleReconnect(1000 * this._reconnectAttempts);
+            }
+            return;
+        }
+
+        // 没有 Client 才初始化；已有 Client 但 SDK 未初始化时，等待 init 回调，避免无意义地覆盖旧 client。
+        if (!client || !Gnet.checkInitialized()) {
+            if (!client) this._initUserAndNet();
+            else if (this._autoReconnectOnEnter || this._roomRecoveryRequired || this._matchSucceeded) this._scheduleReconnect(1500);
+            return;
+        }
+
+        // 有明确的旧房间恢复义务时绝不创建新房间，避免 101106 循环。
+        if (this._roomRecoveryRequired || this._matchSucceeded) {
+            this._reconnectAttempts++;
+            this._scheduleReconnect(Math.min(10000, 1000 * Math.pow(2, Math.min(this._reconnectAttempts, 3))));
+        } else {
+            this._autoReconnectOnEnter = false;
+        }
+    }
+
+    /** 取 Cloud 用户 id 作 Gnet openId, 就绪后初始化联机服务 */
+    private _initUserAndNet(): void {
+        const u = Cloud.getUser();
+        if (u && u.userid && u.key) {
+            this.openId = u.userid;
+            this.initGnet();
+            return;
+        }
+        // 没有本地有效身份时，Cloud.init 只会请求 Worker 唯一注册接口 /token {reg:true}。
+        Cloud.init((usr) => {
+            if (!usr || !usr.userid || !usr.key) {
+                // 注册/IP 风控失败时绝不伪造 openId，也不继续请求 GOBE。
+                this.openId = "";
+                this.isMatching = false;
+                this._isProcessing = false;
+                this._setBtnFail();
+                // Worker 才知道失败原因(注册配额用尽/被 IP 限流/上游异常), 有则照实说
+                Dialog.toast(Cloud.lastMsg || "用户注册失败，请稍后点击匹配重试", 2500);
+                return;
+            }
+            this.openId = usr.userid;
+            this.initGnet();
+        });
+    }
+
+
+    /**
+     * 连接联机服务(身份 = Cloud userid)。
+     * accesstoken 正常随登录/注册下发、并在选局页就初始化好了会话，这里多数是直接复用；
+     * 只有连接失败(_forceToken 置位)或 token 到期才作废缓存、单独重取一张再重建 client。
+     */
+    private initGnet(): void {
+        const force = this._forceToken;
+        this._forceToken = false;   // 一次性: 仍失败时由 _onGnetInitFailed 重新置位
+
+        NetBoot.ensure(force, (ok: boolean, msg?: string) => {
+            if (!ok) {
+                this._onGnetInitFailed(new Error(msg || "连接服务器失败"));
+                return;
+            }
+
+            console.log("[load] 服务器连接成功, 用户id:", Gnet.getCurrentPlayerId());
+
+            this._bindMatchListener();
+            this._bindDisconnectListener();
+
+            this._startFx();
+            if (this._roomRecoveryRequired || this._matchSucceeded || this._getSavedRoomId()) {
+                this._roomRecoveryRequired = true;
+                this._autoReconnectOnEnter = true;
+                this._scheduleReconnect(0);
+            } else if (this.isMatching && !this._gameStarted && !Gnet.getRoom()) {
+                this._startMatch();
+            }
+        });
+    }
+
+    /** Gnet 连接失败统一处理(提示 + 重连/失败态) */
+    private _onGnetInitFailed(err: Error): void {
+        console.error("[load] 连接服务器失败: " + err.message);
+        // 下一次重试作废手上这张 token: 被服务端拒绝或已过期的 token 重发也没用
+        this._forceToken = true;
+        Dialog.toast("连接服务器失败，正在尝试重连");
+        if (this.isMatching && !this._gameStarted) {
+            this._setBtnMatching(true);
+            this._scheduleReconnect(2000);
+        } else {
+            this._setBtnFail();
+        }
+    }
+
+    /**
+     * 开始随机匹配: 随机单人(2人) / 双人(4人)房间
+     * @param retry 已退房重试过(残留房间退不掉/重试仍失败时终止防死循环)
+     */
+    private _startMatch(retry: boolean = false): void {
+        if (this._isProcessing || this._gameStarted) return;
+        // 只有显式开始新一轮匹配时才解除上一次取消抑制；迟到的 room-dismiss 事件不能自动重启匹配。
+        if (!this.isMatching) this._userCancel = false;
+        // 用户显式开启全新匹配前，不允许残留的旧恢复任务覆盖本次请求。
+        if (!this._matchSucceeded && !this._roomRecoveryRequired) this._autoReconnectOnEnter = false;
+
+        // Gnet 未就绪(如 init 失败后点重试): 先重连, 成功回调自动续 _startMatch
+        if (!Gnet.checkInitialized()) {
+            console.warn("[load] Gnet 未初始化, 重新连接后匹配");
+            this.isMatching = true; // 记录用户明确发起的匹配意图，重连成功后续上
+            this._setBtnMatching(true);
+            this._initUserAndNet();
+            return;
+        }
+
+        // 匹配前先查房间: 在房间先退出再匹配(防 101106 already in one room)
+        if (Gnet.getRoom()) {
+            if (retry) {
+                console.error("[load] 退房后仍在房间, 匹配失败");
+                this.isMatching = false;
+                Dialog.toast("匹配失败，点击按钮重试");
+                this._setBtnFail();
+                return;
+            }
+            console.log("[load] 匹配前退出残留房间");
+            this._setBtnMatching(true);
+            this._isProcessing = true;
+            Gnet.leaveRoom((leaveErr: Error | null) => {
+                if (leaveErr) console.warn("[load] 退房失败:", leaveErr.message);
+                this._isProcessing = false;
+                this._startMatch(true);
+            });
+            return;
+        }
+
+        this._isProcessing = true;
+        // 暂时只开单打(2 人房): 先跑通 1v1 联机, 双打 4 人房的角色协商/权威仲裁待实测
+        const maxPlayers = 2;
+        this.matchMaxPlayers = maxPlayers;
+        this.isMatching = true;
+        this._matchSucceeded = false;
+        // 玩家显式发起的新一轮匹配: 看门狗的重试额度重新给满
+        this._matchWaitRetries = 0;
+        this._setBtnMatching(true);
+        const attemptId = ++this._matchAttemptSeq;
+
+        console.log(`[load] 开始匹配${maxPlayers}人房间（${maxPlayers === 2 ? '单打' : '双打'}）`);
+
+        // 进房时把昵称/头像/签名/用户id写入 customPlayerProperties, GOBE 自动同步给房间所有玩家
+        // (GOBE PlayerConfig 无 playerId 字段——服务器分配的 playerId(11207..)与数据库 userid 是两体系,
+        //  用户id经 props 透传供显示/业务身份用, 通讯路由一律用服务器 playerId)
+        const cu = Cloud.getUser();
+        const props = JSON.stringify({
+            playerName: (cu && cu.name) || this.openId,
+            head: (cu && cu.head) || "",
+            flag: (cu && cu.flag) || "",
+            userid: this.openId,
+            joinTime: Date.now()
+        });
+
+        Gnet.matchRoom({ matchParams: { level: "1" }, maxPlayers: maxPlayers, roomType: "demo" }, (err: Error | null, room: any) => {
+            // 用户取消或新匹配已经开始：忽略旧请求回调，避免迟到 success 覆盖“匹配”按钮。
+            if (attemptId !== this._matchAttemptSeq || this._userCancel || !this.isMatching) {
+                const staleRoom = room || Gnet.getRoom();
+                if (staleRoom && Gnet.getRoom() === staleRoom && !this._gameStarted) {
+                    Gnet.leaveRoom((leaveErr: Error | null) => { if (leaveErr) console.warn("[load] 清理迟到房间失败:", leaveErr.message); });
+                }
+                return;
+            }
+            this._isProcessing = false;
+            if (err) {
+                // SDK 可能先发 onMatch(success) 并设置了 client.room，随后 Promise 又以 101106 拒绝。
+                // 本地已经有房间就接纳现有房间，绝不能再次 leave + match 造成重复匹配。
+                const currentRoom = Gnet.getRoom();
+                if (currentRoom) {
+                    console.warn("[load] matchRoom 返回错误但 SDK 已加入房间，接纳现有房间:", err.message);
+                    this.handleRoomJoined(currentRoom, true);
+                    return;
+                }
+                // 101106/104101 且本地 room=null 时，leaveRoom 必然报 Not in a room。
+                // 不再盲目退房重试；等待 SDK 自动恢复一次，恢复不到就明确失败，允许用户手动重试。
+                if (/101106|104101/.test(String(err.message || err))) {
+                    console.warn("[load] 服务器仍保留旧房间身份，立即尝试恢复原客户端/房间，禁止再次 matchRoom:", err.message);
+                    this._roomRecoveryRequired = true;
+                    this._autoReconnectOnEnter = true;
+                    this.isMatching = true;
+                    this._matchSucceeded = false;
+                    this._reconnectAttempts = 0;
+                    this._setBtnMatching(true);
+                    this._scheduleReconnect(0);
+                    return;
+                }
+                console.error("[load] 匹配失败: " + err.message);
+                this.isMatching = false;
+                this._matchSucceeded = false;
+                Dialog.toast("匹配失败，点击按钮重试");
+                this._setBtnFail();
+                return;
+            }
+
+            console.log("[load] 匹配成功", room);
+            this.handleRoomJoined(room, true);
+        }, { customPlayerProperties: props });
+    }
+
+    /**
+     * 按钮两态切换: 匹配中(白圆+橙字"单/双打匹配中"+动态点) / 未匹配(橙底白字"匹配")
+     * 背景圆颜色由呼吸帧按 isMatching 持续重画, 此处只管文案与字色
+     * 文字不变根因: GButton Check 模式点击翻转 selected 后显示 selectedTitle, 须与 title 同步设置
+     */
+    private _setBtnMatching(on: boolean): void {
+        const btn: any = this.matchBtn;
+        if (!btn || btn.destroyed) return;
+        this._matchSucceeded = false;
+        const txt = on ? this.matchMaxPlayers === 2 ? "单打匹配中" : "双打匹配中" : "匹配";
+        btn.title = txt;
+        btn.selectedTitle = txt;
+        btn.titleColor = on ? "#ff8600" : "#ffffff";
+        // GButton 点击后可能保留 selected；统一还原成未点击态。
+        btn.selected = false;
+        if (!on) this._dots = 0;
+    }
+
+    /** 匹配成功态：按钮显示成功文案并清除 selected，但保留 isMatching 以便用户仍可取消等待中的房间。 */
+    private _setBtnMatched(): void {
+        const btn: any = this.matchBtn;
+        if (!btn || btn.destroyed) return;
+        this._matchSucceeded = true;
+        this._dots = 0;
+        btn.title = "匹配成功";
+        btn.selectedTitle = "匹配成功";
+        btn.titleColor = "#ffffff";
+        btn.selected = false;
+    }
+
+
+    /**
+     * 按钮失败态: "匹配失败"红字(连接失败/匹配失败共用)
+     * 背景仍走呼吸帧的未匹配态(橙圆), 点击按钮即重新匹配恢复
+     */
+    private _setBtnFail(): void {
+        const btn: any = this.matchBtn;
+        if (!btn || btn.destroyed) return;
+        btn.title = "匹配失败";
+        btn.selectedTitle = "匹配失败";
+        btn.titleColor = "#ff0000";
+        btn.selected = false;
+        this._dots = 0;
+    }
+
+    /**
+     * 匹配按钮点击: 匹配中 → 取消; 空闲 → 重新匹配
+     */
+    private onMatchBtnClick(): void {
+        Au.tap();
+        // 匹配请求进行中也必须允许再次点击取消；_isProcessing 只阻止空闲态重复发起请求。
+        if (this._gameStarted || (this._isProcessing && !this.isMatching && !Gnet.getRoom())) return;
+        if (this.isMatching || Gnet.getRoom()) {
+            // 主动取消: 标记吞掉随后离开房间触发的解散事件(防自动重匹配体感"没停止")
+            this._userCancel = true;
+            this._isProcessing = true;
+            console.log("[load] 取消匹配");
+            this.exitMatch(() => {
+                this._setBtnMatching(false);
+            });
+        } else {
+            this._startMatch();
+        }
+    }
+
+    /**
+     * 跳 PVE 人机场景: 匹配中先取消(清房), 空闲直跳
+     * @param pc 玩家数(含人机): pve=2(1v1) / pve2=4(2v2)
+     */
+    private _jumpPve(pc: number): void {
+        Au.tap();
+        if (this._gameStarted || this._isProcessing) return;
+        const go = () => {
+            // 模式全局变量(游戏场景 badm.ts 读): 非 pvp 即走 PVE;
+            // assignments 上局 pvp 残留必清, gameMode 显式覆盖防误判
+            (window as any).gamePlayerCount = pc;
+            (window as any).gameMode = "pve";
+            (window as any).gamePlayerAssignments = null;
+            this._gameStarted = true;
+            this._stopFx();
+            console.log(`[load] 跳 PVE 人机场景(${pc}人)`);
+            SceneNav.open(load.SCENE_URL, { playerCount: pc });
+        };
+        if (this.isMatching || Gnet.getRoom()) {
+            this._userCancel = true;
+            this._isProcessing = true;
+            console.log("[load] pve: 退出匹配");
+            this.exitMatch(go);
+        } else {
+            go();
+        }
+    }
+
+    /**
+     * 返回按钮(bButton)点击: 取消匹配并返回上一场景(menu.ls)
+     * 匹配中 → exitMatch 清房间后回退; 空闲 → 直接回退
+     */
+    private onBackBtnClick(): void {
+        Au.tap();
+        if (this._gameStarted || this._backing) return;
+        this._backing = true;
+        const go = () => {
+            const d = SceneNav.depth;
+            SceneNav.back();
+            // back 被防抖吞掉(栈深未变)时复位, 允许重试; 成功则场景即将销毁, 保持锁死防连点
+            if (SceneNav.depth === d) this._backing = false;
+        };
+        if (this.isMatching || Gnet.getRoom()) {
+            this._userCancel = true;
+            this._isProcessing = true;
+            console.log("[load] 返回: 退出匹配");
+            this.exitMatch(go);
+        } else {
+            go();
+        }
     }
 
     /**
@@ -128,38 +875,76 @@ export class load extends Laya.Script {
      */
     private exitMatch(onDone?: () => void): void {
         const wasMatching = this.isMatching;
+        // 立即使正在途中的 matchRoom/onMatch 回调失效；迟到 success 不得复活已取消的匹配。
+        this._matchAttemptSeq++;
+        // 本次取消自己的代数: 下面每一段异步(GOBE 回调 + 500ms 补偿)都必须仍是同一代才继续。
+        // 不守这一条会出实测事故: 取消→重新匹配→已进新房并拿到 role_assign, 上一次取消的
+        // leaveRoom 迟到执行, 把【刚进的这个房】退掉(权威端因此整帧线程停摆, 另一端再也收不到)。
+        const seq = this._matchAttemptSeq;
+        const roomAtCancel = Gnet.getRoom();
+        // 新一轮匹配已经开始(_isProcessing/已进房)时, 旧的收尾不得再清指派状态
+        const superseded = () => seq !== this._matchAttemptSeq;
+        this._matchSucceeded = false;
+        this._roomRecoveryRequired = false;
+        this._autoReconnectOnEnter = false;
+        this._reconnectAttempts = 0;
+        if (this._reconnectTimer) {
+            Timer.clear(this._reconnectTimer);
+            this._reconnectTimer = null;
+        }
+        this._dots = 0;
         this.isMatching = false;
 
         const finish = () => {
+            if (superseded()) {
+                console.warn("[load] 本次取消已被新一轮匹配取代, 迟到收尾不再清理房间与指派");
+                return;
+            }
+            // 上一次取消的 500ms 收尾可能迟到落在"已经进房并已采纳指派"之后:
+            // 实测因此把 _finalAssignment 清成 null, 而游戏场景已经按那张表开起来了 ——
+            // 两端从这一刻起一张表一份, 权威帧与击球事件全数错配(表现就是开局几秒后整体卡死)。
+            if (this._gameStarted || this._assignmentResolved) {
+                console.warn("[load] 本局已进房/已定指派, 迟到取消收尾不再清理状态");
+                return;
+            }
             this._isProcessing = false;
-            this.statusText.text = "已退出匹配";
-            this.refreshRoomList();
+            // 离开房间即作废本次指派, 下一局重新走 role_assign
+            this._resetAssignmentState();
+            // 保留取消标记，直到用户显式开始下一轮匹配；避免超过 2 秒的迟到 room-dismiss 事件自动重匹配。
+            console.log("[load] 已退出匹配");
             onDone?.();
+        };
+
+        // 只退"取消那一刻所在的那个房": 期间如果进了新房(GOBE 匹配到了), 这个回调就什么都不是
+        const leaveIfSameRoom = (done: () => void) => {
+            const now = Gnet.getRoom();
+            if (!now) { done(); return; }
+            // 取消那一刻本就没有房间 → 这次取消不拥有任何房间。GOBE 的 cancelMatch 回调可以
+            // 晚到好几秒, 期间新一轮匹配已经进房; 这时再 leaveRoom 就是把【正在打的那个房】退掉
+            // (实测: 权威端因此在开局 10s 后被移出房间, 另一端抱着 42m 的球位差再打 3 分钟)。
+            if (!roomAtCancel || now !== roomAtCancel) {
+                console.warn("[load] 取消期间房间已更换/当时无房, 放弃退房");
+                done();
+                return;
+            }
+            Gnet.leaveRoom((leaveErr: Error | null) => {
+                if (leaveErr) console.warn("[load] 离开房间失败:", leaveErr.message);
+                else this._clearSavedRoomId(now);
+                done();
+            });
         };
 
         if (wasMatching) {
             Gnet.cancelMatch((cancelErr: Error | null) => {
-                if (cancelErr) console.warn("取消匹配失败:", cancelErr.message);
-                const room = Gnet.getRoom();
-                if (room) {
-                    Gnet.leaveRoom((leaveErr: Error | null) => {
-                        if (leaveErr) console.warn("离开房间失败:", leaveErr.message);
-                        Timer.setTimeout(500, finish);
-                    });
-                } else {
-                    Timer.setTimeout(500, finish);
+                if (cancelErr) console.warn("[load] 取消匹配失败:", cancelErr.message);
+                if (superseded()) {
+                    console.warn("[load] 取消匹配的回调已过期, 不做退房");
+                    return;
                 }
+                leaveIfSameRoom(() => Timer.setTimeout(500, finish));
             });
         } else {
-            const room = Gnet.getRoom();
-            if (room) {
-                Gnet.leaveRoom((leaveErr: Error | null) => {
-                    if (leaveErr) console.warn("离开房间失败:", leaveErr.message);
-                    Timer.setTimeout(500, finish);
-                });
-            } else {
-                finish();
-            }
+            leaveIfSameRoom(() => Timer.setTimeout(500, finish));
         }
     }
 
@@ -174,1097 +959,523 @@ export class load extends Laya.Script {
         const players = Gnet.getPlayers();
         const maxPlayers = room.maxPlayers || this.matchMaxPlayers;
         if (players.length >= maxPlayers) {
-            this._buildAndSendPlayerInfo(players);
+            this._assignRoles(players);
         }
     }
 
     /**
      * 重置角色分配协商状态，允许重新满人计算
      */
+    // ============ 角色指派(单一权威源; 时序定义见 libs/pvpProto) ============
+    // 旧实现: 满员后每端各算一份表广播 first, 房主挑"第一个有表的"发 final, 再靠 okplay 互认。
+    // 实测后果: 后进那端的 players 列表还没刷新就自认房主、给自己发 final, 两端拿到不同的表
+    //           (A 停在 1/2 只看得到自己, B 与遗留玩家配成 2/2 各自开场)。
+    // 现在: 满员只由房主判定并出唯一一份 role_assign; 其他端只认房主的表,
+    //       回 ack 后等 match_start —— 只有收到开赛令的一方才跳场景。
+
+    /** 房主生成的指派序号(用生成时刻, 全员按它幂等) */
+    private _assignSeq: number = 0;
+    /** 本机已应用过的指派序号 */
+    private _appliedAssignSeq: number = 0;
+    /** 房主已收到的 ack */
+    private _assignAcks: Set<string> = new Set();
+    /** 已采纳但还没等到 match_start 的分配表 */
+    private _pendingAssign: any[] | null = null;
+
+    /** 匹配页消息上下文: 身份取房间 playerId; 这一阶段还没有权威端, 任期恒 0 */
+    private _msgCtx: Msg.SpaceCtx = {
+        selfId: () => this._myRoomPid(),
+        authId: () => null,
+        authTerm: () => 0
+    };
+    /** 指派三件套的处理器; 走 msg 层统一信封/过期/校验, 本处只管业务 */
+    private _msgSubs: Record<string, (data: any, senderId: string) => void> = {
+        [Proto.Kind.RoleAssign]: (d, s) => this._onRoleAssign(d, s),
+        [Proto.Kind.RoleAck]: (d, s) => this._onRoleAck(d, s),
+        [Proto.Kind.MatchStart]: (d, s) => this._onMatchStart(d, s)
+    };
+
+    /** 本机在房间体系里的 id(GOBE 分配的 playerId) */
+    private _myRoomPid(): string {
+        return String(Gnet.getCurrentPlayerId() || this.openId || '');
+    }
+
+    /** 本房间房主(GOBE 建房者); 拿不到就退回当前权威端/自己 */
+    private _matchOwnerId(): string {
+        const room: any = Gnet.getRoom();
+        return String(Gnet.getRoomOwnerId() || (room && room.ownerId) || this._myRoomPid());
+    }
+
+    /** 换房/退房/重匹配/回菜单: 指派状态整体归零 */
     private _resetAssignmentState(): void {
+        this._assignSeq = 0;
+        this._appliedAssignSeq = 0;
+        this._assignAcks = new Set<string>();
+        this._pendingAssign = null;
+        this._finalAssignment = null;
+        this._assignmentResolved = false;
         if (this._resolveTimer) {
             Timer.clear(this._resolveTimer);
             this._resolveTimer = null;
         }
-        this._collectedAssignments.clear();
-        this._finalAssignment = null;
-        this._assignmentResolved = false;
-        this._confirmedPlayers.clear();
-        this._roomEventsBound = false;
-        console.log("[load] 角色分配状态已重置");
     }
 
-    /**
-     * 构建随机角色分配并发送 first 消息给房间所有玩家
-     */
-    private _buildAndSendPlayerInfo(players: any[]): void {
-        if (this._assignmentResolved) return;
-        const myId = Gnet.getCurrentPlayerId();
-        if (this._collectedAssignments.has(myId)) return;
-
-        const playerIds = players.map((p: any) => p.playerId);
-        const roleIds = Array.from({ length: players.length }, (_, i) => i);
+    /** 满员入口: 只有房主出表, 其他端安静等 role_assign */
+    private _assignRoles(players: any[]): void {
+        if (this._assignmentResolved || this._assignSeq > 0) return;
+        const ownerId = this._matchOwnerId();
+        if (ownerId !== this._myRoomPid()) {
+            console.log(`[load] 满员 ${players.length} 人, 本机非房主(房主=${ownerId}), 等待 role_assign`);
+            return;
+        }
+        const roleIds = players.map((_p: any, i: number) => i);
         for (let i = roleIds.length - 1; i > 0; i--) {
             const j = Math.floor(Math.random() * (i + 1));
-            [roleIds[i], roleIds[j]] = [roleIds[j], roleIds[i]];
+            const t = roleIds[i]; roleIds[i] = roleIds[j]; roleIds[j] = t;
         }
+        const assignments = players.map((p: any, i: number) => ({
+            playerId: String(p.playerId),
+            roleId: roleIds[i],
+            teamId: Proto.teamOfRoleId(roleIds[i], players.length)
+        }));
+        const room: any = Gnet.getRoom();
+        this._assignSeq = Timer.now();
+        this._finalAssignment = assignments;
+        this._assignAcks = new Set<string>([this._myRoomPid()]);
+        this._sendAssign(Proto.Kind.RoleAssign, this._assignSeq, assignments, String((room && (room.id || room.roomId)) || ''));
+        console.log(`[load] 房主指派角色 seq=${this._assignSeq}: ${JSON.stringify(assignments)}`);
+        // 房主自己先生效; 其他端必须等 match_start
+        this._applyAssignmentAndStart(assignments);
+        this._resolveTimer = Timer.setTimeout(Proto.ASSIGN_ACK_WAIT_MS, () => this._broadcastStart());
+    }
 
-        const assignments = playerIds.map((pid: string, i: number) => ({ playerId: pid, roleId: roleIds[i] }));
-        this._collectedAssignments.set(myId, assignments);
+    private _sendAssign(kind: string, assignSeq: number, assignments: any[], roomId?: string): void {
+        const payload: any = { assignSeq: assignSeq, assignments: assignments };
+        if (roomId !== undefined) payload.roomId = roomId;
+        Msg.send(kind, payload);
+    }
 
-        const msg = JSON.stringify({ kind: "first", assignments, senderId: myId });
-        Gnet.sendToClient(load.ASSIGN_SEND_SCOPE, msg);
-        console.log(`%c[load] 发送角色分配(first): ${JSON.stringify(msg)}`, "color: #00FFFF;");
+    /** 收齐 ack 或超时 → 广播开赛令(同一 assignSeq, 端上幂等) */
+    private _broadcastStart(): void {
+        if (!this._finalAssignment) return;
+        this._resolveTimer = null;
+        this._sendAssign(Proto.Kind.MatchStart, this._assignSeq, this._finalAssignment);
+        console.log(`[load] 广播 match_start seq=${this._assignSeq} (已 ack ${this._assignAcks.size} 端)`);
+    }
 
-        const isOwner = Gnet.getRoomOwnerId() === myId;
-        this.statusText.text += `\n[发送first] ${myId} | 房主:${isOwner ? '是' : '否'}(${Gnet.getRoomOwnerId()})`;
+    /** 只认房主的表: 任何端自己算出来的分配都不作数(msg 层已做过 assignSeq 过期与结构校验) */
+    private _onRoleAssign(data: any, sendPlayerId: string): void {
+        const ownerId = this._matchOwnerId();
+        if (String(sendPlayerId) !== ownerId) {
+            console.warn(`[load] 丢弃非房主 role_assign from=${sendPlayerId} 房主=${ownerId}`);
+            return;
+        }
+        if (Number(data.assignSeq) <= this._appliedAssignSeq) return;
+        this._appliedAssignSeq = Number(data.assignSeq);
+        this._assignSeq = Number(data.assignSeq);
+        this._pendingAssign = data.assignments;
+        this._finalAssignment = data.assignments;
+        console.log(`[load] 采纳房主指派 seq=${data.assignSeq}: ${JSON.stringify(data.assignments)}`);
+        this._sendAssign(Proto.Kind.RoleAck, data.assignSeq, data.assignments);
+    }
 
-        if (isOwner) {
-            if (this._resolveTimer) Timer.clear(this._resolveTimer);
-            this._resolveTimer = Timer.setTimeout(2000, () => {
-                this._resolveAssignmentAsOwner();
-            });
-        } else {
-            if (this._resolveTimer) Timer.clear(this._resolveTimer);
-            this._resolveTimer = Timer.setTimeout(5000, () => {
-                if (!this._assignmentResolved) {
-                    console.warn("[load] 等待 final 超时，本地自行解决");
-                    this._resolveAssignmentLocally();
-                }
-            });
+    /** ack 只给房主处理; assignSeq 必须是本次指派 */
+    private _onRoleAck(data: any, sendPlayerId: string): void {
+        if (this._myRoomPid() !== this._matchOwnerId()) return;
+        if (Number(data.assignSeq) !== this._assignSeq || !this._finalAssignment) return;
+        this._assignAcks.add(String(sendPlayerId));
+        if (this._assignAcks.size >= this._finalAssignment.length && this._resolveTimer) {
+            Timer.clear(this._resolveTimer);
+            this._broadcastStart();
         }
     }
 
-    /**
-     * 房主解决冲突：按玩家加入顺序选择第一个有分配列表的玩家，发送 final
-     */
-    private _resolveAssignmentAsOwner(): void {
-        if (this._finalAssignment) return;
-        const players = Gnet.getPlayers();
-        let chosen: { playerId: string, roleId: number }[] | null = null;
-        for (const p of players) {
-            const assign = this._collectedAssignments.get(p.playerId);
-            if (assign && assign.length > 0) {
-                chosen = assign;
-                console.log(`[load] 房主选择玩家 ${p.playerId} 的分配列表`);
-                break;
-            }
-        }
-        if (!chosen) return;
-
-        this._finalAssignment = chosen;
-        this._confirmedPlayers.add(Gnet.getCurrentPlayerId());
-
-        const msg = JSON.stringify({ kind: "final", assignments: chosen });
-        Gnet.sendToClient(load.ASSIGN_SEND_SCOPE, msg);
-        console.log(`%c[load] 房主发送 final 确认: ${JSON.stringify(chosen)}`, "color: #00FF00; font-weight:bold");
-        this.statusText.text += `\n[发送final] ${Gnet.getCurrentPlayerId()}`;
-
-        this._checkAllConfirmedAndBroadcast(players);
+    private _onMatchStart(data: any, sendPlayerId: string): void {
+        if (String(sendPlayerId) !== this._matchOwnerId()) return;
+        const list = this._pendingAssign || data.assignments;
+        this._pendingAssign = null;
+        this._appliedAssignSeq = Math.max(this._appliedAssignSeq, Number(data.assignSeq));
+        console.log(`[load] 收到 match_start seq=${data.assignSeq}, 开赛`);
+        this._applyAssignmentAndStart(list);
     }
 
-    /**
-     * 超时兜底：选最优分配，手动填充所有玩家 okplay，发 final 后跳转
-     */
-    private _resolveAssignmentLocally(): void {
-        let chosen = this._finalAssignment;
-        if (!chosen) {
-            const players = Gnet.getPlayers();
-            for (const p of players) {
-                const assign = this._collectedAssignments.get(p.playerId);
-                if (assign && assign.length > 0) {
-                    chosen = assign;
-                    console.warn(`[load] 超时兜底使用玩家 ${p.playerId} 的分配列表`);
-                    break;
-                }
-            }
-        }
-        if (!chosen) return;
-
-        const players = Gnet.getPlayers();
-        const okplay = players.map((p: any) => p.playerId);
-        const msg = JSON.stringify({ kind: "final", assignments: chosen, okplay });
-        Gnet.sendToClient(load.ASSIGN_SEND_SCOPE, msg);
-        console.log(`%c[load] 超时兜底发送 final(全员ok) okplay=${JSON.stringify(okplay)}`, "color: #FF0000; font-weight:bold");
-        this.statusText.text += `\n[超时兜底final] ${Gnet.getCurrentPlayerId()}`;
-        this._applyAssignmentAndStart(chosen);
-    }
-
-    /**
-     * 应用最终角色分配并跳转游戏场景
-     */
-    private _applyAssignmentAndStart(assignment: { playerId: string, roleId: number }[]): void {
+    /** 应用最终分配并跳游戏场景 */
+    private _applyAssignmentAndStart(assignment: any[]): void {
         if (this._assignmentResolved) return;
         this._assignmentResolved = true;
         if (this._resolveTimer) {
             Timer.clear(this._resolveTimer);
             this._resolveTimer = null;
         }
-
+        const myId = this._myRoomPid();
+        let mine: any = null;
+        for (const a of assignment || []) if (String(a.playerId) === myId) mine = a;
+        if (!mine) {
+            console.error(`[load] 分配表里没有本机 pid=${myId}: ${JSON.stringify(assignment)}`);
+            return;
+        }
         const playerCount = assignment.length;
         (window as any).gamePlayerCount = playerCount;
         (window as any).gameMode = "pvp";
         (window as any).gamePlayerAssignments = assignment;
-
         this._gameStarted = true;
-        this._stopAutoRefresh();
-        this.statusText.text = `角色分配已确认（${playerCount}人），正在进入游戏...`;
-        console.log(`%c[load] 最终角色分配: ${JSON.stringify(assignment)}`, "color: #FF00FF; font-weight:bold");
-
-        Laya.Scene.open(load.SCENE_URL, true, { playerCount });
+        console.log(`%c[load] 最终角色分配: ${JSON.stringify(assignment)} 本机 roleId=${mine.roleId}`, "color: #FF00FF; font-weight:bold");
+        this._stopFx();
+        SceneNav.open(load.SCENE_URL, { playerCount });
     }
-
-    /**
-     * 处理收到的角色分配消息
-     */
-    private _onReceiveAssignmentMsg(data: any, sendPlayerId: string): void {
-        const myId = Gnet.getCurrentPlayerId();
-        if (data.kind === "first") {
-            const assignments = data.assignments || [];
-            if (assignments.length > 0) {
-                this._collectedAssignments.set(sendPlayerId, assignments);
-                console.log(`%c[load] 收到 ${sendPlayerId} 的 first 分配`, "color: #FFA500;");
-                this.statusText.text += `\n[收到first] ${myId}`;
-            }
-        } else if (data.kind === "final") {
-            const assignments = data.assignments || [];
-            if (assignments.length === 0) return;
-
-            if (data.okplay) {
-                this._finalAssignment = assignments;
-                const okplay: string[] = data.okplay;
-                const players = Gnet.getPlayers();
-                const allConfirmed = players.every((p: any) => okplay.indexOf(p.playerId) !== -1);
-                if (allConfirmed) {
-                    console.log(`%c[load] 收到 final(全员确认) okplay=${JSON.stringify(okplay)}`, "color: #00FF00; font-weight:bold");
-                    this.statusText.text += `\n[全员确认] ${myId}`;
-                    this._applyAssignmentAndStart(assignments);
-                }
-                return;
-            }
-
-            const ownerId = Gnet.getRoomOwnerId();
-            const isFromOwner = sendPlayerId === ownerId;
-            console.log(`%c[load] 收到 final 确认(from ${sendPlayerId}, 房主:${isFromOwner}): ${JSON.stringify(assignments)}`, "color: #00FF00; font-weight:bold");
-            this.statusText.text += `\n[收到final] ${myId} | from:${sendPlayerId} 房主:${isFromOwner ? '是' : '否'}`;
-
-            if (!isFromOwner) {
-                console.log(`[load] final 来自非房主，忽略，继续等待房主 final`);
-                return;
-            }
-
-            this._finalAssignment = assignments;
-            const okMsg = JSON.stringify({ kind: "okplay", playid: myId });
-            Gnet.sendToClient(load.ASSIGN_SEND_SCOPE, okMsg, [ownerId]);
-            console.log(`%c[load] 回复 okplay 给房主 ${ownerId}`, "color: #FFA500;");
-            this.statusText.text += `\n[发送okplay] ${myId}`;
-        } else if (data.kind === "okplay") {
-            const playid: string = data.playid;
-            if (!playid) return;
-            this._confirmedPlayers.add(playid);
-            console.log(`%c[load] 收到 ${playid} 的 okplay 确认 (${this._confirmedPlayers.size}人)`, "color: #FFA500;");
-            this.statusText.text += `\n[收到okplay:${playid}] ${myId}`;
-            const players = Gnet.getPlayers();
-            this._checkAllConfirmedAndBroadcast(players);
-        }
-    }
-
-    /**
-     * 房主检查是否全员确认，是则广播带 okplay 的 final
-     */
-    private _checkAllConfirmedAndBroadcast(players: any[]): void {
-        if (this._assignmentResolved) return;
-        if (!this._finalAssignment) return;
-
-        const allConfirmed = players.every((p: any) => this._confirmedPlayers.has(p.playerId));
-        if (!allConfirmed) return;
-
-        const okplay = Array.from(this._confirmedPlayers);
-        const msg = JSON.stringify({ kind: "final", assignments: this._finalAssignment, okplay });
-        Gnet.sendToClient(load.ASSIGN_SEND_SCOPE, msg);
-        console.log(`%c[load] 房主广播 final(全员确认) okplay=${JSON.stringify(okplay)}`, "color: #00FF00; font-weight:bold");
-        this.statusText.text += `\n[广播全员确认] ${Gnet.getCurrentPlayerId()}`;
-        this._applyAssignmentAndStart(this._finalAssignment);
-    }
-
-    /**
-     * 跳转到游戏场景
-     */
-    private startGameScene(playerCount: number): void {
-        if (this._gameStarted) return;
-        this._gameStarted = true;
-        this._stopAutoRefresh();
-        this.statusText.text = `人数已满（${playerCount}人），正在进入游戏...`;
-        console.log(`[load] 跳转游戏场景，玩家数: ${playerCount}`);
-
-        (window as any).gamePlayerCount = playerCount;
-        (window as any).gameMode = "pvp";
-
-        Laya.Scene.open(load.SCENE_URL, true, { playerCount });
-    }
-
-
-    //组件被激活后执行，此时所有节点和组件均已创建完毕，此方法只执行一次
-    onAwake(): void {
-
-        this._initSceneNodes();
-
-        // 初始化分页数据
-        this.currentPage = 1;
-        this.pageSize = 10;
-        this.totalPages = 1;
-        this.serverOffset = null;
-        this.offsetHistory = [null];
-        this.allRoomListData = [];
-
-        // 设置房间列表的项渲染器
-        this.roomList.vScrollBarSkin = "";
-        // 确保正确设置项渲染器
-        // this.roomList.itemRender = Laya.loader.getRes("roomItem.ui"); // 如果使用预制件
-        this.roomList.renderHandler = new Laya.Handler(this, this.onRoomItemRender);
-        this.roomList.selectEnable = true;
-        this.roomList.mouseHandler = new Laya.Handler(this, this.onRoomListMouse);
-
-        // 绑定list选项改变的切换
-        this.roomList.selectHandler = new Laya.Handler(this, (index: number) => {
-            if (index >= 0 && this.currentRoomList[index]) {
-                console.log("选中房间:", this.currentRoomList[index]);
-                // 可以在这里处理房间选择逻辑
-            }
-        });
-
-        // 绑定按钮事件
-        this.createRoomBtn.on(Laya.Event.CLICK, this, this.onCreateRoomClick);
-        this.prevPageBtn.on(Laya.Event.CLICK, this, this.onPrevPageClick);
-        this.nextPageBtn.on(Laya.Event.CLICK, this, this.onNextPageClick);
-        this.joinByIdBtn.on(Laya.Event.CLICK, this, this.onJoinByIdClick);
-        this.quickMatchBtn.on(Laya.Event.CLICK, this, this.onQuickMatchClick);
-        this.pvp.on(Laya.Event.CLICK, this, this.pvpLab);
-        this.pve.on(Laya.Event.CLICK, this, this.pveLab);
-        if (this.pve1) this.pve1.on(Laya.Event.CLICK, this, this.onPve1Click);
-        if (this.pve2) this.pve2.on(Laya.Event.CLICK, this, this.onPve2Click);
-        if (this.pageInfoText) {
-            this.pageInfoText.on(Laya.Event.CLICK, this, () => {
-                this.createTestRooms(25);
-            });
-        }
-
-        // 生成openId
-        this.openId = Date.now().toString();
-
-        // 初始化Gnet
-        this.initGnet();
-    }
-
-    /**
-     * 初始化Gnet联机服务
-     */
-    private _autoRefreshTimer: any = null;
-
-    private initGnet(): void {
-        //window.GOBE.Logger.level = window.GOBE.LogLevel.INFO;
-        this.statusText.text = "正在连接服务器...";
-        this.setButtonsEnabled(false);
-
-        let initTimeout = Timer.setTimeout(5000, () => {
-            initTimeout = null;
-            this.statusText.text = "连接服务器超时，点击刷新重试";
-            this.setButtonsEnabled(true);
-        });
-
-        Gnet.init({
-            clientId: '1263859182919011264',
-            clientSecret: '8D99CCC71D57DD3DFF0F1C4EB5A800E527AB122C9580D781E6BEB18C917AE277',
-            openId: this.openId,
-            appId: '172249065902748389',
-        }, (err: Error | null) => {
-            if (initTimeout) { Timer.clear(initTimeout); initTimeout = null; }
-
-            if (err) {
-                console.error("初始化失败: " + err.message);
-                this.statusText.text = "连接服务器失败，点击刷新重试";
-                this.setButtonsEnabled(true);
-                return;
-            }
-
-            console.log("初始化成功", Gnet.client, Gnet.getCurrentPlayerId());
-            this.statusText.text = `服务器连接成功\n我的ID: ${Gnet.getCurrentPlayerId()}`;
-            this.setButtonsEnabled(true);
-
-            // 只绑定 client 级别事件（onMatch 在 client 上）
-            Gnet.onMatch((resp: any) => {
-                console.log("匹配结果:", resp);
-                if (resp && resp.room) {
-                    this.statusText.text = "匹配成功，正在进入房间...";
-                    this.handleRoomJoined(resp.room, true);
-                }
-            });
-
-            this.refreshRoomList();
-            this._autoRefreshTimer = Timer.setInterval(5000, () => {
-                if (!Gnet.getRoom() && !this.isLoading) this.refreshRoomList(true);
-            });
-        });
-    }
-
-    private setButtonsEnabled(enabled: boolean): void {
-        if (this.createRoomBtn) this.createRoomBtn.disabled = !enabled;
-        if (this.refreshBtn) this.refreshBtn.disabled = !enabled;
-        if (this.quickMatchBtn) this.quickMatchBtn.disabled = !enabled;
-        if (this.joinByIdBtn) this.joinByIdBtn.disabled = !enabled;
-    }
-
-    private _stopAutoRefresh(): void {
-        if (this._autoRefreshTimer) {
-            Timer.clear(this._autoRefreshTimer);
-            this._autoRefreshTimer = null;
-        }
-    }
-
 
     private _roomEventsBound: boolean = false;
+    private _rcvClient: ((info: any) => void) | null = null;
+    private _rcvServer: ((info: any) => void) | null = null;
+    private _rcvJoin: ((player: any) => void) | null = null;
+    private _rcvLeave: ((player: any) => void) | null = null;
+    private _rcvDismiss: ((roomId: string) => void) | null = null;
 
     /**
-     * 绑定房间相关事件
+     * 绑定房间相关事件（回调存字段, onDestroy 精确 off, 防跨场景残留导致新实例双回调/状态错乱）
      */
     private bindRoomEvents(): void {
         if (this._roomEventsBound) return;
         this._roomEventsBound = true;
-        Gnet.onClient((info: any) => {
+
+        Msg.bind('match', this._msgCtx, this._msgSubs);
+
+        this._rcvClient = (info: any) => {
+            if (Msg.dispatchInfo(info)) return;
             try {
+                // msg 层已登记但被规则丢弃的协议消息也走到这里(msg 自己 warn 过原因)
                 const data = JSON.parse(info.msg);
-                if (data && (data.kind === "first" || data.kind === "final" || data.kind === "okplay")) {
-                    this._onReceiveAssignmentMsg(data, info.sendPlayerId);
-                    return;
+                console.log("[load] 收到未处理的客户端消息 kind=" + (data && data.kind));
+            } catch (e) {
+                // 系统文本消息(如 "1014 离开了房间")非 JSON 属正常流量, 降级 log 勿按 error 打印
+                console.log("[load] 收到非 JSON 客户端消息:", info.msg);
+            }
+        };
+
+        this._rcvServer = (info: any) => {
+            try {
+                const data = typeof info.msg === 'string' ? JSON.parse(info.msg) : info.msg;
+
+                if (data && data.type !== 'RoomAndPlayerInfo') {
+                    console.log("[load] 收到服务器消息:", info);
+                }
+
+                if (data && data.type === 'roomDismissed') {
+                    console.log("[load] 房间已解散:", data.roomId);
+                    this._onRoomDismissed();
                 }
             } catch (e) {
-                console.error("[load] onClient 解析异常:", e, info.msg);
+                // 非 JSON 消息，忽略
             }
-            console.log("收到客户端消息:", info);
-        });
+        };
 
-    Gnet.onServer((info: any) => {
-        try {
-            const data = typeof info.msg === 'string' ? JSON.parse(info.msg) : info.msg;
-            
-            // ✅ 过滤掉高频的 RoomAndPlayerInfo 消息，避免刷屏
-            if (data && data.type !== 'RoomAndPlayerInfo') {
-                console.log("收到服务器消息:", info);
-            }
-
-            if (data && data.type === 'roomListUpdate') {
-                this.refreshRoomList(true);
-            } else if (data && data.type === 'roomDismissed') {
-                console.log("房间已解散:", data.roomId);
-                this.statusText.text = "房间已解散，返回房间列表";
-                this.refreshRoomList();
-            }
-        } catch (e) {
-            // 非 JSON 消息，忽略
-        }
-    });
-
-        Gnet.onJoin((player: any) => {
-            console.log("玩家加入:", player);
-            const players = Gnet.getPlayers();
-            console.log(players)
-            this.statusText.text = `玩家 ${player.playerId} 加入房间 (${players.length}人)\n玩家id：${Gnet.getCurrentPlayerId()}\n房主id：${Gnet.getRoomOwnerId()}
-            \n玩家列表：${JSON.stringify(players)}`;
-
-            // 匹配模式下更新当前房间展示
-            if (this.isMatching) {
-                const room = Gnet.getRoom();
-                if (room) this.showCurrentRoomOnly(room);
-            }
-
+        this._rcvJoin = (player: any) => {
+            console.log("[load] 玩家加入:", player, Gnet.getPlayers());
             // 检查是否满员，满员则跳转游戏场景
             this.checkAndStartGame();
-        });
+            this._armMatchWait();
+            // 兜底: onJoin 派发可能早于本地 players 列表更新, 延时复查满员
+            Timer.setTimeout(300, () => {
+                if (!this._gameStarted && !this._assignmentResolved) this.checkAndStartGame();
+            });
+        };
 
-        Gnet.onLeave((player: any) => {
-            console.log("玩家离开:", player);
-            const players = Gnet.getPlayers();
-            this.statusText.text = `玩家 ${player.playerId} 离开房间 (${players.length}人)`;
-
+        this._rcvLeave = (player: any) => {
+            console.log("[load] 玩家离开:", player, Gnet.getPlayers());
+            this._armMatchWait();
             if (!this._gameStarted) {
                 this._resetAssignmentState();
+                // 满员协商中途有人离开: 重新检查满员状态
+                this.checkAndStartGame();
             }
-
-            // 匹配模式下更新当前房间展示
-            if (this.isMatching) {
-                const room = Gnet.getRoom();
-                if (room) this.showCurrentRoomOnly(room);
-            }
-        });
-
-
-        // 添加房间解散事件监听
-        Gnet.onDismiss((roomId: string) => {
-            console.log("房间解散:", roomId);
-            this.statusText.text = "房间已解散";
-            this.isMatching = false;
-            this._gameStarted = false;
-            // 刷新房间列表
-            this.refreshRoomList();
-        });
-    }
-
-    private pvpLab() {
-        this.list.selectedIndex = 0;
-        this.pvp.stroke = 20;
-        this.pve.stroke = 0;
-        this.pve.borderColor = null;
-        this.pvp.borderColor = "ffffff"
-    }
-
-    private pveLab() {
-        this.list.selectedIndex = 1;
-        this.pve.stroke = 20;
-        this.pvp.stroke = 0;
-        this.pvp.borderColor = null;
-        this.pve.borderColor = "ffffff"
-    }
-
-    /**
-     * PVE单打人机：2人模式直接进入游戏场景
-     */
-    private onPve1Click(): void {
-        console.log("[load] PVE 单打人机");
-        this.statusText.text = "正在进入单打人机模式...";
-        this._stopAutoRefresh();
-        (window as any).gamePlayerCount = 2;
-        (window as any).gameMode = "pve";
-        Laya.Scene.open(load.SCENE_URL, true, { playerCount: 2 });
-    }
-
-    /**
-     * PVE双打人机：4人模式直接进入游戏场景
-     */
-    private onPve2Click(): void {
-        console.log("[load] PVE 双打人机");
-        this.statusText.text = "正在进入双打人机模式...";
-        this._stopAutoRefresh();
-        (window as any).gamePlayerCount = 4;
-        (window as any).gameMode = "pve";
-        Laya.Scene.open(load.SCENE_URL, true, { playerCount: 4 });
-    }
-
-
-    /**
-     * 创建房间按钮点击事件
-     */
-    private onCreateRoomClick(): void {
-        if (this._isProcessing) {
-            console.log("操作进行中，请稍候...");
-            return;
-        }
-        console.log("this.createRoomBtn", this.createRoomBtn);
-
-        const doCreate = () => {
-            this._isProcessing = true;
-            const roomName = "房间" + this.openId.substring(8);
-            this.statusText.text = "正在创建房间...";
-
-            Gnet.createRoom(roomName, 4, (err: Error | null, room: any) => {
-                this._isProcessing = false;
-                if (err) {
-                    console.error("创建房间失败: " + err.message);
-                    this.statusText.text = "创建房间失败: " + err.message;
-                    return;
-                }
-
-                console.log("创建房间成功", room);
-                this.statusText.text = "房间创建成功，等待玩家加入...";
-                this.handleRoomJoined(room);
-            });
         };
 
-        if (this.isMatching || Gnet.getRoom()) {
-            this._isProcessing = true;
-            this.statusText.text = "正在退出匹配房间...";
-            this.exitMatch(doCreate);
-        } else {
-            doCreate();
-        }
-    }
-
-    /**
-     * 一键匹配按钮点击事件（随机匹配2人或4人房间）
-     */
-    private onQuickMatchClick(): void {
-        if (this._isProcessing) {
-            console.log("操作进行中，请稍候...");
-            return;
-        }
-
-        const doMatch = () => {
-            this._isProcessing = true;
-            const maxPlayers = 2//Math.random() < 0.5 ? 2 : 4;
-            this.matchMaxPlayers = maxPlayers;
-            this.isMatching = true;
-            this.statusText.text = `正在匹配${maxPlayers}人房间（${maxPlayers === 2 ? '单打' : '双打'}）...`;
-
-            const level = this.roomIdInput && this.roomIdInput.text.trim() ? this.roomIdInput.text.trim() : "1";
-            Gnet.matchRoom({ matchParams: { level }, maxPlayers: maxPlayers, roomType: "demo" }, (err: Error | null, room: any) => {
-                this._isProcessing = false;
-                if (err) {
-                    console.error("匹配失败: " + err.message);
-                    this.statusText.text = "匹配失败: " + err.message;
-                    this.isMatching = false;
-                    this.refreshRoomList();
-                    return;
-                }
-
-                console.log("匹配成功", room);
-                this.statusText.text = "匹配成功，正在进入房间...";
-                this.handleRoomJoined(room, true);
-            });
+        this._rcvDismiss = (roomId: string) => {
+            console.log("[load] 房间解散:", roomId);
+            this._onRoomDismissed();
         };
 
-        if (this.isMatching || Gnet.getRoom()) {
-            this._isProcessing = true;
-            this.statusText.text = "正在退出当前匹配/房间...";
-            this.exitMatch(doMatch);
-        } else {
-            doMatch();
-        }
+        Gnet.onClient(this._rcvClient);
+        Gnet.onServer(this._rcvServer);
+        Gnet.onJoin(this._rcvJoin);
+        Gnet.onLeave(this._rcvLeave);
+        Gnet.onDismiss(this._rcvDismiss);
+        this._bindDisconnectListener();
     }
 
-
-    /**
-    * 刷新房间列表（基于实际服务器响应重写）
-    */
-    private refreshRoomList(silent: boolean = false): void {
-        if (silent) {
-            this.currentPage = 1;
-            this.serverOffset = "0";
-            this.hasNext = 0;
-            this.totalRooms = 0;
-            this.offsetHistory = [null];
-            this.loadRoomsFromServer(true, true);
+    /** 房间解散: 主动取消触发的吞掉; 被动解散重置状态并自动重新匹配 */
+    private _onRoomDismissed(): void {
+        this._clearSavedRoomId();
+        if (this._gameStarted) return;
+        if (this._userCancel) {
+            console.log("[load] 主动取消的房间事件, 跳过自动重匹配");
             return;
         }
-
-        if (this.isLoading) {
-            console.log("正在加载中，请稍候...");
-            return;
-        }
-
-        this.statusText.text = "正在刷新房间列表...";
-        this.currentPage = 1;
-        this.serverOffset = "0";
-        this.hasNext = 0;
-        this.totalRooms = 0;
-        this.currentRoomList = [];
-        this.offsetHistory = [null];
-
-        this.loadRoomsFromServer(true, false);
-    }
-
-    private loadRoomsFromServer(isRefresh: boolean = false, silent: boolean = false): void {
-        if (!silent && this.isLoading) {
-            console.log("正在加载中，请稍候...");
-            return;
-        }
-
-        if (!silent) this.isLoading = true;
-
-        console.log(`加载房间: 页码${this.currentPage}, 偏移量${this.serverOffset}, 每页${this.pageSize} silent=${silent}`);
-
-        let loadTimeout: string | null = Timer.setTimeout(10000, () => {
-            loadTimeout = null;
-            if (!silent) {
-                this.isLoading = false;
-                this.statusText.text = "加载房间超时，点击刷新重试";
-                this._stopAutoRefresh();
+        this.isMatching = false;
+        this._setBtnMatching(false);
+        this._resetAssignmentState();
+        Dialog.toast("房间已解散，重新匹配", 1500);
+        Timer.setTimeout(1500, () => {
+            if (!this._gameStarted && !this.isMatching && !Gnet.getRoom()) {
+                this._startMatch();
             }
         });
-
-        Gnet.getAvailableRoomsPaged(
-            this.currentPage,
-            this.pageSize,
-            (err: Error | null, rooms: any[], hasNext: 0 | 1, serverTotalCount: number, extra?: any) => {
-                if (loadTimeout) { Timer.clear(loadTimeout); loadTimeout = null; }
-                if (!silent) this.isLoading = false;
-
-                if (err) {
-                    console.error("获取房间列表失败: " + err.message);
-                    if (!silent) {
-                        this.statusText.text = "获取房间列表失败，点击刷新重试";
-                        this.currentRoomList = [];
-                        this.updateRoomListUI();
-                        this.updatePageInfo();
-                        this._stopAutoRefresh();
-                    }
-                    return;
-                }
-
-                this.hasNext = hasNext;
-                this.totalRooms = serverTotalCount;
-
-                if (extra && extra.nextServerOffset) {
-                    this.serverOffset = extra.nextServerOffset;
-                }
-
-                // 非匹配模式下仅展示正常房间（roomId 为数字且长度不超过8位）
-                let displayRooms = rooms;
-                if (!this.isMatching) {
-                    displayRooms = rooms.filter((r: any) => this.isNormalRoom(r));
-                }
-
-                const oldCount = this.currentRoomList.length;
-                const oldIds = this.currentRoomList.map(r => r.roomId).join(',');
-                const newIds = displayRooms.map(r => r.roomId).join(',');
-
-                // 始终替换为当前页数据（分页显示，不累积）
-                this.currentRoomList = displayRooms;
-
-                this.calculateTotalPages();
-
-                if (silent) {
-                    if (oldCount !== displayRooms.length || oldIds !== newIds) {
-                        this.updateRoomListUI();
-                        this.updatePageInfo();
-                        this.updateStatusText();
-                    }
-                } else {
-                    this.updateRoomListUI();
-                    this.updatePageInfo();
-                    this.updateStatusText();
-                }
-
-            },
-            {
-                serverOffset: this.serverOffset
-            }
-        );
     }
 
     /**
- * 计算总页数（基于实际服务器数据修复）
- */
-    private calculateTotalPages(): void {
-        if (this.totalRooms <= 0) {
-            this.totalPages = 1;
-        } else {
-            this.totalPages = Math.max(1, Math.ceil(this.totalRooms / this.pageSize));
-        }
-
-        // 确保当前页不超过总页数
-        if (this.currentPage > this.totalPages) {
-            this.currentPage = Math.max(1, this.totalPages);
-        }
-
-        //console.log(`计算总页数: 总数${this.totalRooms}, 每页${this.pageSize}, 总页数${this.totalPages}, 当前页${this.currentPage}`);
-    }
-
-    /**
-     * 更新状态文本
-     */
-    private updateStatusText(): void {
-        if (this.currentRoomList.length === 0 && this.currentPage === 1) {
-            this.statusText.text = "暂无房间，点击创建房间开始游戏";
-        } else {
-            const displayCount = this.currentRoomList.length;
-            if (this.totalRooms > 0) {
-                this.statusText.text = `第 ${this.currentPage}/${this.totalPages} 页，共 ${this.totalRooms} 个房间，显示 \n玩家id：${displayCount} 个${Gnet.getCurrentPlayerId()}`;
-            } else {
-                this.statusText.text = `第 ${this.currentPage} 页，显示 ${displayCount} 个房间\n玩家id：${Gnet.getCurrentPlayerId()}\n房主id：${Gnet.getRoomOwnerId()}`;
-            }
-        }
-    }
-
-    /**
-    * 更新房间列表UI
+    * 处理成功加入房间（增强版）
     */
-    private updateRoomListUI(): void {
-        // 使用下一帧更新，确保数据已经准备好
-        Timer.setTimeout(16, () => {
-            this.roomList.array = this.currentRoomList;
-            this.roomList.refresh();
-
-            console.log(`更新UI: 显示${this.currentRoomList.length}个房间`);
-        });
-    }
-
-    /**
-     * 更新分页信息显示（基于实际服务器响应重写）
-     */
-    private updatePageInfo(): void {
-        // 确保总页数至少为1
-        const displayTotalPages = Math.max(1, this.totalPages);
-        const displayCurrentPage = Math.min(this.currentPage, displayTotalPages);
-
-        // 更新页码显示
-        if (this.pageInfoText) {
-            this.pageInfoText.text = `第 ${displayCurrentPage}/${displayTotalPages} 页`;
-        }
-
-        // 更新分页按钮状态
-        if (this.prevPageBtn) {
-            this.prevPageBtn.disabled = (this.currentPage <= 1);
-        }
-
-        if (this.nextPageBtn) {
-            // 下一页按钮状态：有下一页数据 且 不是正在加载
-            this.nextPageBtn.disabled = (this.hasNext === 0) || this.isLoading;
-        }
-
-        console.log(`分页状态: 当前页${this.currentPage}, 总页数${this.totalPages}, 是否有下一页: ${this.hasNext}, 总房间数: ${this.totalRooms}`);
-    }
-
-
-    /**
-    * 上一页按钮点击事件（使用 offset 历史栈）
-    */
-    private onPrevPageClick(): void {
-        if (this.isLoading) {
-            this.statusText.text = "正在加载中，请稍候...";
-            return;
-        }
-
-        if (this.currentPage <= 1) {
-            this.statusText.text = "已经是第一页";
-            return;
-        }
-
-        this.currentPage--;
-        // 从历史栈中取出上一页的 offset
-        if (this.offsetHistory.length > this.currentPage - 1) {
-            this.serverOffset = this.offsetHistory[this.currentPage - 1];
-        } else {
-            this.serverOffset = null;
-        }
-
-        this.statusText.text = "加载上一页...";
-        this.loadRoomsFromServer(true, false);
-    }
-
-    /**
-     * 下一页按钮点击事件（保存当前 offset 到历史栈）
-     */
-    private onNextPageClick(): void {
-        if (this.isLoading) {
-            this.statusText.text = "正在加载中，请稍候...";
-            return;
-        }
-
-        console.log("下一页点击，当前状态:", {
-            currentPage: this.currentPage,
-            totalPages: this.totalPages,
-            hasNext: this.hasNext,
-            serverOffset: this.serverOffset,
-            totalRooms: this.totalRooms
-        });
-
-        if (this.hasNext === 0) {
-            this.statusText.text = "已经是最后一页";
-            return;
-        }
-
-        // 保存当前页的 offset 到历史栈
-        while (this.offsetHistory.length <= this.currentPage) {
-            this.offsetHistory.push(this.serverOffset);
-        }
-
-        this.currentPage++;
-        this.loadRoomsFromServer(false);
-    }
-
-    /**
-     * 跳转到指定页
-     */
-    private goToPage(pageNumber: number): void {
-        if (pageNumber < 1 || pageNumber > this.totalPages) {
-            this.statusText.text = `页码 ${pageNumber} 无效`;
-            return;
-        }
-
-        this.currentPage = pageNumber;
-
-        // 跳转页面不需要从服务器加载，直接从缓存中取数据
-        if (this.roomListData && this.roomListData.length > 0) {
-            this.totalPages = Math.ceil(this.roomListData.length / this.pageSize);
-            if (this.totalPages < 1) {
-                this.totalPages = 1;
-            }
-
-            // 更新UI
-            this.updateRoomListUI();
-            // 更新状态文本
-            this.statusText.text = `第 ${this.currentPage}/${this.totalPages} 页，共 ${this.roomListData.length} 个房间`;
-        } else {
-            // 如果没有缓存数据，从服务器重新加载
-            this.refreshRoomList();
-        }
-    }
-
-    /**
-    * 房间列表项渲染处理函数（基于实际数据结构修复）
-    */
-    private onRoomItemRender(cell: Laya.Box, index: number): void {
-        if (!cell || !this.currentRoomList || index < 0 || index >= this.currentRoomList.length) {
-            console.log(`渲染项${index}无效:`, { cell: !!cell, list: !!this.currentRoomList, length: this.currentRoomList?.length });
-            return;
-        }
-
-        const roomData = this.currentRoomList[index];
-        if (!roomData) {
-            console.log(`房间数据${index}为空`);
-            return;
-        }
-
-        // 使用getChildByName获取组件
-        const nameLabel = cell.getChildByName("name") as Laya.Label;
-        const numLabel = cell.getChildByName("num") as Laya.Label;
-        const gameLabel = cell.getChildByName("game") as Laya.Label;
-        const img = cell.getChildByName("img") as Laya.Image;
-
-        // 设置房间名称
-        if (nameLabel) {
-            const fallback = roomData.roomCode || (roomData.roomId ? roomData.roomId.substring(0, 8) : "未知");
-            nameLabel.text = roomData.roomName || `房间${fallback}`;
-        }
-
-        // 设置玩家数量
-        if (numLabel) {
-            numLabel.text = `${roomData.playerCount || 0}/${roomData.maxPlayers || 4}`;
-        }
-
-        // 设置房间类型
-        if (gameLabel) {
-            // 根据roomType显示不同的文本
-            let typeText = "普通房间";
-            if (roomData.roomType === "1") typeText = "竞技场";
-            else if (roomData.roomType === "2") typeText = "练习场";
-            else if (roomData.roomType === "3") typeText = "高手区";
-
-            gameLabel.text = typeText;
-        }
-
-        // 设置房间图标状态
-        if (img) {
-            // 根据房间状态设置颜色
-            if (roomData.playerCount >= roomData.maxPlayers) {
-                img.color = "#ff6b6b"; // 红色表示满员
-            } else if (roomData.isLock) {
-                img.color = "#ffa726"; // 橙色表示锁定
-            } else if (roomData.isPrivate) {
-                img.color = "#ab47bc"; // 紫色表示私有
-            } else {
-                img.color = "#66bb6a"; // 绿色表示可加入
-            }
-        }
-    }
-
-    private onRoomListMouse(e: Laya.Event, index: number): void {
-        if (e.type !== Laya.Event.CLICK) return;
-        if (!this.currentRoomList || index < 0 || index >= this.currentRoomList.length) return;
-        const roomId = this.currentRoomList[index].roomId;
-        this.joinRoom(roomId);
-    }
-
-
-    /**
-      * 加入房间（增强版）
-      */
-    private joinRoom(roomId: string): void {
-        if (!roomId) {
-            this.statusText.text = "房间ID不能为空";
-            return;
-        }
-
-        const doJoin = () => {
-            this.statusText.text = "正在加入房间...";
-            Gnet.joinRoom(roomId, (err: Error | null, room: any) => {
-                if (err) {
-                    console.error("加入房间失败: " + err.message);
-                    this.statusText.text = "加入房间失败: " + err.message;
-
-                    if (err.message.includes("满") || err.message.includes("不存在")) {
-                        Timer.setTimeout(1000, () => this.refreshRoomList());
-                    }
-                    return;
-                }
-
-                console.log("加入房间成功", room);
-                this.statusText.text = "加入房间成功";
-                this.handleRoomJoined(room);
-            });
-        };
-
-        const currentRoom = Gnet.getRoom();
-        if (currentRoom) {
-            if (currentRoom.roomId === roomId) {
-                this.statusText.text = "已在此房间中";
-                return;
-            }
-            this.statusText.text = "正在退出当前房间...";
-            Gnet.leaveRoom((err: Error | null) => {
-                if (err) console.warn("离开房间失败:", err.message);
-                doJoin();
-            });
-        } else {
-            doJoin();
-        }
-    }
-
-    /**
-   * 处理成功加入房间（增强版）
-   */
     private handleRoomJoined(room: any, fromMatch: boolean = false): void {
-        console.log("进入房间:", room);
-        this.statusText.text = `已进入房间: ${room.roomName || room.roomId}`;
-
-        // 显示房间信息
-        if (room.players) {
-            this.statusText.text += `, 玩家: ${room.players.length}/${room.maxPlayers}`;
+        if (!room) return;
+        // 取消后迟到的 room event 不得重新把按钮切成“匹配成功”。
+        if (this._userCancel || (!this.isMatching && fromMatch)) {
+            if (Gnet.getRoom() === room && !this._gameStarted) {
+                Gnet.leaveRoom((e: Error | null) => { if (e) console.warn("[load] 清理取消后的房间失败:", e.message); });
+            }
+            return;
         }
-        console.log("房间玩家列表")
-        console.log(Gnet.getPlayers())
+        console.log("[load] 进入房间:", room, `玩家: ${room.players ? room.players.length : 0}/${room.maxPlayers}`);
+        this._saveRoomId(room);
 
-        // 匹配模式下仅展示当前房间
-        if (this.isMatching || fromMatch) {
-            this.isMatching = true;
-            this.showCurrentRoomOnly(room);
-        }
+        // 匹配进入: 维持匹配态等待满员
+        if (this.isMatching || fromMatch) this.isMatching = true;
+        if (fromMatch) this._setBtnMatched();
 
         // 绑定 room 级别事件（加入房间后 client.room 才有值）
         this.bindRoomEvents();
 
-        // 绑定键盘事件
-        this.bindRoomKeyboardEvents();
-
         // 检查是否满员，满员则跳转游戏场景
         this.checkAndStartGame();
+        // 不满员的房不会自己长人: 挂看门狗(实测两人各进各的房后双双无限等待, 匹配页一直停在"匹配中")
+        this._armMatchWait();
     }
 
     /**
-     * 绑定房间键盘事件
+     * 匹配看门狗: 进房后若仍未满员, 到点就退房重新排队(玩家侧的"匹配超时"体验也顺带修好)。
+     * 抖动按本机 playerId 取(不是随机): 两端永远不同时重排队, 后动的那一端才可能匹配进
+     * 先动那一端刚开的房——同时退房再同时匹配, 结果还是两个各 1 人的房。
      */
-    private bindRoomKeyboardEvents(): void {
-        // 移除之前的监听器，避免重复绑定
-        Laya.stage.offAll(Laya.Event.KEY_DOWN);
-
-        Laya.stage.on(Laya.Event.KEY_DOWN, this, (evt: any) => {
-            const code = evt.keyCode;
-            console.log("按键:", code);
-
-            if (code === 76) { // L键 - 离开房间
+    private _armMatchWait(): void {
+        this._clearMatchWait();
+        if (this._gameStarted || !this.isMatching) return;
+        const room: any = Gnet.getRoom();
+        if (!room) return;
+        const max = room.maxPlayers || this.matchMaxPlayers;
+        if ((Gnet.getPlayers() || []).length >= max) return;
+        let h = 0;
+        const me = this._myRoomPid();
+        for (let i = 0; i < me.length; i++) h = (h * 31 + me.charCodeAt(i)) | 0;
+        const wait = 12000 + (Math.abs(h) % 4000);
+        console.log(`[load] 房内 ${Gnet.getPlayers().length}/${max}, ${wait}ms 后仍不满员则重新排队`);
+        this._matchWaitTid = Timer.setTimeout(wait, () => {
+            this._matchWaitTid = null;
+            const r: any = Gnet.getRoom();
+            if (this._gameStarted || !this.isMatching || !r) return;
+            if ((Gnet.getPlayers() || []).length >= (r.maxPlayers || this.matchMaxPlayers)) return;
+            if (this._matchWaitRetries++ >= 2) {
+                this._matchWaitRetries = 0;
                 this.isMatching = false;
-                this._gameStarted = false;
-                Gnet.leaveRoom((err) => {
-                    if (!err) {
-                        this.statusText.text = "已离开房间";
-                        this.refreshRoomList();
-                    }
-                });
-            } else if (code === 68) { // D键 - 解散房间
-                this.isMatching = false;
-                this._gameStarted = false;
-                Gnet.dismissRoom((err) => {
-                    if (!err) {
-                        this.statusText.text = "房间已解散";
-                        this.refreshRoomList();
-                    }
-                });
-            } else if (code === 70) { // F键 - 开始帧同步
-                Gnet.startFrameSync((err) => {
-                    this.statusText.text = err ? "开始帧同步失败" : "帧同步已开始";
-                });
-            } else if (code === 83) { // S键 - 停止帧同步
-                Gnet.stopFrameSync((err) => {
-                    this.statusText.text = err ? "停止帧同步失败" : "帧同步已停止";
-                });
+                this._setBtnFail();
+                Dialog.toast("匹配超时，请稍后再试", 2000);
+                console.warn("[load] 匹配连续 3 轮都没凑满人, 停止等待");
+                return;
             }
+            console.warn("[load] 匹配进房后长时间不满员, 退房重新排队");
+            this.exitMatch(() => {
+                this._userCancel = false;
+                this._startMatch();
+            });
         });
     }
 
-    /**
-     * 根据ID加入房间按钮点击事件
-     */
-    private onJoinByIdClick(): void {
-        if (!this.roomIdInput) {
-            this.statusText.text = "房间ID输入框未找到";
-            return;
+    private _clearMatchWait(): void {
+        if (this._matchWaitTid) {
+            Timer.clear(this._matchWaitTid);
+            this._matchWaitTid = null;
         }
-
-        const roomId = this.roomIdInput.text.trim();
-        if (!roomId) {
-            this.statusText.text = "请输入房间ID";
-            return;
-        }
-
-        this.joinRoom(roomId);
     }
 
-    /**
- * 创建测试房间（修复版）
- */
-    private createTestRooms(count: number): void {
-        this.statusText.text = `正在创建${count}个测试房间...`;
+    // ============================================================
+    // 按钮视觉效果: 描边呼吸(lineWidth) + 粒子发散
+    // ============================================================
 
-        let createdCount = 0;
-        let failedCount = 0;
-
-        const createNext = () => {
-            if (createdCount + failedCount >= count) {
-                this.statusText.text = `创建完成: 成功${createdCount}个, 失败${failedCount}个`;
-                this.refreshRoomList();
-                return;
+    /** 找按钮子树内 lineWidth 最大的 DrawCircleCmd 背景节点(prefab up 态白圆 lineWidth=100) */
+    private _findBigBg(root: any): any {
+        let best: any = null;
+        let lw = 0;
+        const walk = (n: any) => {
+            if (!n || n.destroyed) return;
+            const bg = n.background;
+            if (bg && typeof bg.lineWidth === "number" && bg.lineWidth > lw) {
+                best = n;
+                lw = bg.lineWidth;
             }
-
-            const roomName = "测试房间" + (createdCount + failedCount + 1);
-            const roomType = ((createdCount + failedCount) % 3 + 1).toString(); // 1,2,3循环
-
-            Gnet.createRoom(roomName, 4, (err: Error | null, room: any) => {
-                if (err) {
-                    console.error(`创建房间${createdCount + failedCount + 1}失败:`, err.message);
-                    failedCount++;
-                    Timer.setTimeout(200, createNext);
-                } else {
-                    console.log(`创建房间${createdCount + 1}成功`);
-                    createdCount++;
-
-                    // 创建成功后立即离开，以便创建下一个房间
-                    Gnet.leaveRoom((leaveErr: Error | null) => {
-                        if (leaveErr) {
-                            console.error(`离开房间失败:`, leaveErr.message);
-                            // 如果离开失败，尝试解散房间
-                            Gnet.dismissRoom(() => {
-                                Timer.setTimeout(200, createNext);
-                            });
-                        } else {
-                            Timer.setTimeout(200, createNext);
-                        }
-                    });
-                }
-            }, {
-                roomType: roomType,
-            });
+            const num = n.numChildren || 0;
+            for (let i = 0; i < num; i++) walk(n.getChildAt(i));
         };
-
-        createNext();
+        walk(root);
+        return best;
     }
 
-    //组件被启用后执行，例如节点被添加到舞台后
-    //onEnable(): void {}
+    /**
+     * 启动按钮动效:
+     * - 呼吸 = up 背景圆描边 lineWidth 正弦波动(不碰按钮 scale/位置/子树结构)
+     * - 粒子层挂按钮父级(按钮中心对齐), 匹配中才发散
+     */
+    private _startFx(): void {
+        const btn: any = this.matchBtn;
+        if (!btn || this._fxTimer) return;
 
-    //组件被禁用时执行，例如从节点从舞台移除后
-    //onDisable(): void {}
+        this._btnBg = this._findBigBg(btn);
+        this._bgBase = (this._btnBg && this._btnBg.background && this._btnBg.background.lineWidth) || 100;
 
-    //第一次执行update之前执行，只会执行一次
-    //onStart(): void {}
+        const layer = new Laya.GBox();
+        layer.name = "fxPtc";
+        layer.size(1, 1);
+        layer.mouseEnabled = false;
+        layer.mouseThrough = true;
+        if (btn.parent) btn.parent.addChild(layer);
+        this._fxLayer = layer;
+
+        // hover 跟踪: 引擎切 over 橙圆时粒子同步换橙系
+        btn.on(Laya.Event.MOUSE_OVER, this, () => { this._btnHover = true; });
+        btn.on(Laya.Event.MOUSE_OUT, this, () => { this._btnHover = false; });
+
+        this._fxT = 0;
+        this._fxTimer = Timer.frameLoop(this._onFxTick.bind(this));
+    }
+
+    /** 动效帧: 描边呼吸(匹配中大幅/未匹配小幅) + 粒子波次发射与更新 */
+    private _onFxTick(): void {
+        const btn: any = this.matchBtn;
+        if (!btn || btn.destroyed) { this._stopFx(); return; }
+        this._fxT++;
+
+        // —— 呼吸: up 背景圆描边 lineWidth 波动(radius 恒 0.5) ——
+        // 引擎语义: drawRadius = radius×min - lw/2 → 描边外沿 = radius×min = 恒定(min/2), 按钮外形永不变
+        // lw 只改描边环内外分配(环宽 lw, fill 主体半径 min/2-lw), 即纯 lineWidth 呼吸
+        // 【严禁 radius>0.5】: percent 模式 DrawCircleCmd.getBounds = [0.5-r,0.5-r,2r,2r]×(W,H) 超出节点矩形,
+        // Sprite 尺寸语义取内容 bounds → 节点被撑大; 若再按当前尺寸算 rNorm 会自反馈迭代放大(711×612→1294×1177 约 7 帧)
+        if (this._btnBg && !this._btnBg.destroyed) {
+            const amp = this.isMatching ? 34 : 10;
+            const lw = Math.max(2, this._bgBase + amp * Math.sin(this._fxT * 0.05));
+            const fill = this.isMatching ? "#e4e4e4" : "#ff8a00";
+            const line = this.isMatching ? "#cbcbcb" : "#d16300";
+            this._btnBg.background = Laya.DrawCircleCmd.create(0.5, 0.5, 0.5, fill, line, lw, true);
+        }
+
+        // —— 粒子层跟随按钮中心(Relation 布局重算时保持对齐) ——
+        const layer: any = this._fxLayer;
+        if (!layer || layer.destroyed) return;
+        layer.pos(btn.x, btn.y);
+
+        // —— 匹配中动态点: 每 0.5s "单/双打匹配中"+1~6 个点循环(title 与 selectedTitle 同步, 防 selected 态显示旧文案) ——
+        if (this.isMatching && !this._matchSucceeded && this._fxT % 30 === 0) {
+            this._dots = (this._dots % 6) + 1;
+            const txt = this._matchPrefix() + ".".repeat(this._dots);
+            btn.title = txt;
+            btn.selectedTitle = txt;
+        }
+
+        // —— 粒子: 匹配中每 ~0.6s 一波从按钮边缘向四方发散 ——
+        if (this.isMatching && !this._matchSucceeded && this._fxT % 36 === 0) this._emitParts();
+
+        // —— 粒子更新: 位置外扩 + 由大变小 ——
+        for (let i = this._parts.length - 1; i >= 0; i--) {
+            const p = this._parts[i];
+            p.dist += p.spd;
+            p.life++;
+            const k = p.life / p.max;
+            if (k >= 1 || !p.node || p.node.destroyed) {
+                if (p.node) p.node.removeSelf();
+                this._parts.splice(i, 1);
+                continue;
+            }
+            p.node.pos(Math.cos(p.ang) * p.dist, Math.sin(p.ang) * p.dist);
+            const sc = p.base * (1 - k);
+            p.node.scaleX = p.node.scaleY = sc;
+        }
+    }
+
+    /** 发射一波粒子: 从按钮边缘冒出飞远, fill 与 line 颜色同系不同档(跟按钮当前态色) */
+    private _emitParts(): void {
+        const layer: any = this._fxLayer;
+        if (!layer || layer.destroyed) return;
+        // 粒子色跟按钮当前视觉: hover=over 橙圆系 / 常态=up 白圆系
+        const colors = this._btnHover ? load.FX_COLORS_O : load.FX_COLORS_W;
+        const n = 10;
+        for (let i = 0; i < n; i++) {
+            const node = new Laya.GBox();
+            node.size(40, 40);
+            node.mouseEnabled = false;
+            node.mouseThrough = true;
+            const fill = colors[(Math.random() * colors.length) | 0];
+            let line = colors[(Math.random() * colors.length) | 0];
+            if (line === fill) line = colors[(colors.indexOf(fill) + 1) % colors.length];
+            node.background = Laya.DrawCircleCmd.create(0.5, 0.5, 0.48, fill, line, 3, true);
+            layer.addChild(node);
+
+            const spd = 5 + Math.random() * 4;
+            const startDist = 280 + Math.random() * 60;
+            const maxDist = 500 + Math.random() * 220;
+            const ang = (Math.PI * 2 * i) / n + (Math.random() - 0.5) * 0.5;
+            this._parts.push({
+                node,
+                ang,
+                dist: startDist,
+                spd,
+                life: 0,
+                max: Math.ceil((maxDist - startDist) / spd),
+                base: 0.9 + Math.random() * 0.4,
+            });
+            node.pos(Math.cos(ang) * startDist, Math.sin(ang) * startDist);
+            node.scaleX = node.scaleY = 0;
+        }
+    }
+
+    /** 停止并清理动效(进游戏/销毁时): up 背景圆复位 prefab 原版(灰白圆 lw=100), 防残留呼吸末相位 */
+    private _stopFx(): void {
+        if (this._fxTimer) {
+            Timer.clear(this._fxTimer);
+            this._fxTimer = null;
+        }
+        if (this._btnBg && !this._btnBg.destroyed) {
+            this._btnBg.background = Laya.DrawCircleCmd.create(0.5, 0.5, 0.5, "#e4e4e4", "#cbcbcb", this._bgBase, true);
+        }
+        for (const p of this._parts) {
+            if (p.node && !p.node.destroyed) p.node.removeSelf();
+        }
+        this._parts.length = 0;
+        if (this._fxLayer && !this._fxLayer.destroyed) this._fxLayer.removeSelf();
+        this._fxLayer = null;
+        if (this.matchBtn && !this.matchBtn.destroyed) {
+            this.matchBtn.offAllCaller(this);
+            this._btnHover = false;
+        }
+        this._btnBg = null;
+    }
 
     //手动调用节点销毁时执行
-    //onDestroy(): void {}
+    onDestroy(): void {
+        this._stopFx();
+        this._unbindNetworkListeners();
+        this._unbindDisconnectListener();
+        if (this._reconnectTimer) {
+            Timer.clear(this._reconnectTimer);
+            this._reconnectTimer = null;
+        }
+        if (this._resolveTimer) {
+            Timer.clear(this._resolveTimer);
+            this._resolveTimer = null;
+        }
+        this._clearMatchWait();
 
-    //每帧更新时执行，尽量不要在这里写大循环逻辑或者使用getComponent方法
-    //onUpdate(): void {}
-
-    //每帧更新时执行，在update之后执行，尽量不要在这里写大循环逻辑或者使用getComponent方法
-    //onLateUpdate(): void {}
-
-    //鼠标点击后执行。与交互相关的还有onMouseDown等十多个函数，具体请参阅文档。
-    //onMouseClick(): void {}
+        if (this._rcvClient) { Gnet.off("client", this._rcvClient); this._rcvClient = null; }
+        if (this._rcvServer) { Gnet.off("server", this._rcvServer); this._rcvServer = null; }
+        if (this._rcvJoin) { Gnet.off("join", this._rcvJoin); this._rcvJoin = null; }
+        if (this._rcvLeave) { Gnet.off("leave", this._rcvLeave); this._rcvLeave = null; }
+        if (this._rcvDismiss) { Gnet.off("dismiss", this._rcvDismiss); this._rcvDismiss = null; }
+        Msg.unbind('match', this._msgCtx, this._msgSubs);
+        this._roomEventsBound = false;
+    }
 }

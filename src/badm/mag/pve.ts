@@ -15,8 +15,8 @@ export class PVE extends Mag {
     /** 本地玩家控制的角色 */
     private _localCha: Cha | null = null;
 
-    constructor(p1: Laya.Sprite3D, ball: Ball, isSingle: boolean = false) {
-        super(p1, ball, isSingle);
+    constructor(p1: Laya.Sprite3D, ball: Ball, isSingle: boolean = false, p2?: Laya.Sprite3D, racket?: Laya.Sprite3D) {
+        super(p1, ball, isSingle, p2, racket);
     }
 
     // ---------- AI 管理 ----------
@@ -30,7 +30,10 @@ export class PVE extends Mag {
     public clearAIs(): void { this._aiList.length = 0; }
     public get aiList(): AIControl[] { return this._aiList; }
 
-    public setLocalCha(cha: Cha): void { this._localCha = cha; }
+    public setLocalCha(cha: Cha): void {
+        this._localCha = cha;
+        this.attachCamera(cha);  // 相机挂本地角色(修旧版硬编码 0 号)
+    }
     public get localCha(): Cha | null { return this._localCha; }
 
     /** 单机默认装配：把所有非本地角色挂上 AI */

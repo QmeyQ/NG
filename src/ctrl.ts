@@ -1,4 +1,4 @@
-import { Control } from "./badm/control";
+import { Control } from "./badm/sys/control";
 
 const { regClass, property, Browser } = Laya;
 
@@ -71,7 +71,7 @@ export class ctrl extends Laya.Script {
     //onEnable(): void {}
 
     onStart(): void {
-       var x = new Control(Laya.stage);
+       //var x = new Control(Laya.stage);
        
     }
 

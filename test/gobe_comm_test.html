@@ -27,6 +27,11 @@ button:disabled { opacity: 0.5; cursor: default; }
 </head>
 <body>
 <h3>GOBE sendToClient / onRecvFromClient 通信测试</h3>
+<div class="row" style="margin-bottom:10px">
+  <label>userid:</label><input id="gobeUserid" style="width:180px" placeholder="游戏内用户 id">
+  <label>key:</label><input id="gobeKey" style="width:300px" placeholder="游戏内登录密匙">
+  <span style="font-size:12px;color:#9cdcfe">Worker 代理换发 accessToken，明文 clientSecret 不再写在前端</span>
+</div>
 <div class="container">
   <div class="panel" id="panelA">
     <h2>客户端 A</h2>
@@ -90,8 +95,9 @@ button:disabled { opacity: 0.5; cursor: default; }
 <script>
 const CONFIG = {
   clientId: '1263859182919011264',
-  clientSecret: '8D99CCC71D57DD3DFF0F1C4EB5A800E527AB122C9580D781E6BEB18C917AE277',
-  appId: '172249065902748389'
+  appId: '172249065902748389',
+  tokenUrl: 'https://www.normalgame.cn/gobe/token',
+  accessToken: ''
 };
 const clients = { A: null, B: null };
 const rooms = { A: null, B: null };
@@ -107,15 +113,40 @@ function log(tag, cls, msg) {
   el.scrollTop = el.scrollHeight;
 }
 
-function initClient(tag) {
+async function initClient(tag) {
   const openId = document.getElementById('openId' + tag).value;
   log(tag, 'info', `初始化中... openId=${openId}`);
+
+  if (!CONFIG.accessToken) {
+    const userid = document.getElementById('gobeUserid').value.trim();
+    const key = document.getElementById('gobeKey').value.trim();
+    if (!userid || !key) { log(tag, 'err', '请先填写 userid/key（与游戏内账号一致）'); return; }
+    log(tag, 'info', '从 Worker 获取 accessToken...');
+    try {
+      const res = await fetch(CONFIG.tokenUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userid, key })
+      });
+      const json = await res.json().catch(() => null);
+      if (!json || json.code !== 0 || !json.token) {
+        log(tag, 'err', '获取 accessToken 失败: ' + ((json && json.msg) || ('HTTP ' + res.status)));
+        return;
+      }
+      CONFIG.accessToken = json.token;
+      log(tag, 'ok', 'accessToken 获取成功');
+    } catch (e) {
+      log(tag, 'err', '获取 accessToken 异常: ' + (e.message || e));
+      return;
+    }
+  }
+
   const gobeConfig = {
     appVersion: '0.0.0',
     clientId: CONFIG.clientId,
     openId: openId,
     appId: CONFIG.appId,
-    clientSecret: CONFIG.clientSecret
+    accessToken: CONFIG.accessToken
   };
   const client = new GOBE.Client(gobeConfig);
   client.init().then(() => {

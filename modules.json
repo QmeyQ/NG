@@ -1,0 +1,200 @@
+[
+  {
+    "id": "android",
+    "name": "Android Build Support",
+    "name:zh-CN": "Android 构建支持",
+    "category": "Platforms",
+    "dependencies": [
+      "openjdk",
+      "android-sdk",
+      "gradle"
+    ],
+    "downloadUrls": [
+      {
+        "url": "https://ldc-1251285021.file.myqcloud.com/layaair-modules/android-support-for-3.4.1.zip",
+        "installedSize": 617171508,
+        "downloadSize": 204030303
+      }
+    ]
+  },
+  {
+    "id": "ios",
+    "name": "iOS Build Support",
+    "name:zh-CN": "iOS 构建支持",
+    "category": "Platforms",
+    "downloadUrls": [
+      {
+        "url": "https://ldc-1251285021.file.myqcloud.com/layaair-modules/ios-support-for-3.4.1.zip",
+        "installedSize": 727068459,
+        "downloadSize": 244645196
+      }
+    ]
+  },
+  {
+    "id": "windows",
+    "name": "Windows Build Support",
+    "name:zh-CN": "Windows 构建支持",
+    "category": "Platforms",
+    "downloadUrls": [
+      {
+        "url": "https://ldc-1251285021.file.myqcloud.com/layaair-modules/windows-support-for-3.4.1.zip",
+        "installedSize": 497911698,
+        "downloadSize": 158950350
+      }
+    ]
+  },
+  {
+    "id": "linux",
+    "name": "Linux Build Support",
+    "name:zh-CN": "Linux 构建支持",
+    "category": "Platforms",
+    "downloadUrls": [
+      {
+        "url": "https://ldc-1251285021.file.myqcloud.com/layaair-modules/linux-support-for-3.4.1.zip",
+        "installedSize": 51127452,
+        "downloadSize": 19042145
+      }
+    ]
+  },
+  {
+    "id": "harmony",
+    "name": "HarmonyOS NEXT Build Support",
+    "name:zh-CN": "鸿蒙NEXT 构建支持",
+    "category": "Platforms",
+    "downloadUrls": [
+      {
+        "url": "https://ldc-1251285021.file.myqcloud.com/layaair-modules/harmony-support-for-3.4.1.zip",
+        "installedSize": 96690277,
+        "downloadSize": 45969511
+      }
+    ]
+  },
+  {
+    "id": "laya-native-player",
+    "visible": false,
+    "web": "https://www.layabox.com/layanative3.0/scanner/v3.4.1/index.html"
+  },
+  {
+    "id": "android-sdk",
+    "name": "Android SDK & NDK Tools",
+    "category": "Dev tools",
+    "visible": false,
+    "downloadUrls": [
+      {
+        "url": "https://ldc-1251285021.file.myqcloud.com/layaair-modules/android-sdk-tools-35.0.0-darwin.zip",
+        "destination": "sdk",
+        "platform": "darwin",
+        "installedSize": 504320000,
+        "downloadSize": 329491611
+      },
+      {
+        "url": "https://ldc-1251285021.file.myqcloud.com/layaair-modules/android-sdk-tools-35.0.0-win32-x64.zip",
+        "destination": "sdk",
+        "platform": "win32",
+        "arch": "x64",
+        "installedSize": 316751872,
+        "downloadSize": 203092259
+      },
+      {
+        "url": "https://ldc-1251285021.file.myqcloud.com/layaair-modules/android-sdk-tools-35.0.0-linux-x64.zip",
+        "destination": "sdk",
+        "platform": "linux",
+        "arch": "x64",
+        "installedSize": 153628672,
+        "downloadSize": 60502694
+      },
+      {
+        "url": "https://ldc-1251285021.file.myqcloud.com/layaair-modules/android-sdk-platforms-36.zip",
+        "destination": "sdk/platforms/android-36",
+        "installedSize": 141144064,
+        "downloadSize": 73107507
+      }
+    ]
+  },
+  {
+    "id": "gradle",
+    "name": "Gradle Build Tool",
+    "name:zh-CN": "Gradle 构建工具",
+    "category": "Dev tools",
+    "visible": false,
+    "downloadUrls": [
+      {
+        "url": "https://ldc-1251285021.file.myqcloud.com/layaair-modules/gradle-9.0.zip",
+        "installedSize": 382312448,
+        "downloadSize": 340931050
+      }
+    ]
+  },
+  {
+    "id": "openjdk",
+    "name": "OpenJDK",
+    "category": "Dev tools",
+    "visible": false,
+    "downloadUrls": [
+      {
+        "url": "https://ldc-1251285021.file.myqcloud.com/layaair-modules/openjdk-17-darwin-arm64.zip",
+        "platform": "darwin",
+        "arch": "arm64",
+        "installedSize": 313511936,
+        "downloadSize": 182494588
+      },
+      {
+        "url": "https://ldc-1251285021.file.myqcloud.com/layaair-modules/openjdk-17-darwin-x64.zip",
+        "platform": "darwin",
+        "arch": "x64",
+        "installedSize": 315482112,
+        "downloadSize": 184769393
+      },
+      {
+        "url": "https://ldc-1251285021.file.myqcloud.com/layaair-modules/openjdk-17-win32-x64.zip",
+        "platform": "win32",
+        "arch": "x64",
+        "installedSize": 310304768,
+        "downloadSize": 182986029
+      },
+      {
+        "url": "https://ldc-1251285021.file.myqcloud.com/layaair-modules/openjdk-17-linux-x64.zip",
+        "platform": "linux",
+        "arch": "x64",
+        "installedSize": 330911744,
+        "downloadSize": 193111359
+      }
+    ]
+  },
+  {
+    "id": "bake-scene",
+    "name": "Bake Scene Tool",
+    "name:zh-CN": "场景烘焙工具",
+    "category": "Dev tools",
+    "downloadUrls": [
+      {
+        "url": "https://ldc-1251285021.file.myqcloud.com/layaair-modules/cycles-darwin-arm64.zip",
+        "platform": "darwin",
+        "arch": "arm64",
+        "installedSize": 183328768,
+        "downloadSize": 79444396
+      },
+      {
+        "url": "https://ldc-1251285021.file.myqcloud.com/layaair-modules/cycles-darwin-x64.zip",
+        "platform": "darwin",
+        "arch": "x64",
+        "installedSize": 214454272,
+        "downloadSize": 87787451
+      },
+      {
+        "url": "https://ldc-1251285021.file.myqcloud.com/layaair-modules/cycles-win32-x64.zip",
+        "platform": "win32",
+        "arch": "x64",
+        "installedSize": 311091200,
+        "downloadSize": 120561634
+      },
+      {
+        "url": "https://ldc-1251285021.file.myqcloud.com/layaair-modules/cycles-linux-x64.zip",
+        "platform": "linux",
+        "arch": "x64",
+        "installedSize": 229240832,
+        "downloadSize": 100301707
+      }
+    ]
+  }
+]

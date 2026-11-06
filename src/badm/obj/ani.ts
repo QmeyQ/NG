@@ -22,12 +22,11 @@ export class Ani {
     private _owner: Laya.Sprite3D;
     private _anim: Laya.Animator;
     public _rootBone: Laya.Transform3D | null = null;
-    private _rootOffset: Laya.Vector3 = new Laya.Vector3(); // 根骨骼相对于 owner 的初始偏移
-    private _lastRootPos: Laya.Vector3 = new Laya.Vector3(); // 上一帧根骨骼的世界位置
+
     private boneNode: Laya.Sprite3D | null = null; // 根骨骼节点
 
     /** 是否启用根运动（可直接修改） */
-    public rootMotion: boolean = false;
+    public rootMotion: boolean = true;
 
     // 动画播放相关
     private _speed: number = 1.0;
@@ -51,8 +50,7 @@ export class Ani {
             this._anim.addControllerLayer(layer);
         }
         this._findRootBone(rootBoneName);
-        this._calcRootOffset();
-        this._recordRootPosition();
+
         // console.log(`[Ani] 根骨骼节点: ${this.boneNode}`);
     }
 
@@ -82,49 +80,43 @@ export class Ani {
     }
 
 
-    /** 记录当前根骨骼位置（用于计算增量） */
-    private _recordRootPosition(): void {
-        if (this._rootBone) {
-            this._rootBone.position.cloneTo(this._lastRootPos);
-        } else {
-            this._owner.transform.position.cloneTo(this._lastRootPos);
-        }
-    }
-    /** 计算根骨骼的初始局部位置（用于根运动抵消） */
-    private _calcRootOffset(): void {
-        if (this._rootBone) {
-            this._rootOffset.x = this._rootBone.localPosition.x;
-            this._rootOffset.y = this._rootBone.localPosition.y; // 【修改点】记录真实的 Y 轴，不再强制为 0
-            this._rootOffset.z = this._rootBone.localPosition.z;
-            //console.log(`[Ani] 根骨骼初始局部位置: ${this._rootOffset}`);
-        } else {
-            this._rootOffset.setValue(0, 0, 0);
-        }
-    }
 
     /**
-     * 每帧更新（处理根运动）
-     * - 在世界坐标系下锁定 X 和 Z 位移，彻底抵消动画造成的水平滑步。
-     * - 保留世界坐标系下的 Y 位移，确保跳跃、下蹲等高度变化不受骨骼旋转影响。
+     * 每帧更新（处理根运动，需外部每帧调用——cha.update 开头已接）。
+     * 【用户规格 2026-10-25】根骨骼(Hips)世界位置对齐角色(owner)位置：
+     * - XZ(水平)对齐 owner 世界位置(cha.x/z 同源) —— 动画根位移/漂移被完全抵消,
+     *   且不再依赖"初始局部偏移×父矩阵"(旧 expectedWorldPos 在换边/重定位后基准过期)
+     * - Y(高度)保留动画原生值 —— 跳跃/下蹲高度变化不受影响
      */
     public update(): void {
         if (!this.rootMotion || !this._anim || !this._rootBone || !this.boneNode.parent) return;
 
-        // 1. 计算如果没有动画位移时，根骨骼当前应该处于的【世界坐标】
-        // 使用初始的局部偏移量，乘以父节点的当前世界矩阵
-        const parentMat = (this.boneNode.parent as Laya.Sprite3D).transform.worldMatrix;
-        const expectedWorldPos = new Laya.Vector3();
-        Laya.Vector3.transformCoordinate(this._rootOffset, parentMat, expectedWorldPos);
+        const parentNode = this.boneNode.parent as Laya.Sprite3D;
+        const parentMat = parentNode.transform.worldMatrix;
 
-        // // 2. 获取当前根骨骼被 Animator 驱动后的实际【世界坐标】
-        const currentWorldPos = this._rootBone.position;
+        // 1. 根骨骼被 Animator 驱动后的【实际世界坐标】
+        // 技巧：用原点 (0,0,0) 乘骨骼自身的世界矩阵，提取出的就是它真实的绝对世界坐标
+        const currentWorldPos = new Laya.Vector3();
+        Laya.Vector3.transformCoordinate(new Laya.Vector3(0, 0, 0), this.boneNode.transform.worldMatrix, currentWorldPos);
 
-        // // 3. 拼接新的世界坐标：锁定 X 和 Z，保留 Y
-        this._rootBone.position = new Laya.Vector3(
-            expectedWorldPos.x, 
-            currentWorldPos.y, 
-            expectedWorldPos.z
+        // 2. 目标世界坐标: XZ 对齐角色位置(owner, cha.x/z 同源), Y 保留动画原生高度
+        const ownerPos = this._owner.transform.position;
+        const targetWorldPos = new Laya.Vector3(
+            ownerPos.x,
+            currentWorldPos.y,
+            ownerPos.z
         );
+
+        // 3. 世界→局部: 父节点逆矩阵把目标世界坐标拉回骨骼局部空间
+        const invParentMat = new Laya.Matrix4x4();
+        parentMat.cloneTo(invParentMat);
+        invParentMat.invert(invParentMat);
+
+        const targetLocalPos = new Laya.Vector3();
+        Laya.Vector3.transformCoordinate(targetWorldPos, invParentMat, targetLocalPos);
+
+        // 4. 赋值局部坐标完成对齐
+        this._rootBone.localPosition = targetLocalPos;
     }
     // ---------- 动画播放控制 ----------
     private _stateReady(stateName: string): boolean {
@@ -218,8 +210,72 @@ export class Ani {
         return states;
     }
 
+    /**
+     * 项目角色动画的固定状态表。核心状态 ID 不依赖 Laya 私有字段的枚举顺序，
+     * 即使某些版本无法枚举 Animator._controllerLayers，也能保持各端 ID 一致。
+     */
+    private _getStableStateNames(): string[] {
+        const coreNames = [
+            "stand",
+            "up", "up_right", "right", "down_right", "down", "down_left", "left", "up_left",
+            "lhit", "rhit", "lhighhit", "rhighhit", "llowhit", "rlowhit",
+            "jumphit", "diving"
+        ];
+        const known = new Set(coreNames);
+        // 额外 Animator 状态追加在固定核心列表之后；同一角色资源需在所有客户端保持一致。
+        const extras = Array.from(new Set(this.gets().filter((name) => typeof name === "string" && !!name && !known.has(name))))
+            .sort((a, b) => a.localeCompare(b));
+        return coreNames.concat(extras);
+    }
+
+    /** 当前动画状态 ID；ID 只标识动画类型，不包含播放进度。 */
+    get currentStateId(): number {
+        const state = this.currentState;
+        if (!state) return -1;
+        return this._getStableStateNames().indexOf(state);
+    }
+
+    /** 将离散状态 ID 解析为动画名；无效 ID 返回 null。 */
+    getStateNameById(stateId: number): string | null {
+        if (!Number.isInteger(stateId) || stateId < 0) return null;
+        const names = this._getStableStateNames();
+        return stateId < names.length ? names[stateId] : null;
+    }
+
+    /** 应用离散动画状态：只有状态不同才切换，绝不校准/重置动画进度。 */
+    syncStateById(stateId: number, fade: number = 0.05): boolean {
+        const stateName = this.getStateNameById(stateId);
+        if (!stateName || !this._stateReady(stateName)) return false;
+        if (this.currentState !== stateName) {
+            this._frozen = false;
+            this._paused = false;
+            this._anim.crossFade(stateName, Math.max(0, fade), 0, 0);
+            this._anim.speed = this._speed;
+        }
+        return true;
+    }
+
+    /** 兼容旧调用：只按动画名称切换，不再同步 normalizedTime、速度或冻结状态。 */
+    syncState(stateName: string, _speed: number = 1, _normalizedTime?: number, _frozen?: boolean): void {
+        if (!stateName || !this._stateReady(stateName)) return;
+        if (this.currentState !== stateName) {
+            this._frozen = false;
+            this._paused = false;
+            this._anim.crossFade(stateName, 0.05, 0, 0);
+            this._anim.speed = this._speed;
+        }
+    }
+
+    get currentSpeed(): number { return this._speed; }
+    get isFrozen(): boolean { return this._frozen; }
+    get isPaused(): boolean { return this._paused; }
+
     get currentState(): string | null {
-        const info = this._anim.getCurrentAnimatorPlayState(0);
-        return info ? info.animatorState.name : null;
+        try {
+            const info: any = this._anim?.getCurrentAnimatorPlayState(0);
+            return info?.animatorState?.name ?? null;
+        } catch (_) {
+            return null;
+        }
     }
 }

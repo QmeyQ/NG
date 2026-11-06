@@ -4,6 +4,8 @@
  * - now(): number                                         获取可靠时间戳(不受系统时间篡改影响)
  * - start(label?: string): string                         开始/重新指定标记计时，返回标签
  * - invoke(label: string = '0'): number                   获取指定标记距离开始的间隔毫秒数
+ * - has(label: string): boolean                           标记是否已起表(invoke 未起表会自起并返回 -1)
+ * - setMark(label: string, startAt: number): void         显式写入标记起点(跨端时钟对齐用)
  * - setTimeout(ms: number, func: Function): string        设置抗篡改超时定时器
  * - setInterval(ms: number, func: Function): string       设置抗篡改间隔定时器
  * - clear(id: string): void                               清除指定ID的定时器
@@ -106,9 +108,23 @@ export class Timer {
         Timer.init();
         if (Timer.marks[label] === undefined) {
             Timer.start(label);
-            return 1;
+            return -1;
         }
         return Timer.now() - Timer.marks[label];
+    }
+
+    /**
+     * 标记是否已起表。invoke 对未起表的键会【自起并返回 -1】, 调用方把 -1 当成"已过时长"
+     * 就会算出比上限还长的剩余时间(PVP 非权威端升格权威后的发球冻结即此坑)。
+     */
+    static has(label: string): boolean {
+        return Timer.marks[label] !== undefined;
+    }
+
+    /** 显式写入标记起点(PVP: 权威端是唯一时钟源, 非权威端把本地标记对齐到权威算出的起点) */
+    static setMark(label: string, startAt: number): void {
+        Timer.init();
+        Timer.marks[label] = startAt;
     }
 
     // ==================== 定时器 ====================
@@ -146,11 +162,17 @@ export class Timer {
             if (!Timer.timers.has(id)) return;
             if (Timer.now() >= target) {
                 func();
+                // func 内可能自杀(回调里 Timer.clear 本 id——鹰眼窗口提示 _stopEagleTip 形态):
+                // has 通过后 get 仍可能 undefined, 裸写 .target 即 Uncaught TypeError 卡死
+                const rec = Timer.timers.get(id);
+                if (!rec) return;
                 target = Timer.now() + ms;
-                Timer.timers.get(id).target = target;
+                rec.target = target;
             }
+            const rec2 = Timer.timers.get(id);
+            if (!rec2) return;
             const next = Math.min(100, target - Timer.now());
-            Timer.timers.get(id).handle = Laya.timer.once(next, null, check);
+            rec2.handle = Laya.timer.once(next, null, check);
         };
 
         Timer.timers.set(id, {
@@ -161,6 +183,14 @@ export class Timer {
             handle: Laya.timer.once(Math.min(ms, 100), null, check)
         });
         return id;
+    }
+
+    /**
+     * 帧循环平替(引擎 frameLoop 的 Timer 版): 每渲染帧回调, 返回 id 供 clear。
+     * 实现 = setInterval(16ms)(≈60fps) 走 Timer 自身抗篡改时基驱动, 不直接依赖 Laya.timer.frameLoop。
+     */
+    static frameLoop(func: Function): string {
+        return Timer.setInterval(16, func);
     }
 
     static clear(id: string): void {

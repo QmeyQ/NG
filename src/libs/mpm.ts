@@ -8,6 +8,9 @@
  * 提供 info() 返回总对象数和使用的层级数
  */
 export class MPMD {
+    /** 无坐标对象(带 layout)的层内专用桶键——坐标查询 cellKey 为 "cx,cy" 数字格式不冲突 */
+    public static readonly NOCOORD = "__nocoord";
+
     /** 网格基础大小（像素） */
     private gridSize: number;
 
@@ -67,9 +70,16 @@ export class MPMD {
             this.gridMap.set(layoutKey, new Map<string, Set<any>>());
         }
 
-        // 如果有坐标，添加到空间索引
         if (obj.x !== undefined && obj.y !== undefined) {
+            // 有坐标：添加到空间索引
             this._addToSpatialIndex(obj, layoutKey);
+        } else {
+            // 无坐标对象(带 layout, 如 addByTime 存的物理 State——只有 pos/vel 无 x/y):
+            // 旧版两分支都不进被静默丢弃 = map 恒空(鹰眼快照 null 根因)——存层内 __nocoord 桶,
+            // _getByLayout/_getAllObjects/del 遍历全 cell 天然兼容; 坐标查询 cellKey 是 "cx,cy" 数字格式不冲突
+            const lg = this.gridMap.get(layoutKey)!;
+            if (!lg.has(MPMD.NOCOORD)) lg.set(MPMD.NOCOORD, new Set<any>());
+            lg.get(MPMD.NOCOORD)!.add(obj);
         }
     }
 
@@ -115,18 +125,15 @@ export class MPMD {
      * @param layout 筛选层级（可选，仅在区域查询时有效）
      * @returns 匹配的对象集合
      */
-    get(rectOrLayout?: [number, number, number, number] | any, layout?: any): Set<any> {
+    get(rectOrLayout?: [number, number, 1, 1] | any, layout?: any): Set<any> {
         let result: Set<any> = new Set<any>();
 
         if (Array.isArray(rectOrLayout)) {
             // 情况1：区域查询
-            if (rectOrLayout.length !== 4) {
-                throw new Error("区域参数必须为[x, y, ex, ey]格式的数组");
+            if (rectOrLayout.length !== 4 && rectOrLayout.length !== 2) {
+                    throw new Error("区域参数必须为[x, y, w, h]格式的数组");
             }
-            const [x, y, ex, ey] = rectOrLayout;
-            const width: number = ex - x;
-            const height: number = ey - y;
-            this._queryArea(x, y, width, height, result, layout);
+            this._queryArea(rectOrLayout[0], rectOrLayout[1], rectOrLayout[2], rectOrLayout[3], result, layout);
         } else if (rectOrLayout !== undefined) {
             // 情况2：获取指定层级所有对象
             result = this._getByLayout(rectOrLayout);
@@ -193,20 +200,24 @@ export class MPMD {
             // 按原层级分组重建（保留原有 layout 属性）
             const layoutGroups = new Map<string, Set<any>>();
             allObjects.forEach(obj => {
-                if (obj.x !== undefined && obj.y !== undefined) {
-                    const lay = String(obj.layout ?? 0);
-                    if (!layoutGroups.has(lay)) {
-                        layoutGroups.set(lay, new Set());
-                    }
-                    layoutGroups.get(lay)!.add(obj);
+                const lay = String(obj.layout ?? 0);
+                if (!layoutGroups.has(lay)) {
+                    layoutGroups.set(lay, new Set());
                 }
-                // 全局对象（无坐标）不加入网格，保留在 globalObjects 中
+                layoutGroups.get(lay)!.add(obj);
             });
-            // 重建每个层级
+            // 重建每个层级(有坐标进空间索引, 无坐标进 __nocoord 桶——旧重建只收有坐标的会丢状态对象)
             for (const [lay, set] of layoutGroups) {
                 const layoutGrid = new Map<string, Set<any>>();
                 this.gridMap.set(lay, layoutGrid);
-                set.forEach(obj => this._addToSpatialIndex(obj, lay));
+                set.forEach(obj => {
+                    if (obj.x !== undefined && obj.y !== undefined) {
+                        this._addToSpatialIndex(obj, lay);
+                    } else {
+                        if (!layoutGrid.has(MPMD.NOCOORD)) layoutGrid.set(MPMD.NOCOORD, new Set<any>());
+                        layoutGrid.get(MPMD.NOCOORD)!.add(obj);
+                    }
+                });
             }
         }
 
@@ -257,8 +268,10 @@ export class MPMD {
         };
     }
 
-    getTC(){
-        return this.gridMap.size * this.gridSize - this.gridSize + this.gridMap.keys.length == 0 ? 0 : this.gridMap.get((this.gridMap.keys as any)[this.gridMap.keys.length - 1])?.size;
+    /** 缓存对象总数(全局+各层所有桶)——旧版运算符优先级烂+Map.keys()当数组用恒 undefined,
+     *  simTo 的 "getTC() < maxCache" 恒 false 致模拟缓存从不累积(修复: 直接复用 info().total) */
+    getTC(): number {
+        return this.info().total;
     }
     /**
      * 优化存储（清理空单元格）
@@ -447,14 +460,26 @@ export class MPM {
         });
     }
 
+    /**
+     * 移除事件回调
+     * - 无 event：清空全部
+     * - 有 event 无 cb：移除该事件全部回调
+     * - 有 event 有 cb：移除该回调
+     */
     off(event?: string, cb?: Function): void {
-        if(!event)
+        if (event === undefined) {
             this._handlers.clear();
-        const set = this._handlers.get(event);
-        if(cb)
-            if (set) set.delete(cb);
-        else
+            return;
+        }
+        if (cb === undefined) {
             this._handlers.delete(event);
+            return;
+        }
+        const set = this._handlers.get(event);
+        if (set) {
+            set.delete(cb);
+            if (set.size === 0) this._handlers.delete(event);
+        }
     }
 
     /**

@@ -1,0 +1,360 @@
+{
+  "_$ver": 1,
+  "_$id": "oneg1kce",
+  "_$type": "GBox",
+  "name": "Root",
+  "width": 400,
+  "height": 400,
+  "anchorX": 0.5,
+  "anchorY": 0.5,
+  "mouseThrough": true,
+  "_$child": [
+    {
+      "_$id": "5j08xcar",
+      "_$type": "GImage",
+      "name": "img",
+      "x": 1,
+      "y": 87,
+      "width": 394,
+      "height": 239,
+      "relations": [
+        {
+          "_$type": "Relation",
+          "target": {
+            "_$ref": "oneg1kce"
+          },
+          "data": [
+            6,
+            0,
+            13,
+            0
+          ]
+        }
+      ],
+      "src": "res://171b85fa-3b10-4dd9-a9b7-af430e2189da"
+    },
+    {
+      "_$id": "wdsn1sko",
+      "_$prefab": "b0c7f4b6-9a33-4cd8-897e-4888efe760fe",
+      "name": "btn",
+      "active": true,
+      "x": 286,
+      "y": 115,
+      "width": 45,
+      "height": 25,
+      "visible": true,
+      "relations": [
+        {
+          "_$type": "Relation",
+          "target": {
+            "_$ref": "5j08xcar"
+          },
+          "data": [
+            1,
+            1,
+            2,
+            1,
+            9,
+            1,
+            10,
+            1
+          ]
+        }
+      ],
+      "_$child": [
+        {
+          "_$override": "ug1dmopr",
+          "src": "",
+          "height": 4,
+          "width": 0,
+          "y": 0,
+          "x": 0
+        },
+        {
+          "_$override": "asxzquct",
+          "src": "",
+          "alpha": 0.5,
+          "background": {
+            "_$type": "DrawCircleCmd",
+            "x": 0.5,
+            "y": 0.5,
+            "radius": 0.5,
+            "percent": true,
+            "lineWidth": 15,
+            "lineColor": "#d5d5d5",
+            "fillColor": "#ffffff"
+          }
+        },
+        {
+          "_$override": "syt0gdq4",
+          "src": "",
+          "background": {
+            "_$type": "DrawCircleCmd",
+            "x": 0.5,
+            "y": 0.5,
+            "radius": 0.5,
+            "percent": true,
+            "lineWidth": 15,
+            "lineColor": "#515151",
+            "fillColor": "#414141"
+          },
+          "alpha": 0.5
+        },
+        {
+          "_$override": "kahpmowa",
+          "visible": false
+        }
+      ]
+    },
+    {
+      "_$id": "wf6w4qru",
+      "_$type": "GTextField",
+      "name": "label",
+      "x": 158,
+      "y": 116,
+      "width": 68,
+      "height": 27,
+      "relations": [
+        {
+          "_$type": "Relation",
+          "target": {
+            "_$ref": "5j08xcar"
+          },
+          "data": [
+            1,
+            1,
+            2,
+            1,
+            6,
+            1,
+            10,
+            1
+          ]
+        }
+      ],
+      "text": "L",
+      "font": "STXinwei",
+      "fontSize": 20,
+      "align": "center",
+      "valign": "middle"
+    },
+    {
+      "_$id": "6m1f91b6",
+      "_$type": "GImage",
+      "name": "ok",
+      "x": 146,
+      "y": 311,
+      "width": 246,
+      "height": 123,
+      "scaleX": 0.3,
+      "scaleY": 0.3,
+      "relations": [
+        {
+          "_$type": "Relation",
+          "target": {
+            "_$ref": "5j08xcar"
+          },
+          "data": [
+            6,
+            0,
+            12,
+            1
+          ]
+        }
+      ],
+      "src": "res://1980ab1f-a3f5-4469-9f2c-dd491a862b00"
+    },
+    {
+      "_$id": "l7heuxk4",
+      "_$type": "GPanel",
+      "name": "panel",
+      "x": 54,
+      "y": 148,
+      "width": 229,
+      "height": 125,
+      "mouseThrough": true,
+      "scroller": {
+        "_$type": "Scroller",
+        "barDisplay": 3,
+        "barFloating": true
+      },
+      "_$child": [
+        {
+          "_$id": "bhedihlj",
+          "_$type": "GTextField",
+          "name": "txt",
+          "width": 227,
+          "height": 27,
+          "relations": [
+            {
+              "_$type": "Relation",
+              "target": {
+                "_$ref": "l7heuxk4"
+              },
+              "data": [
+                1,
+                0,
+                3,
+                0,
+                20,
+                0
+              ]
+            }
+          ],
+          "text": "1111111",
+          "font": "STXinwei",
+          "fontSize": 20,
+          "fitContent": 2,
+          "html": true
+        },
+        {
+          "_$id": "t2v0qh65",
+          "_$type": "GTextInput",
+          "name": "inp",
+          "width": 230,
+          "height": 124,
+          "visible": false,
+          "relations": [
+            {
+              "_$type": "Relation",
+              "target": {
+                "_$ref": "l7heuxk4"
+              },
+              "data": [
+                1,
+                0,
+                3,
+                0,
+                20,
+                0
+              ]
+            }
+          ],
+          "text": "text",
+          "font": "STXinwei",
+          "fontSize": 20,
+          "valign": "top"
+        }
+      ]
+    },
+    {
+      "_$id": "gxz1q31v",
+      "_$var": true,
+      "_$type": "GList",
+      "name": "gList",
+      "x": 49,
+      "y": 144,
+      "width": 238,
+      "height": 127,
+      "visible": false,
+      "zIndex": 1,
+      "relations": [
+        {
+          "_$type": "Relation",
+          "target": {
+            "_$ref": "5j08xcar"
+          },
+          "data": [
+            1,
+            1,
+            2,
+            1,
+            3,
+            1,
+            10,
+            1,
+            20,
+            1
+          ]
+        }
+      ],
+      "layout": {
+        "type": 3,
+        "rowGap": 10,
+        "columnGap": 10
+      },
+      "scroller": {
+        "_$type": "Scroller",
+        "barDisplay": 3,
+        "barFloating": true
+      },
+      "_templateNode": {
+        "_$ref": "czvrn6ru",
+        "_$tmpl": "itemTemplate"
+      },
+      "_initItemNum": 35,
+      "_$child": [
+        {
+          "_$id": "czvrn6ru",
+          "_$type": "GBox",
+          "name": "box",
+          "width": 72,
+          "height": 72,
+          "zIndex": 1,
+          "relations": [
+            {
+              "_$type": "Relation",
+              "target": {
+                "_$ref": "gxz1q31v"
+              },
+              "data": [
+                1,
+                1,
+                2,
+                1,
+                3,
+                1,
+                10,
+                1
+              ]
+            }
+          ],
+          "_$child": [
+            {
+              "_$id": "nsbejj5z",
+              "_$type": "Sprite",
+              "name": "Sprite",
+              "x": 7,
+              "y": 4,
+              "width": 67,
+              "height": 66,
+              "zIndex": 1
+            },
+            {
+              "_$id": "6rtc8ibj",
+              "_$type": "GTextField",
+              "name": "t",
+              "x": 48,
+              "y": 46,
+              "width": 23,
+              "height": 27,
+              "zIndex": 2,
+              "relations": [
+                {
+                  "_$type": "Relation",
+                  "target": {
+                    "_$ref": "czvrn6ru"
+                  },
+                  "data": [
+                    1,
+                    1,
+                    2,
+                    1,
+                    9,
+                    0,
+                    16,
+                    0
+                  ]
+                }
+              ],
+              "text": "x1",
+              "font": "STXinwei",
+              "fontSize": 20,
+              "html": true
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -8,5 +8,6 @@
     "Layer4",
     "Layer5"
   ],
+  "liveServerHost": "127.0.0.1",
   "protectSourcemap": false
 }

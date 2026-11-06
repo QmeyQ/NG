@@ -8,6 +8,7 @@ import { Ball } from "../obj/ball";
 import { Timer } from "../../libs/time";
 import { Mag, MatchPhase, TeamSide, MatchMode } from "../mag/mag";
 import { PVE } from "../mag/pve";
+import { PIDCtrl } from "../../libs/MT";
 
 /** AI 难度系数枚举，值越大 AI 越强 */
 export enum AIDifficulty {
@@ -44,12 +45,25 @@ export class AIControl {
     /** 上次调试日志时间，用于限频 */
     private _lastDebugLog: number = 0;
 
+    // ===== 微积分自纠错(MT.PIDCtrl): 击球落点 vs 目标点的误差反馈闭环 =====
+    /** 力度控制器: 误差=落点在击球方向上的打短量(米, 正=需加力), 输出=power 增量 */
+    private _pwCtrl = new PIDCtrl(2.5, 0.6, 1.0, 25, 40);
+    /** 方向控制器: 误差=落点横向偏左量换算角度(度, 正=需往右修), 输出=angH 增量(度) */
+    private _angCtrl = new PIDCtrl(0.8, 0.2, 0.4, 12, 20);
+    /** 待评估击球(击球时记录, 球落地时消费): 目标点/击球方向/右向基/时刻 */
+    private _pending: { tx: number; tz: number; dx: number; dz: number; rx: number; rz: number; t: number } | null = null;
+
     /** 击球冷却时间（毫秒），两次击球之间的最小间隔 */
     public hitCooldown: number = 300;
     /** 移动速度功率（0~1），传给 cha.move 的 power 参数 */
     public moveSpeed: number = 1.0;
     /** 目标击球高度（米），AI 尝试在球降到此高度时击球 */
     public targetHitHeight: number = 1.2;
+
+    /** 上次触发特殊动作的时刻(ms), 用于冷却 */
+private _lastSpecialTime = 0;
+/** 特殊动作冷却(ms): 避免 AI 每帧都尝试跳杀/鱼跃 */
+public specialCooldown: number = 3000;
 
     /** 获取 AI 控制的角色实例 */
     get cha(): Cha { return this._cha; }
@@ -68,6 +82,39 @@ export class AIControl {
         this._difficulty = difficulty;
         this._team = this._mag.getTeam(this._cha) ?? null;
 
+        // 微积分自纠错数据源: 我方击球后的落点事件(rule 结算同链)——
+        // 对方接住未落地则 pending 悬置至下次击球作废, 无落地样本不纠错
+        this._ball.on('groundHit', (pos: { x: number; y: number; z: number }) => this._onAIGroundHit(pos));
+        // 对方击球 → 我方上次击球的落点样本作废(之后的落点是对方击球的, 误用会反向污染 PID)
+        this._ball.on('hit', (info: { hitterId: number }) => {
+            if (info.hitterId !== this._cha.id) this._pending = null;
+        });
+    }
+
+    /**
+     * 落点误差反馈(微积分闭环核心):
+     * - 纵向误差(沿击球方向投影) → 力度 PID: 打短为负 → feed(-err) 正=加力
+     * - 横向误差(右向基投影) → 方向 PID: 偏右为正 → 需往左修 → feed(-θ), θ=atan(横向/击球距离)
+     * dt = 击球到落地时长(s); 对方中途接住(球未落)不触发本回调, 样本自然跳过
+     */
+    private _onAIGroundHit(pos: { x: number; y: number; z: number }): void {
+        const p = this._pending;
+        if (!p) return;
+        this._pending = null;
+
+        const dx = pos.x - p.tx;
+        const dz = pos.z - p.tz;
+        // 纵向: 落点超过目标(打长)为正 → 需减力 → 误差取负
+        const along = dx * p.dx + dz * p.dz;
+        // 横向: 落点偏击球方向右侧为正 → 需往左修(angH 减小) → 误差取负
+        const lateral = dx * p.rx + dz * p.rz;
+        // 横向偏差换算目标修正角(小角近似 atan, 击球距离做分母防除零)
+        const hitDist = Math.max(Math.hypot(p.tx - this._cha.x, p.tz - this._cha.z), 0.5);
+        const latAng = lateral / hitDist * 57.3;
+
+        const dt = Math.max((Timer.now() - p.t) / 1000, 0.1);
+        this._pwCtrl.feed(-along, dt);
+        this._angCtrl.feed(-latAng, dt);
     }
 
     /**
@@ -249,6 +296,11 @@ export class AIControl {
         if (this._mag.mode === MatchMode.DOUBLE) {
             const teammates = this._mag.getTeamPlayers(this._team).filter(p => p !== this._cha);
             if (teammates.length > 0) teammate = teammates[0];
+        }
+
+        // ★ AI 特殊接球判断（跳杀/鱼跃）：优先于普通击球，由 mag 位置补偿接管追球
+        if (this._trySpecialReceive()) {
+            return;
         }
 
         const isHittable = futureY < 8.0 && futureY > -2.0;
@@ -435,8 +487,8 @@ export class AIControl {
             this._lastDebugLog = now;
             const ballPos = this._ball.pos;
             const distXZ = Math.sqrt((this._cha.x - ballPos.x) ** 2 + (this._cha.z - ballPos.z) ** 2);
-            console.log(`%c[AI:${this._cha.id}] ${msg}
-  AI=(${this._cha.x.toFixed(2)},${this._cha.y.toFixed(2)},${this._cha.z.toFixed(2)}) 球=(${ballPos.x.toFixed(2)},${ballPos.y.toFixed(2)},${ballPos.z.toFixed(2)}) distXZ=${distXZ.toFixed(2)}`, "color: #FFA500;");
+//             console.log(`%c[AI:${this._cha.id}] ${msg}
+//   AI=(${this._cha.x.toFixed(2)},${this._cha.y.toFixed(2)},${this._cha.z.toFixed(2)}) 球=(${ballPos.x.toFixed(2)},${ballPos.y.toFixed(2)},${ballPos.z.toFixed(2)}) distXZ=${distXZ.toFixed(2)}`, "color: #FFA500;");
         }
     }
 
@@ -452,21 +504,21 @@ export class AIControl {
         if (this._cha.state === ChaState.IDLE || this._cha.state === ChaState.MOVE) {
             this._cha.move(0, -1);
             const stroke = this._calcRallyStroke();
-            console.log(`%c[AI:${this._cha.id}] 执行击球! state=${this._cha.state} power=${stroke.power.toFixed(0)}
-  球位置=(${ballPos.x.toFixed(2)},${ballPos.y.toFixed(2)},${ballPos.z.toFixed(2)})
-  AI位置=(${this._cha.x.toFixed(2)},${this._cha.y.toFixed(2)},${this._cha.z.toFixed(2)})
-  球距离=${dist.toFixed(2)} hitRange=${this._cha.hitRange} upTime=${this._cha.upTime}`, "color: #00FF00; font-weight:bold;");
+//             console.log(`%c[AI:${this._cha.id}] 执行击球! state=${this._cha.state} power=${stroke.power.toFixed(0)}
+//   球位置=(${ballPos.x.toFixed(2)},${ballPos.y.toFixed(2)},${ballPos.z.toFixed(2)})
+//   AI位置=(${this._cha.x.toFixed(2)},${this._cha.y.toFixed(2)},${this._cha.z.toFixed(2)})
+//   球距离=${dist.toFixed(2)} hitRange=${this._cha.hitRange} upTime=${this._cha.upTime}`, "color: #00FF00; font-weight:bold;");
             this._mag.hit(stroke, this._cha);
             this._lastHitTime = now;
             Timer.setTimeout(200, () => {
-                console.log("执行击球：：：：：")
+                // console.log("执行击球：：：：：")
                 this._mag.hit(undefined, this._cha);
             })
         } else {
-            console.log(`%c[AI:${this._cha.id}] 无法击球: state=${this._cha.state} (非IDLE/MOVE)
-  球位置=(${ballPos.x.toFixed(2)},${ballPos.y.toFixed(2)},${ballPos.z.toFixed(2)})
-  AI位置=(${this._cha.x.toFixed(2)},${this._cha.y.toFixed(2)},${this._cha.z.toFixed(2)})
-  球XZ距离=${dist.toFixed(2)}`, "color: #FF0000; font-weight:bold;");
+//             console.log(`%c[AI:${this._cha.id}] 无法击球: state=${this._cha.state} (非IDLE/MOVE)
+//   球位置=(${ballPos.x.toFixed(2)},${ballPos.y.toFixed(2)},${ballPos.z.toFixed(2)})
+//   AI位置=(${this._cha.x.toFixed(2)},${this._cha.y.toFixed(2)},${this._cha.z.toFixed(2)})
+//   球XZ距离=${dist.toFixed(2)}`, "color: #FF0000; font-weight:bold;");
         }
     }
     /**
@@ -519,67 +571,141 @@ export class AIControl {
     }
 
     /**
-     * 计算发球击球参数：朝发球目标点发球，固定 angV=45°，力度受难度影响
+     * 计算发球击球参数：朝发球目标点发球，固定 angV=45°，力度受难度影响。
+     * 力度/方向叠加微积分纠错(PID 修正, 无历史样本时 0 不影响)
      * @returns 发球击球参数
      */
     private _calcServeStroke(): StrokeParams {
-        const target = (this._mag as PVE).getServeTarget();
-        const dx = target.x - this._cha.x;
-        const dz = target.z - this._cha.z;
-        let angH = Math.atan2(dx, dz) * 180 / Math.PI;
-        angH = (angH + 360) % 360;
+    const target = (this._mag as PVE).getServeTarget();
+    const dx = target.x - this._cha.x;
+    const dz = target.z - this._cha.z;
 
-        const power = 30 * (0.7 + this._difficulty * 0.3);
-        const angV = 45;
+    // ★ Phy.hit 语义: angH=0 → +x, 90 → -z, 180 → -x, 270 → +z
+    // 目标 (dx, dz) 映射: cos(rh)=dx, -sin(rh)=dz → rh = atan2(-dz, dx)
+    let angH = Math.atan2(-dz, dx) * 180 / Math.PI;
+    angH = (angH + 360) % 360;
 
-        return { power, angH, angV, spi: new Laya.Vector3(0, 0, 0) };
+    const power = Math.max(10, Math.min(95,
+        30 * (0.7 + this._difficulty * 0.3) + this._pwCtrl.out * 0.5));
+    angH = (angH + this._angCtrl.out * 0.5 + 360) % 360;
+    const angV = 45;
+
+    this._recordPending(target.x, target.z);
+    return { power, angH, angV, spi: new Laya.Vector3(0, 0, 0) };
+}
+
+/**
+ * AI 尝试触发特殊接球（跳杀/鱼跃）。
+ * 触发条件：
+ * - 已在特殊动作中 → 跳过
+ * - 冷却未到 → 跳过
+ * - 落点不在自己半场 → 跳过
+ * - 球高 ≥ 1.2m 且落点距 AI 适中 → jumphit（高球跳跃）
+ * - 球高 < 1.0m 且落点稍远 → diving（低球鱼跃）
+ * receiveAngle 语义对齐 mag._canHitBall 的 (sin, cos)：0=+z, 90=+x，所以用 atan2(dx, dz)。
+ * 触发后 mag 内部位置补偿接管追球，AI 只需坐等球进范围由 mag._executeHit 出手。
+ */
+private _trySpecialReceive(): boolean {
+    if (this._cha.receiveAction !== "none") return false;
+    if (this._cha.state !== ChaState.IDLE && this._cha.state !== ChaState.MOVE) return false;
+
+    const now = Timer.now();
+    if (now - this._lastSpecialTime < this.specialCooldown) return false;
+
+    const willLandOnMySide = (this._team === TeamSide.LEFT && this._predictedPos.x < 0.5) ||
+        (this._team === TeamSide.RIGHT && this._predictedPos.x > -0.5);
+    if (!willLandOnMySide) return false;
+
+    const ballPos = this._ball.pos;
+    const dx = this._predictedPos.x - this._cha.x;
+    const dz = this._predictedPos.z - this._cha.z;
+    const distToLanding = Math.hypot(dx, dz);
+    const h = ballPos.y - this._cha.y;
+
+    // 球已过头（落点比 AI 靠后）或落点太近（贴身球不需要特殊动作）→ 跳过
+    if (distToLanding < this._cha.hitRange * 0.3) return false;
+
+    // 跳杀：高球 + 距离适中（能跳到球）
+    if (h >= 1.2 && distToLanding > this._cha.hitRange * 0.6 &&
+        distToLanding < this._cha.hitRange * 1.8) {
+        const receiveAngle = (Math.atan2(dx, dz) * 180 / Math.PI + 360) % 360;
+        this._mag.startSpecialReceive(this._cha, receiveAngle, true);
+        this._lastSpecialTime = now;
+        return true;
     }
+
+    // 鱼跃：低球 + 距离稍远（正常步速来不及但鱼跃能覆盖）
+    if (h >= -0.3 && h < 1.0 && distToLanding > this._cha.hitRange * 0.9 &&
+        distToLanding < this._cha.hitRange * 2.2) {
+        const receiveAngle = (Math.atan2(dx, dz) * 180 / Math.PI + 360) % 360;
+        this._mag.startSpecialReceive(this._cha, receiveAngle, true);
+        this._lastSpecialTime = now;
+        return true;
+    }
+
+    return false;
+}
 
     /**
      * 计算对打击球参数：朝对方球员平均位置击球
      * - 距网近 → 高吊球（angV=70, 低力度）
      * - 距网中 → 平抽球（angV=30, 中力度）
      * - 距网远 → 中高球（angV=55, 高力度）
-     * 力度受难度系数影响
+     * 力度受难度系数影响; 力度/方向叠加微积分纠错(落点误差 PID 修正)
      * @returns 对打击球参数
      */
     private _calcRallyStroke(): StrokeParams {
+    const target = this._rallyTarget();
+
+    const distToNet = Math.abs(this._cha.x);
+    let angV: number, basePower: number;
+    if (distToNet < 1.0) { angV = 70; basePower = 15; }
+    else if (distToNet < 2.5) { angV = 30; basePower = 35; }
+    else { angV = 55; basePower = 50; }
+
+    const power = Math.max(10, Math.min(95,
+        basePower * (0.7 + this._difficulty * 0.3) + this._pwCtrl.out));
+    const dx = target.x - this._cha.x;
+    const dz = target.z - this._cha.z;
+
+    // ★ 同 _calcServeStroke: atan2(-dz, dx)
+    let angH = Math.atan2(-dz, dx) * 180 / Math.PI;
+    angH = (angH + this._angCtrl.out + 360) % 360;
+
+    this._recordPending(target.x, target.z);
+    return { power, angH, angV, spi: new Laya.Vector3(0, 0, 0) };
+}
+
+    /** 对打目标点: 对方球员平均位置(无人时对方场地中部) */
+    private _rallyTarget(): { x: number; z: number } {
         const opponentTeam = (this._team === TeamSide.LEFT) ? TeamSide.RIGHT : TeamSide.LEFT;
         const opponentPlayers = this._mag.getTeamPlayers(opponentTeam);
-        let targetX = 0, targetZ = 0;
         if (opponentPlayers.length > 0) {
             let sumX = 0, sumZ = 0;
             for (const p of opponentPlayers) {
                 sumX += p.x;
                 sumZ += p.z;
             }
-            targetX = sumX / opponentPlayers.length;
-            targetZ = sumZ / opponentPlayers.length;
-        } else {
-            targetX = (this._team === TeamSide.LEFT) ? 5 : -5;
-            targetZ = 0;
+            return { x: sumX / opponentPlayers.length, z: sumZ / opponentPlayers.length };
         }
+        return { x: (this._team === TeamSide.LEFT) ? 5 : -5, z: 0 };
+    }
 
-        const distToNet = Math.abs(this._cha.x);
-        let angV: number, basePower: number;
-        if (distToNet < 1.0) {
-            angV = 70;
-            basePower = 15;
-        } else if (distToNet < 2.5) {
-            angV = 30;
-            basePower = 35;
-        } else {
-            angV = 55;
-            basePower = 50;
-        }
-
-        const power = basePower * (0.7 + this._difficulty * 0.3);
-        const dx = targetX - this._cha.x;
-        const dz = targetZ - this._cha.z;
-        let angH = Math.atan2(dx, dz) * 180 / Math.PI;
-        angH = (angH + 360) % 360;
-
-        return { power, angH, angV, spi: new Laya.Vector3(0, 0, 0) };
+    /**
+     * 记录待评估击球(球落地时消费做误差反馈):
+     * 击球方向单位向量 d + 右向基 r(绕 y 顺时针转 90°: r=(d.z, -d.x)——
+     * d=+z 时 r=+x 右手边, 语义"偏右为正")。挂起中的旧 pending 直接作废(对方接住未落, 无样本)。
+     */
+    private _recordPending(tx: number, tz: number): void {
+        const dx = tx - this._cha.x;
+        const dz = tz - this._cha.z;
+        const len = Math.max(Math.hypot(dx, dz), 1e-4);
+        this._pending = {
+            tx, tz,
+            dx: dx / len, dz: dz / len,
+            rx: dz / len, rz: -dx / len,
+            t: Timer.now(),
+        };
     }
 
     /**

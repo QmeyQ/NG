@@ -19,6 +19,7 @@
   "include": [
     "./assets",
     "./src",
-    "./engine"
+    "./engine",
+    "./library/packages/**/*.d.ts"
   ]
 }

@@ -33,6 +33,9 @@ export class Obj {
     /** 构造函数，绑定根节点 */
     constructor(root: Laya.Sprite3D) {
         this.root = root;
+        // _mpm 构造即建(旧版在 setDress 懒建——boy 角色路径跳过 setDress 时
+        // on('load') 调 _mpm.on 直接 undefined 崩 "reading 'on'")
+        this._mpm = new MPM();
     }
 
     /** 获取根节点 */

@@ -2,12 +2,69 @@
   "out": "1.br",
   "magic": "BRP1",
   "version": "1.0",
-  "fileCount": 26,
-  "rawSize": 16226052,
-  "containerSize": 16226872,
-  "brSize": 12534796,
-  "ratio": 0.7725,
+  "fileCount": 45,
+  "rawSize": 23397135,
+  "containerSize": 23398472,
+  "brSize": 19489162,
+  "ratio": 0.8329,
+  "idShortened": 1,
   "files": [
+    {
+      "path": "ball/shuttle.lm",
+      "size": 226892
+    },
+    {
+      "path": "ball/shuttle.lmat",
+      "size": 221
+    },
+    {
+      "path": "ball.lh",
+      "size": 812
+    },
+    {
+      "path": "court/floor.lm",
+      "size": 7304
+    },
+    {
+      "path": "court/inner.lmat",
+      "size": 221
+    },
+    {
+      "path": "court/net.lm",
+      "size": 500
+    },
+    {
+      "path": "court/net.lmat",
+      "size": 353
+    },
+    {
+      "path": "court/nettop.lmat",
+      "size": 217
+    },
+    {
+      "path": "court/outer.lmat",
+      "size": 224
+    },
+    {
+      "path": "court/pole.1.lm",
+      "size": 856
+    },
+    {
+      "path": "court/pole.lm",
+      "size": 856
+    },
+    {
+      "path": "court/pole.lmat",
+      "size": 217
+    },
+    {
+      "path": "court/whiteL.lmat",
+      "size": 203
+    },
+    {
+      "path": "court.lh",
+      "size": 2474
+    },
     {
       "path": "girl/au/hit.MP3",
       "size": 3811
@@ -50,7 +107,7 @@
     },
     {
       "path": "girl/lh/girl.lh",
-      "size": 481916
+      "size": 481640
     },
     {
       "path": "girl/lm/body.lm",
@@ -111,6 +168,26 @@
     {
       "path": "girl/tex/racket.png",
       "size": 465252
+    },
+    {
+      "path": "main/bg.png",
+      "size": 5589616
+    },
+    {
+      "path": "main/pve1.png",
+      "size": 645680
+    },
+    {
+      "path": "main/pve2.png",
+      "size": 671638
+    },
+    {
+      "path": "match.ls",
+      "size": 12986
+    },
+    {
+      "path": "net.png",
+      "size": 10075
     }
   ]
 }

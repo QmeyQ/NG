@@ -1,0 +1,555 @@
+{
+  "_$ver": 1,
+  "_$id": "r9tk9vtj",
+  "_$type": "Scene",
+  "left": 0,
+  "right": 0,
+  "top": 0,
+  "bottom": 0,
+  "name": "Scene2D",
+  "width": 1170,
+  "height": 2532,
+  "mouseThrough": true,
+  "_$comp": [
+    {
+      "_$type": "3fb2fa99-4ac0-4bd1-9c10-f2118aa5c67c",
+      "scriptPath": "../src/load.ts"
+    }
+  ],
+  "_$child": [
+    {
+      "_$id": "aag1vj8z",
+      "_$type": "GImage",
+      "name": "img",
+      "x": -78,
+      "width": 1311,
+      "height": 2534,
+      "alpha": 0.36,
+      "src": "res://2087761a-3c75-4f5c-a3b4-726acab7e2d0",
+      "autoSize": false
+    },
+    {
+      "_$id": "jq9wyed7",
+      "_$prefab": "b0c7f4b6-9a33-4cd8-897e-4888efe760fe",
+      "name": "bButton",
+      "active": true,
+      "x": 49,
+      "y": 57,
+      "width": 261,
+      "height": 123,
+      "visible": true,
+      "alpha": 0.81,
+      "relations": [
+        {
+          "_$type": "Relation",
+          "target": {
+            "_$ref": "r9tk9vtj"
+          },
+          "data": [
+            3,
+            1,
+            10,
+            1
+          ]
+        }
+      ],
+      "title": "返回",
+      "titleColor": "#474747",
+      "titleFontSize": 70,
+      "selectedTitle": "返回",
+      "sound": "",
+      "_$child": [
+        {
+          "_$override": "ug1dmopr",
+          "src": "",
+          "color": "#ffdddd",
+          "background": {
+            "_$type": "DrawRoundRectCmd",
+            "lt": 40,
+            "rt": 40,
+            "lb": 40,
+            "rb": 40,
+            "lineWidth": 20,
+            "lineColor": "#c5c5c5",
+            "fillColor": "#d6d6d6"
+          },
+          "alpha": 0.34
+        },
+        {
+          "_$override": "asxzquct",
+          "src": "",
+          "background": {
+            "_$type": "DrawRoundRectCmd",
+            "lt": 40,
+            "rt": 40,
+            "lb": 40,
+            "rb": 40,
+            "lineWidth": 20,
+            "lineColor": "#c19248",
+            "fillColor": "#a18040"
+          }
+        },
+        {
+          "_$override": "syt0gdq4",
+          "src": "",
+          "background": {
+            "_$type": "DrawRoundRectCmd",
+            "lt": 40,
+            "rt": 40,
+            "lb": 40,
+            "rb": 40,
+            "lineWidth": 20,
+            "lineColor": "#da742d",
+            "fillColor": "#f28214"
+          }
+        },
+        {
+          "_$override": "kahpmowa",
+          "color": "#474747",
+          "text": "返回",
+          "font": "STXinwei",
+          "fontSize": 70
+        }
+      ]
+    },
+    {
+      "_$id": "z31x22zf",
+      "_$prefab": "b0c7f4b6-9a33-4cd8-897e-4888efe760fe",
+      "name": "Button",
+      "active": true,
+      "x": 585,
+      "y": 1266,
+      "width": 600,
+      "height": 900,
+      "anchorX": 0.5,
+      "anchorY": 0.5,
+      "visible": true,
+      "relations": [
+        {
+          "_$type": "Relation",
+          "target": {
+            "_$ref": "r9tk9vtj"
+          },
+          "data": [
+            6,
+            0,
+            13,
+            0
+          ]
+        }
+      ],
+      "title": "加载中",
+      "titleColor": "#172834",
+      "titleFontSize": 125,
+      "_$child": [
+        {
+          "_$override": "ug1dmopr",
+          "src": "",
+          "background": {
+            "_$type": "DrawCircleCmd",
+            "x": 0.5,
+            "y": 0.5,
+            "radius": 0.5,
+            "percent": true,
+            "lineWidth": 100,
+            "lineColor": "#cbcbcb",
+            "fillColor": "#e4e4e4"
+          }
+        },
+        {
+          "_$override": "asxzquct",
+          "src": "",
+          "background": {
+            "_$type": "DrawCircleCmd",
+            "x": 0.5,
+            "y": 0.5,
+            "radius": 0.5,
+            "percent": true,
+            "lineWidth": 100,
+            "lineColor": "#99908a",
+            "fillColor": "#9f918c"
+          }
+        },
+        {
+          "_$override": "syt0gdq4",
+          "src": "",
+          "background": {
+            "_$type": "DrawCircleCmd",
+            "x": 0.5,
+            "y": 0.5,
+            "radius": 0.5,
+            "percent": true,
+            "lineWidth": 100,
+            "lineColor": "#d16300",
+            "fillColor": "#ff8a00"
+          },
+          "gears": [
+            {
+              "_$type": "GearDisplay",
+              "controller": {
+                "_$ref": "z31x22zf",
+                "_$ctrl": "button"
+              },
+              "pages": [
+                1
+              ]
+            }
+          ]
+        },
+        {
+          "_$id": "0dsbbzen",
+          "_$index": 3,
+          "_$type": "GImage",
+          "name": "over_1",
+          "width": 600,
+          "height": 900,
+          "background": {
+            "_$type": "DrawCircleCmd",
+            "x": 0.5,
+            "y": 0.5,
+            "radius": 0.5,
+            "percent": true,
+            "lineWidth": 100,
+            "lineColor": "#c7c7c7",
+            "fillColor": "#bebebe"
+          },
+          "gears": [
+            {
+              "_$type": "GearDisplay",
+              "controller": {
+                "_$ref": "z31x22zf",
+                "_$ctrl": "button"
+              },
+              "pages": [
+                3
+              ]
+            }
+          ],
+          "relations": [
+            {
+              "_$type": "Relation",
+              "target": {
+                "_$ref": "z31x22zf"
+              },
+              "data": [
+                1,
+                0,
+                2,
+                0
+              ]
+            }
+          ],
+          "src": "",
+          "autoSize": false
+        }
+      ]
+    },
+    {
+      "_$id": "wx0p8hrw",
+      "_$type": "GBox",
+      "name": "box_2",
+      "x": 4,
+      "y": 1739,
+      "width": 1163,
+      "height": 603,
+      "relations": [
+        {
+          "_$type": "Relation",
+          "target": {
+            "_$ref": "r9tk9vtj"
+          },
+          "data": [
+            3,
+            0,
+            20,
+            0
+          ]
+        },
+        {
+          "_$type": "Relation",
+          "target": {
+            "_$ref": "z31x22zf"
+          },
+          "data": [
+            12,
+            0
+          ]
+        }
+      ],
+      "layout": {
+        "type": 2,
+        "align": 1,
+        "valign": 1
+      },
+      "_$child": [
+        {
+          "_$id": "95jp6vo5",
+          "_$prefab": "b0c7f4b6-9a33-4cd8-897e-4888efe760fe",
+          "name": "pve",
+          "active": true,
+          "x": 270,
+          "y": 301,
+          "width": 622,
+          "height": 626,
+          "anchorX": 0.5,
+          "anchorY": 0.5,
+          "scaleX": 0.7,
+          "scaleY": 0.7,
+          "visible": true,
+          "title": "单打训练",
+          "titleColor": "#ffffff",
+          "titleFontSize": 120,
+          "_$child": [
+            {
+              "_$override": "ug1dmopr",
+              "src": "res://49c0d839-ca26-469b-a2f4-5db7eee255be",
+              "background": null,
+              "autoSize": true,
+              "width": 626,
+              "height": 628,
+              "scaleX": 1,
+              "scaleY": 1,
+              "x": 313,
+              "y": 314,
+              "blendMode": null,
+              "alpha": 0.5,
+              "anchorX": 0.5,
+              "gears": [
+                {
+                  "_$type": "GearDisplay",
+                  "controller": {
+                    "_$ref": "95jp6vo5",
+                    "_$ctrl": "button"
+                  },
+                  "pages": [
+                    0,
+                    1,
+                    2
+                  ]
+                }
+              ],
+              "zIndex": 1,
+              "anchorY": 0.5
+            },
+            {
+              "_$override": "asxzquct",
+              "src": "",
+              "background": {
+                "_$type": "DrawRoundRectCmd",
+                "lt": 108,
+                "rt": 119,
+                "lb": 114,
+                "rb": 97,
+                "fillColor": "#ffffff"
+              },
+              "gears": [
+                {
+                  "_$type": "GearDisplay",
+                  "controller": {
+                    "_$ref": "95jp6vo5",
+                    "_$ctrl": "button"
+                  },
+                  "pages": [
+                    2
+                  ]
+                }
+              ]
+            },
+            {
+              "_$override": "syt0gdq4",
+              "src": "",
+              "background": {
+                "_$type": "DrawRoundRectCmd",
+                "lt": 104,
+                "rt": 113,
+                "lb": 121,
+                "rb": 84,
+                "fillColor": "#cd6100"
+              },
+              "gears": [
+                {
+                  "_$type": "GearDisplay",
+                  "controller": {
+                    "_$ref": "95jp6vo5",
+                    "_$ctrl": "button"
+                  },
+                  "pages": [
+                    1
+                  ]
+                }
+              ]
+            },
+            {
+              "_$override": "kahpmowa",
+              "font": "STXinwei",
+              "html": true,
+              "bold": true,
+              "color": "#ffffff",
+              "wordWrap": false,
+              "maxWidth": 0,
+              "leading": 2,
+              "fitContent": 0,
+              "relations": [
+                {
+                  "_$type": "Relation",
+                  "target": {
+                    "_$ref": "95jp6vo5"
+                  },
+                  "data": [
+                    1,
+                    0,
+                    2,
+                    0,
+                    6,
+                    0,
+                    13,
+                    0
+                  ]
+                }
+              ],
+              "x": 309,
+              "y": 311,
+              "height": 600,
+              "width": 574,
+              "anchorX": 0.5,
+              "anchorY": 0.5
+            }
+          ]
+        },
+        {
+          "_$id": "pvrrpnju",
+          "_$prefab": "b0c7f4b6-9a33-4cd8-897e-4888efe760fe",
+          "name": "pve2",
+          "active": true,
+          "x": 892,
+          "y": 301,
+          "width": 622,
+          "height": 626,
+          "anchorX": 0.5,
+          "anchorY": 0.5,
+          "scaleX": 0.7,
+          "scaleY": 0.7,
+          "visible": true,
+          "title": "双打训练",
+          "titleColor": "#ffffff",
+          "titleFontSize": 120,
+          "_$child": [
+            {
+              "_$override": "ug1dmopr",
+              "src": "res://7f0c5650-8c05-4ec6-aa16-b1cca1f33648",
+              "background": null,
+              "autoSize": true,
+              "width": 626,
+              "height": 628,
+              "scaleX": 1,
+              "scaleY": 1,
+              "x": 0,
+              "y": 0,
+              "blendMode": null,
+              "alpha": 0.5,
+              "anchorX": 0,
+              "gears": [
+                {
+                  "_$type": "GearDisplay",
+                  "controller": {
+                    "_$ref": "pvrrpnju",
+                    "_$ctrl": "button"
+                  },
+                  "pages": [
+                    0,
+                    1,
+                    2
+                  ]
+                }
+              ],
+              "zIndex": 1
+            },
+            {
+              "_$override": "asxzquct",
+              "src": "",
+              "background": {
+                "_$type": "DrawRoundRectCmd",
+                "lt": 108,
+                "rt": 119,
+                "lb": 114,
+                "rb": 97,
+                "fillColor": "#ffffff"
+              },
+              "gears": [
+                {
+                  "_$type": "GearDisplay",
+                  "controller": {
+                    "_$ref": "pvrrpnju",
+                    "_$ctrl": "button"
+                  },
+                  "pages": [
+                    2
+                  ]
+                }
+              ]
+            },
+            {
+              "_$override": "syt0gdq4",
+              "src": "",
+              "background": {
+                "_$type": "DrawRoundRectCmd",
+                "lt": 104,
+                "rt": 113,
+                "lb": 121,
+                "rb": 84,
+                "fillColor": "#cd6100"
+              },
+              "gears": [
+                {
+                  "_$type": "GearDisplay",
+                  "controller": {
+                    "_$ref": "pvrrpnju",
+                    "_$ctrl": "button"
+                  },
+                  "pages": [
+                    1
+                  ]
+                }
+              ]
+            },
+            {
+              "_$override": "kahpmowa",
+              "font": "STXinwei",
+              "html": true,
+              "bold": true,
+              "color": "#ffffff",
+              "wordWrap": false,
+              "maxWidth": 0,
+              "leading": 2,
+              "fitContent": 0,
+              "relations": [
+                {
+                  "_$type": "Relation",
+                  "target": {
+                    "_$ref": "pvrrpnju"
+                  },
+                  "data": [
+                    1,
+                    0,
+                    2,
+                    0,
+                    6,
+                    0,
+                    13,
+                    0
+                  ]
+                }
+              ],
+              "x": 308,
+              "y": 313,
+              "text": "双打训练",
+              "width": 584,
+              "anchorX": 0.5,
+              "anchorY": 0.5
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -1,90 +1,5 @@
 [
   {
-    "main": "base.fbx",
-    "uuid": "8750ce52-ab7c-485f-b730-7561c1dcf370",
-    "subCount": 13,
-    "files": [
-      {
-        "id": "0",
-        "ext": "lh",
-        "file": "lh\\base.lh",
-        "size": 362378
-      },
-      {
-        "id": "lm0",
-        "ext": "lm",
-        "file": "lm\\body.001.lm",
-        "size": 10671
-      },
-      {
-        "id": "lm1",
-        "ext": "lm",
-        "file": "lm\\hair.lm",
-        "size": 10815
-      },
-      {
-        "id": "lm2",
-        "ext": "lm",
-        "file": "lm\\Racket.001.lm",
-        "size": 10659
-      },
-      {
-        "id": "lm3",
-        "ext": "lm",
-        "file": "lm\\shirt.001.lm",
-        "size": 10659
-      },
-      {
-        "id": "lm4",
-        "ext": "lm",
-        "file": "lm\\shoes.lm",
-        "size": 10659
-      },
-      {
-        "id": "lm5",
-        "ext": "lm",
-        "file": "lm\\shorts.001.lm",
-        "size": 10659
-      },
-      {
-        "id": "lmat0",
-        "ext": "lmat",
-        "file": "lmat\\body.lmat",
-        "size": 661
-      },
-      {
-        "id": "lmat1",
-        "ext": "lmat",
-        "file": "lmat\\hair.lmat",
-        "size": 661
-      },
-      {
-        "id": "lmat2",
-        "ext": "lmat",
-        "file": "lmat\\racket.lmat",
-        "size": 663
-      },
-      {
-        "id": "lmat3",
-        "ext": "lmat",
-        "file": "lmat\\shirt.lmat",
-        "size": 662
-      },
-      {
-        "id": "lmat4",
-        "ext": "lmat",
-        "file": "lmat\\shoes.lmat",
-        "size": 662
-      },
-      {
-        "id": "lmat5",
-        "ext": "lmat",
-        "file": "lmat\\shorts.lmat",
-        "size": 663
-      }
-    ]
-  },
-  {
     "main": "court.fbx",
     "uuid": "0d67e488-b658-427f-a24e-9add580694fa",
     "subCount": 11,
@@ -158,147 +73,40 @@
     ]
   },
   {
-    "main": "girl.fbx",
-    "uuid": "c4d80210-eb92-42f9-bbe5-64cc4f510b65",
-    "subCount": 23,
+    "main": "ui/dialog/dialog.lh",
+    "uuid": "34b37a7c-dfa9-4834-971e-b7431a47e0cc",
+    "subCount": 2,
     "files": [
       {
-        "id": "0",
-        "ext": "lh",
-        "file": "lh\\girl.lh",
-        "size": 481916
+        "id": "info",
+        "ext": "json",
+        "file": "json\\info.json",
+        "size": 238
       },
       {
-        "id": "lani0",
-        "ext": "lani",
-        "file": "lani\\pole_down.lani",
-        "size": 81581
+        "id": "info2",
+        "ext": "json",
+        "file": "json\\info2.json",
+        "size": 254
+      }
+    ]
+  },
+  {
+    "main": "game/badm.ls",
+    "uuid": "41c736bc-9e4d-455c-8140-6edae3cdd251",
+    "subCount": 2,
+    "files": [
+      {
+        "id": "info",
+        "ext": "json",
+        "file": "json\\info.json",
+        "size": 234
       },
       {
-        "id": "lani1",
-        "ext": "lani",
-        "file": "lani\\pole_pole_diving.lani",
-        "size": 303032
-      },
-      {
-        "id": "lani2",
-        "ext": "lani",
-        "file": "lani\\pole_pole_flathit_off.001.lani",
-        "size": 98302
-      },
-      {
-        "id": "lani3",
-        "ext": "lani",
-        "file": "lani\\pole_pole_flathit_off.002.lani",
-        "size": 98239
-      },
-      {
-        "id": "lani4",
-        "ext": "lani",
-        "file": "lani\\pole_pole_flathit.lani",
-        "size": 98996
-      },
-      {
-        "id": "lani5",
-        "ext": "lani",
-        "file": "lani\\pole_pole_hitoff.lani",
-        "size": 136124
-      },
-      {
-        "id": "lani6",
-        "ext": "lani",
-        "file": "lani\\pole_pole_jumphit.lani",
-        "size": 111455
-      },
-      {
-        "id": "lani7",
-        "ext": "lani",
-        "file": "lani\\pole_pole_left.lani",
-        "size": 87739
-      },
-      {
-        "id": "lani8",
-        "ext": "lani",
-        "file": "lani\\pole_pole_stand_off.lani",
-        "size": 79065
-      },
-      {
-        "id": "lani9",
-        "ext": "lani",
-        "file": "lani\\pole_pole_up.lani",
-        "size": 82298
-      },
-      {
-        "id": "lm0",
-        "ext": "lm",
-        "file": "lm\\body.lm",
-        "size": 1450894
-      },
-      {
-        "id": "lm1",
-        "ext": "lm",
-        "file": "lm\\hair.lm",
-        "size": 330184
-      },
-      {
-        "id": "lm2",
-        "ext": "lm",
-        "file": "lm\\racket.lm",
-        "size": 1057884
-      },
-      {
-        "id": "lm3",
-        "ext": "lm",
-        "file": "lm\\shirt.lm",
-        "size": 488304
-      },
-      {
-        "id": "lm4",
-        "ext": "lm",
-        "file": "lm\\shoes.lm",
-        "size": 151712
-      },
-      {
-        "id": "lm5",
-        "ext": "lm",
-        "file": "lm\\shorts.lm",
-        "size": 53746
-      },
-      {
-        "id": "lmat0",
-        "ext": "lmat",
-        "file": "lmat\\body.lmat",
-        "size": 661
-      },
-      {
-        "id": "lmat1",
-        "ext": "lmat",
-        "file": "lmat\\hair.lmat",
-        "size": 661
-      },
-      {
-        "id": "lmat2",
-        "ext": "lmat",
-        "file": "lmat\\Material.001.lmat",
-        "size": 669
-      },
-      {
-        "id": "lmat3",
-        "ext": "lmat",
-        "file": "lmat\\shirt.lmat",
-        "size": 662
-      },
-      {
-        "id": "lmat4",
-        "ext": "lmat",
-        "file": "lmat\\shoes.lmat",
-        "size": 662
-      },
-      {
-        "id": "lmat5",
-        "ext": "lmat",
-        "file": "lmat\\shorts.lmat",
-        "size": 663
+        "id": "info2",
+        "ext": "json",
+        "file": "json\\info2.json",
+        "size": 303
       }
     ]
   },
@@ -311,7 +119,7 @@
         "id": "info",
         "ext": "json",
         "file": "json\\info.json",
-        "size": 199
+        "size": 259
       },
       {
         "id": "info2",
@@ -347,6 +155,25 @@
     ]
   },
   {
+    "main": "game/card.ls",
+    "uuid": "27cbcc98-15d3-4632-9e12-66b69f56497e",
+    "subCount": 2,
+    "files": [
+      {
+        "id": "info",
+        "ext": "json",
+        "file": "json\\info.json",
+        "size": 205
+      },
+      {
+        "id": "info2",
+        "ext": "json",
+        "file": "json\\info2.json",
+        "size": 254
+      }
+    ]
+  },
+  {
     "main": "game/load.ls",
     "uuid": "15eb7196-7863-4146-bb6a-061f1bcae159",
     "subCount": 2,
@@ -355,7 +182,7 @@
         "id": "info",
         "ext": "json",
         "file": "json\\info.json",
-        "size": 206
+        "size": 262
       },
       {
         "id": "info2",
@@ -374,7 +201,7 @@
         "id": "info",
         "ext": "json",
         "file": "json\\info.json",
-        "size": 289
+        "size": 59
       },
       {
         "id": "info2",
@@ -393,7 +220,7 @@
         "id": "info",
         "ext": "json",
         "file": "json\\info.json",
-        "size": 356
+        "size": 59
       },
       {
         "id": "info2",
@@ -404,21 +231,21 @@
     ]
   },
   {
-    "main": "game/Scene.ls",
-    "uuid": "41c736bc-9e4d-455c-8140-6edae3cdd251",
+    "main": "game/ride.ls",
+    "uuid": "eaf9e34b-ef10-4579-b317-e0af7ec192db",
     "subCount": 2,
     "files": [
       {
         "id": "info",
         "ext": "json",
         "file": "json\\info.json",
-        "size": 290
+        "size": 223
       },
       {
         "id": "info2",
         "ext": "json",
         "file": "json\\info2.json",
-        "size": 307
+        "size": 301
       }
     ]
   },
@@ -431,7 +258,7 @@
         "id": "info",
         "ext": "json",
         "file": "json\\info.json",
-        "size": 148
+        "size": 262
       },
       {
         "id": "info2",
@@ -450,7 +277,7 @@
         "id": "info",
         "ext": "json",
         "file": "json\\info.json",
-        "size": 279
+        "size": 339
       },
       {
         "id": "info2",
@@ -470,19 +297,6 @@
         "ext": "shader",
         "file": "shader\\0.shader",
         "size": 15854
-      }
-    ]
-  },
-  {
-    "main": "~/internal/particle/shader/Particle2D.shader",
-    "uuid": "6409b745-8c3b-47a8-80ac-18a1137fd292",
-    "subCount": 1,
-    "files": [
-      {
-        "id": "0",
-        "ext": "shader",
-        "file": "shader\\0.shader",
-        "size": 2147
       }
     ]
   },
@@ -508,6 +322,19 @@
         "ext": "png",
         "file": "png\\comp.png",
         "size": 322761
+      }
+    ]
+  },
+  {
+    "main": "~/internal/particle/shader/Particle2D.shader",
+    "uuid": "6409b745-8c3b-47a8-80ac-18a1137fd292",
+    "subCount": 1,
+    "files": [
+      {
+        "id": "0",
+        "ext": "shader",
+        "file": "shader\\0.shader",
+        "size": 2147
       }
     ]
   }
