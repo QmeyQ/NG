@@ -4,6 +4,8 @@
  */
 // Code.ts
 
+import { wxEnv, mkBlob, blobAb, ab2str } from './wx';
+import { decompress as brDecompress } from './brdec/decode';
 
 export interface PackInfo {
     magic: string;
@@ -12,6 +14,22 @@ export interface PackInfo {
     files: { [key: string]: [number, number] };
     bodyOffset: number;
 }
+
+/**
+ * brotli 资源根定位(跨服务器部署)：
+ * JS 与页面分服务器时，跨域脚本内动态 import() 的相对路径以 about:blank 为 base 解析必失败，
+ * 必须拼绝对 URL。取值优先级：window.BR_BASE 显式配置 > 入口脚本 origin(currentScript) > 页面 origin。
+ * BR_BASE 指向含 /js/ 目录的服务器根，如 window.BR_BASE = 'https://js.example.com'
+ */
+const _brBase: string = (() => {
+    const cfg = (window as any).BR_BASE;
+    if (typeof cfg === 'string' && cfg) return cfg.replace(/\/+$/, '');
+    try {
+        const cs = document.currentScript as any;
+        if (cs && cs.src) return new URL(cs.src).origin;
+    } catch { }
+    return '';
+})();
 
 export class Code {
 
@@ -51,27 +69,45 @@ export class Code {
     }
 
     private static _brotliReady: Promise<any> | null = null;
+
+    /** brotli js/wasm 路径 → 绝对 URL(绕开跨域脚本 about:blank base 解析失败) */
+    private static _brUrl(path: string): string {
+        return _brBase ? _brBase + path : new URL(path, document.baseURI).href;
+    }
+
     private static _brotliModule(): Promise<any> {
         if (Code._brotliReady) return Code._brotliReady;
+        if (wxEnv) {
+            // 微信: 纯 JS brotli 解码(vendor 自 src/libs/brdec/, 随 bundle 打包)——
+            // 不 require 独立 cjs、不 fs 读包内 wasm、不依赖 WebAssembly(PC 微信逻辑层缺异步 instantiate)
+            Code._brotliReady = Promise.resolve({ decompress: (input: Uint8Array) => brDecompress(input) });
+            return Code._brotliReady;
+        }
+        // 浏览器: brotli-wasm 按 URL 动态加载(性能优先), import() 用 new Function 包装绕开打包器静态解析
+        // wasm 加载失败(发布 excludeFilesRule 排除/跨域缺失)时降级纯 JS 解码——与微信分支同源 brdec
         const dynamicImport = new Function('u', 'return import(u)') as (u: string) => Promise<any>;
-        const jsUrl = '/js/brotli_wasm.js';
-        const wasmUrl = '/js/brotli_wasm_bg.wasm';
+        const jsUrl = Code._brUrl('/js/brotli_wasm.js');
+        const wasmUrl = Code._brUrl('/js/brotli_wasm_bg.wasm');
         Code._brotliReady = (async () => {
-            const mod: any = await dynamicImport(jsUrl);
-            await mod.default(await fetch(wasmUrl));
-            return mod;
+            try {
+                const mod: any = await dynamicImport(jsUrl);
+                await mod.default(await fetch(wasmUrl));
+                return mod;
+            } catch {
+                return { decompress: (input: Uint8Array) => brDecompress(input) };
+            }
         })();
         return Code._brotliReady;
     }
 
     /**
-     * Brotli 解压 .br 文件，返回容器格式的 ArrayBuffer（使用 brotli-wasm）
+     * Brotli 解压 .br 文件，返回容器格式的 ArrayBuffer（微信: 纯 JS 解码器 / 浏览器: brotli-wasm）
      */
     static decompressBr(blob: Blob, onComplete: (containerBuffer: ArrayBuffer) => void, onError: (error: string) => void): void {
         (async () => {
             try {
                 const brotli = await Code._brotliModule();
-                const ab = await blob.arrayBuffer();
+                const ab = await blobAb(blob);
                 const input = new Uint8Array(ab);
                 const output: Uint8Array = brotli.decompress(input);
                 const copy = new Uint8Array(output.length);
@@ -87,11 +123,9 @@ export class Code {
      * 解析容器头部（BRP1 magic + 头部长度 + 头部JSON）
      */
     static parsePack(blob: Blob, onComplete: (packInfo: PackInfo) => void, onError: (error: string) => void): void {
-        const reader = new FileReader();
-
-        reader.onload = () => {
+        // FileReader.readAsArrayBuffer → blobAb(平台通吃, 微信 FileReader polyfill 缺失风险)
+        blobAb(blob).then((buffer) => {
             try {
-                const buffer = reader.result as ArrayBuffer;
                 const view = new DataView(buffer);
 
                 const magicBytes = new Uint8Array(buffer.slice(0, 4));
@@ -113,8 +147,9 @@ export class Code {
                 }
 
                 const headerBytes = new Uint8Array(buffer.slice(headerStart, bodyOffset));
-                const decoder = new TextDecoder('utf-8');
-                let headerText = decoder.decode(headerBytes);
+                let headerText: string;
+                try { headerText = new TextDecoder('utf-8').decode(headerBytes); }
+                catch { headerText = ab2str(headerBytes); }
                 headerText = headerText.trim().replace(/\0/g, '');
 
                 const header = JSON.parse(headerText);
@@ -131,13 +166,7 @@ export class Code {
             } catch (error: any) {
                 onError(`解析包失败: ${error.message}`);
             }
-        };
-
-        reader.onerror = () => {
-            onError('读取包数据失败');
-        };
-
-        reader.readAsArrayBuffer(blob);
+        }).catch(() => onError('读取包数据失败'));
     }
 
     /**
@@ -154,7 +183,7 @@ export class Code {
             return null;
         }
         const mimeType = this._getMimeType(filePath);
-        return new Blob([container.slice(start, end)], { type: mimeType });
+        return mkBlob([container.slice(start, end)], mimeType);
     }
 
     /**

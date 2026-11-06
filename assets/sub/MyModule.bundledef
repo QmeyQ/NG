@@ -1,0 +1,18 @@
+{
+  "enabled": true,
+  "allowLoadInEditor": true,
+  "allowLoadInRuntime": true,
+  "autoLoad": true,
+  "entries": [
+    "res://f9cbeae9-55a7-4c20-acec-f563688dfb1a",
+    "res://7877f3ff-7758-4962-b7a2-9ff0eab69d7b",
+    "res://3f65a330-61b5-42bb-93b9-34291b1df707",
+    "res://06fb147d-3b3a-439d-8db1-4e7d3a4b9745",
+    "res://7abf5421-aa31-4a55-8dec-1ceb7ae12746",
+    "res://3a4f750f-fe85-48d0-b49d-9473ae40b821",
+    "res://db063b59-3c89-4a2b-822c-ae0fed9e7bf8"
+  ],
+  "includeAllFiles": true,
+  "loadBeforeMain": true,
+  "bundleExternals": false
+}

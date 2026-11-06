@@ -3,6 +3,7 @@
  * 定义 InpFlag 标志位枚举和 InpKey 类型，维护手指映射、按键状态和手势识别
  */
 import { Timer } from "../libs/time";
+import { MPM } from "../libs/mpm";
 
 export const InpFlag = {
     NONE: 0,
@@ -48,11 +49,16 @@ export class Inp {
     public doubleTapInterval: number = 600;
     public tapMaxDistance: number = 20;
 
-    private _startCallbacks: Array<(flag: InpFlag, x: number, y: number, finger: number) => void> = [];
-    private _moveCallbacks: Array<(flag: InpFlag, x: number, y: number, dx: number, dy: number, finger: number) => void> = [];
-    private _endCallbacks: Array<(flag: InpFlag, finger: number) => void> = [];
+    private _startCallbacks: Array<(flag: InpFlag, x: number, y: number, finger: number, id: number) => void> = [];
+    private _moveCallbacks: Array<(flag: InpFlag, x: number, y: number, dx: number, dy: number, finger: number, id: number) => void> = [];
+    private _endCallbacks: Array<(flag: InpFlag, finger: number, id: number) => void> = [];
     private _keyMovCallbacks: Array<(flag: InpFlag, angle: number, power: number) => void> = [];
     private _keyCallbacks: Array<(flag: InpFlag, key: InpKey, pressed: boolean) => void> = [];
+
+    /** 事件队列(MPM 多播): 双击等手势事件走统一事件名派发, 外部经 on('dobclick') 注册 */
+    private _bus: MPM = new MPM();
+    /** 双击触发冷却时刻(防三连点重复触发 dobclick) */
+    private _dobCdAt = 0;
 
     constructor(stage: Laya.Stage) {
         this._stage = stage;
@@ -63,7 +69,7 @@ export class Inp {
         this._stage.on(Laya.Event.MOUSE_DOWN, this, this._onTouchStart);
         this._stage.on(Laya.Event.MOUSE_MOVE, this, this._onTouchMove);
         this._stage.on(Laya.Event.MOUSE_UP, this, this._onTouchEnd);
-        this._stage.on(Laya.Event.MOUSE_OUT, this, this._onTouchEnd);
+        // MOUSE_OUT 不绑抬起: 触摸路径 roll-over 机制也会派发 OUT(带 touchId), 绑上会把拖拽中手指误掐断
         // 键盘事件直接监听 stage
         Laya.stage.on(Laya.Event.KEY_DOWN, this, this._onKeyDown);
         Laya.stage.on(Laya.Event.KEY_UP, this, this._onKeyUp);
@@ -76,6 +82,7 @@ export class Inp {
         this._isDragging.clear();
         this._isDoubleTapDrag = false;
         this._lastTapTime = 0;
+        this._dobCdAt = 0;
         if (this._doubleTapTimer) {
             Timer.clear(this._doubleTapTimer);
             this._doubleTapTimer = null;
@@ -88,6 +95,7 @@ export class Inp {
         this._stage.offAllCaller(this);
         Laya.stage.offAllCaller(this);
         this.clear();
+        this._bus.off();
         this._startCallbacks = [];
         this._moveCallbacks = [];
         this._endCallbacks = [];
@@ -95,11 +103,13 @@ export class Inp {
         this._keyCallbacks = [];
     }
 
-    on(type: 'start', callback: (flag: InpFlag, x: number, y: number, finger: number) => void): void;
-    on(type: 'move', callback: (flag: InpFlag, x: number, y: number, dx: number, dy: number, finger: number) => void): void;
-    on(type: 'end', callback: (flag: InpFlag, finger: number) => void): void;
+    on(type: 'start', callback: (flag: InpFlag, x: number, y: number, finger: number, id: number) => void): void;
+    on(type: 'move', callback: (flag: InpFlag, x: number, y: number, dx: number, dy: number, finger: number, id: number) => void): void;
+    on(type: 'end', callback: (flag: InpFlag, finger: number, id: number) => void): void;
     on(type: 'keymov', callback: (flag: InpFlag, angle: number, power: number) => void): void;
     on(type: 'key', callback: (flag: InpFlag, key: InpKey, pressed: boolean) => void): void;
+    /** 事件队列注册(用户规格): 五类之外的任意事件名走 MPM 队列——如 'dobclick'(x, y) 由双击命中派发 */
+    on(type: 'dobclick', callback: (x: number, y: number) => void): void;
     on(type: string, callback: any): void {
         switch (type) {
             case 'start': this._startCallbacks.push(callback); break;
@@ -107,7 +117,13 @@ export class Inp {
             case 'end': this._endCallbacks.push(callback); break;
             case 'keymov': this._keyMovCallbacks.push(callback); break;
             case 'key': this._keyCallbacks.push(callback); break;
+            default: this._bus.on(type, callback); break;
         }
+    }
+
+    /** 事件队列摘除(与 on 的队列通道对称; 省略 cb 清该事件全部) */
+    off(event?: string, cb?: Function): void {
+        this._bus.off(event, cb);
     }
 
     // ==================== 触摸事件处理（保持不变） ====================
@@ -152,6 +168,13 @@ export class Inp {
                         }
                         this._lastTapTime = 0;
                         flag |= InpFlag.DOBCLICK | InpFlag.DOBTOUCH;
+                        // 事件队列派发(用户规格): 双击命中统一走 MPM 队列, 外部经 on('dobclick') 注册;
+                        // 150ms 冷却防三连点重复触发(点2 判双击后点3 距点2 仍 <600ms 会再次 isDouble)
+                        const nowMs = Timer.now();
+                        if (nowMs - this._dobCdAt >= 150) {
+                            this._dobCdAt = nowMs;
+                            this._bus.emit('dobclick', t.x, t.y);
+                        }
                     } else {
                         this._lastTapPos.setValue(t.x, t.y);
                         this._lastTapTime = now;
@@ -166,7 +189,7 @@ export class Inp {
                 } else if (finger === 1) {
                     flag |= InpFlag.TOUCH2 | InpFlag.CLICK2;
                 }
-                this._emitStart(flag, t.x, t.y, finger);
+                this._emitStart(flag, t.x, t.y, finger, t.id);
             }
         }
     }
@@ -201,19 +224,28 @@ export class Inp {
                 } else if (finger === 1) {
                     flag |= InpFlag.MOV2;
                 }
-                this._emitMove(flag, cur.x, cur.y, dx, dy, finger);
+                this._emitMove(flag, cur.x, cur.y, dx, dy, finger, id);
             }
         }
     }
 
     private _onTouchEnd(e: Laya.Event): void {
-        const touches = this._getSortedTouches(e);
-        const remainingIds = touches.map(t => t.id);
-
+        // 引擎实锤(laya.core handleTouch): 派发的 MOUSE_UP 自带 e.touchId = 本次抬起的触点 id;
+        // 而 e.touches(getter → 引擎活跃触点表 _touches)在触摸路径 MOUSE_UP 派发期间【仍包含已抬起的触点】
+        // (splice 在派发后才执行; 鼠标路径 _touches.length=0 在派发前清空)——
+        // 旧 "fingerMap − e.touches 差集" 判定在真机(触摸路径)必得空集 → 弹起事件全丢(只有按下没有抬起)。
+        // 正解: 直接按 e.touchId 移除; 不在表内才退差集兜底(鼠标路径)。
+        const tid = (e as any).touchId;
         const endedIds: number[] = [];
-        for (const id of this._fingerMap.keys()) {
-            if (remainingIds.indexOf(id) === -1) {
-                endedIds.push(id);
+        if (typeof tid === 'number' && this._fingerMap.has(tid)) {
+            endedIds.push(tid);
+        } else {
+            const touches = this._getSortedTouches(e);
+            const remainingIds = touches.map(t => t.id);
+            for (const id of this._fingerMap.keys()) {
+                if (remainingIds.indexOf(id) === -1) {
+                    endedIds.push(id);
+                }
             }
         }
         if (endedIds.length === 0) return;
@@ -233,11 +265,11 @@ export class Inp {
                 flag |= InpFlag.UP2;
             }
 
-            this._emitEnd(flag, finger);
+            this._emitEnd(flag, finger, id);
         }
 
         if (this._fingerMap.size === 0) {
-            this._emitEnd(InpFlag.UPALL, -1);
+            this._emitEnd(InpFlag.UPALL, -1, -1);
             this._isDoubleTapDrag = false;
         }
     }
@@ -304,15 +336,16 @@ export class Inp {
     }
 
     // ==================== 事件派发 ====================
-    private _emitStart(flag: InpFlag, x: number, y: number, finger: number): void {
-        for (const cb of this._startCallbacks) cb(flag, x, y, finger);
+    private _emitStart(flag: InpFlag, x: number, y: number, finger: number, id: number): void {
+        for (const cb of this._startCallbacks) cb(flag, x, y, finger, id);
     }
-    private _emitMove(flag: InpFlag, x: number, y: number, dx: number, dy: number, finger: number): void {
-        for (const cb of this._moveCallbacks) cb(flag, x, y, dx, dy, finger);
+    private _emitMove(flag: InpFlag, x: number, y: number, dx: number, dy: number, finger: number, id: number): void {
+        for (const cb of this._moveCallbacks) cb(flag, x, y, dx, dy, finger, id);
     }
-    private _emitEnd(flag: InpFlag, finger: number): void {
-        for (const cb of this._endCallbacks) cb(flag, finger);
+    private _emitEnd(flag: InpFlag, finger: number, id: number): void {
+        for (const cb of this._endCallbacks) cb(flag, finger, id);
     }
+
     private _emitKey(flag: InpFlag, key: InpKey, pressed: boolean): void {
         for (const cb of this._keyCallbacks) cb(flag, key, pressed);
     }

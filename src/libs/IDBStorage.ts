@@ -4,6 +4,9 @@
  */
 // IDBStorage.ts
 // IndexedDB存储封装类，适用于LayaAir项目
+// 微信小游戏无 indexedDB: 自动降级 KV 走 wx storage / 文件走用户目录 fs(见 libs/wx.ts)
+
+import { wxEnv, wxKvGet, wxKvSet, wxKvDel, wxKvKeys, wxFileWrite, wxFileRead, wxFileDelete, wxFileKeys, wxStorageUsageKb, mkBlob, blobAb } from './wx';
 
 export class IDBStorage {
     private dbName: string;
@@ -13,6 +16,8 @@ export class IDBStorage {
     private db: any = null;
     private isInitialized: boolean = false;
     private initCallbacks: Array<(db: any, err?: any) => void> = [];
+    /** 微信降级模式(无 indexedDB 环境) */
+    private _wx: boolean = false;
 
     /**
      * 初始化IndexedDB存储管理器
@@ -22,6 +27,10 @@ export class IDBStorage {
     constructor(dbName: string = 'IDBStorage', dbVersion: number = 1) {
         this.dbName = dbName;
         this.dbVersion = dbVersion;
+        // ★ 构造即定型微信降级: 旧版首次 get 走 IDB 分支, init 异步转 _wx 后 callback(null)
+        // 丢读 —— 每次冷启动第一次 storage.get 必返回 null(vers 判 hasLocal=false 每次重下)
+        this._wx = !!(Laya.Browser.onMiniGame || wxEnv || (typeof (window as any).wx !== 'undefined' && (window as any).wx.getFileSystemManager));
+        this.isInitialized = this._wx;
     }
 
     /**
@@ -29,45 +38,57 @@ export class IDBStorage {
      * @param callback 初始化完成回调
      */
     private init(callback: (db: any, err?: any) => void): void {
-        if (this.isInitialized) {
+        // 优先使用 LayaAir 官方标志判断微信小游戏
+        const isWx = Laya.Browser.onMiniGame || wxEnv || (typeof (window as any).wx !== 'undefined' && (window as any).wx.getFileSystemManager);
+
+        if (!(window as any).indexedDB || isWx) {
+            this._wx = true;
+            this.isInitialized = true;
             callback(this.db);
             return;
         }
 
-        // 将回调加入队列
+        if (this.isInitialized) {
+            callback(this.db);
+            return;
+        }
+  
         this.initCallbacks.push(callback);
-
-        // 如果已经在初始化，直接返回
         if (this.initCallbacks.length > 1) return;
 
         const request = (window as any).indexedDB.open(this.dbName, this.dbVersion);
 
-        // 版本升级/首次创建
         request.onupgradeneeded = (event: any) => {
             const db = event.target.result;
-            // 创建普通数据存储区
             if (!db.objectStoreNames.contains(this.storeName)) {
                 db.createObjectStore(this.storeName, { keyPath: 'key' });
             }
-            // 创建文件存储区
             if (!db.objectStoreNames.contains(this.fileStoreName)) {
                 db.createObjectStore(this.fileStoreName, { keyPath: 'key' });
             }
         };
 
         request.onsuccess = (event: any) => {
-            this.db = event.target.result;
-            this.isInitialized = true;
+            const dbResult = event.target.result;
 
-            // 执行所有等待的回调
+            // 🚨 核心修复：如果微信返回了 null 的 db，强制走微信降级
+            if (!dbResult) {
+                console.warn('IndexedDB 返回了 null，强制切换至微信降级模式');
+                this._wx = true;
+                this.isInitialized = true;
+                this.initCallbacks.forEach(cb => cb(null));
+                this.initCallbacks = [];
+                return;
+            }
+
+            this.db = dbResult;
+            this.isInitialized = true;
             this.initCallbacks.forEach(cb => cb(this.db));
             this.initCallbacks = [];
         };
 
         request.onerror = (event: any) => {
             console.error('IDB初始化失败:', event.target.error);
-
-            // 执行所有等待的回调
             this.initCallbacks.forEach(cb => cb(null, event.target.error));
             this.initCallbacks = [];
         };
@@ -91,11 +112,13 @@ export class IDBStorage {
      * @param mode 事务模式('readonly'|'readwrite')
      * @param callback 回调函数
      */
-    private _getStoreWithTx(storeName: string, mode: IDBTransactionMode, 
-                           callback: (store: IDBObjectStore, transaction: IDBTransaction, err?: any) => void): void {
+    private _getStoreWithTx(storeName: string, mode: IDBTransactionMode,
+        callback: (store: IDBObjectStore, transaction: IDBTransaction, err?: any) => void): void {
         this._ensureInitialized((db, err) => {
-            if (err) {
-                callback(null, null, err);
+            if (err || !db) {
+                // 关键：一旦发现 db 无效，立即标记微信降级模式
+                this._wx = true;
+                callback(null, null, err || new Error('IndexedDB unavailable, fallback to wx'));
                 return;
             }
 
@@ -103,15 +126,22 @@ export class IDBStorage {
             const store = transaction.objectStore(storeName);
             callback(store, transaction);
         });
-    }
 
-    /**
-     * 存储数据
-     * @param key 键名
-     * @param value 存储值
-     * @param callback 操作结果回调 (success)
-     */
-    set(key: string, value: any, callback?: (success: boolean) => void): void {
+        }
+
+
+        /**
+         * 存储数据
+         * @param key 键名
+         * @param value 存储值
+         * @param callback 操作结果回调 (success)
+         */
+        set(key: string, value: any, callback ?: (success: boolean) => void): void {
+            if(this._wx) {
+            const ok = wxKvSet(key, value);
+            if (callback) callback(ok);
+            return;
+        }
         this._getStoreWithTx(this.storeName, 'readwrite', (store, transaction, err) => {
             if (err) {
                 if (callback) callback(false);
@@ -154,6 +184,10 @@ export class IDBStorage {
      * @param callback 结果回调 (value)
      */
     get(key: string, callback: (value: any) => void): void {
+        if (this._wx) {
+            callback(wxKvGet(key));
+            return;
+        }
         this._getStoreWithTx(this.storeName, 'readonly', (store, transaction, err) => {
             if (err) {
                 callback(null);
@@ -201,6 +235,11 @@ export class IDBStorage {
      * @param callback 操作结果回调 (success)
      */
     delete(key: string, callback?: (success: boolean) => void): void {
+        if (this._wx) {
+            const ok = wxKvDel(key);
+            if (callback) callback(ok);
+            return;
+        }
         this._getStoreWithTx(this.storeName, 'readwrite', (store, transaction, err) => {
             if (err) {
                 if (callback) callback(false);
@@ -220,6 +259,12 @@ export class IDBStorage {
      * @param callback 操作结果回调 (success)
      */
     clear(callback?: (success: boolean) => void): void {
+        if (this._wx) {
+            for (const k of wxKvKeys()) wxKvDel(k);
+            for (const f of wxFileKeys()) wxFileDelete(f);
+            if (callback) callback(true);
+            return;
+        }
         // 清空普通数据
         this._getStoreWithTx(this.storeName, 'readwrite', (store, mainTx, err) => {
             if (err) {
@@ -302,6 +347,14 @@ export class IDBStorage {
      * @param callback 操作结果回调 (success)
      */
     setFile(key: string, file: Blob | File, callback?: (success: boolean) => void): void {
+        if (this._wx) {
+            // Blob/ArrayBuffer 统一转 ArrayBuffer 写用户目录文件
+            blobAb(file).then((ab) => {
+                const ok = wxFileWrite(key, ab);
+                if (callback) callback(ok);
+            }).catch(() => { if (callback) callback(false); });
+            return;
+        }
         // 1. 先将文件转换为Base64（在事务外完成异步操作）
         this._fileToBase64(file, (base64Data, err) => {
             if (err) {
@@ -340,6 +393,11 @@ export class IDBStorage {
      * @param callback 结果回调 (blob)
      */
     getFile(key: string, callback: (blob: Blob | null) => void): void {
+        if (this._wx) {
+            const ab = wxFileRead(key);
+            callback(ab ? mkBlob([ab]) : null);
+            return;
+        }
         this._getStoreWithTx(this.fileStoreName, 'readonly', (store, transaction, err) => {
             if (err) {
                 callback(null);
@@ -369,6 +427,11 @@ export class IDBStorage {
      * @param callback 操作结果回调 (success)
      */
     deleteFile(key: string, callback?: (success: boolean) => void): void {
+        if (this._wx) {
+            const ok = wxFileDelete(key);
+            if (callback) callback(ok);
+            return;
+        }
         this._getStoreWithTx(this.fileStoreName, 'readwrite', (store, transaction, err) => {
             if (err) {
                 if (callback) callback(false);
@@ -388,7 +451,13 @@ export class IDBStorage {
      * @param items 键值对数组
      * @param callback 操作结果回调 (success)
      */
-    batchSet(items: Array<{key: string, value: any}>, callback?: (success: boolean) => void): void {
+    batchSet(items: Array<{ key: string, value: any }>, callback?: (success: boolean) => void): void {
+        if (this._wx) {
+            let ok = true;
+            for (const it of items) { if (it.key && !wxKvSet(it.key, it.value)) ok = false; }
+            if (callback) callback(ok);
+            return;
+        }
         if (!Array.isArray(items) || items.length === 0) {
             if (callback) callback(false);
             return;
@@ -437,6 +506,10 @@ export class IDBStorage {
      * @param callback 结果回调 (results)
      */
     batchGet(keys: string[], callback: (results: any[]) => void): void {
+        if (this._wx) {
+            callback(keys.map((k) => wxKvGet(k)));
+            return;
+        }
         if (!Array.isArray(keys) || keys.length === 0) {
             callback([]);
             return;
@@ -479,7 +552,11 @@ export class IDBStorage {
      * 获取所有键名
      * @param callback 结果回调 ({dataKeys, fileKeys})
      */
-    getKeys(callback: (keys: {dataKeys: any[], fileKeys: any[]}) => void): void {
+    getKeys(callback: (keys: { dataKeys: any[], fileKeys: any[] }) => void): void {
+        if (this._wx) {
+            callback({ dataKeys: wxKvKeys(), fileKeys: wxFileKeys() });
+            return;
+        }
         // 获取普通数据键名
         this._getStoreWithTx(this.storeName, 'readonly', (store, transaction, err) => {
             if (err) {
@@ -529,7 +606,12 @@ export class IDBStorage {
      * 获取存储使用情况
      * @param callback 结果回调 ({used, quota, percentage})
      */
-    getUsage(callback: (usage: {used: number, quota: number, percentage: number}) => void): void {
+    getUsage(callback: (usage: { used: number, quota: number, percentage: number }) => void): void {
+        if (this._wx) {
+            const kb = wxStorageUsageKb();
+            callback({ used: kb * 1024, quota: 10 * 1024 * 1024, percentage: Math.round(kb * 1024 / (10 * 1024 * 1024) * 100) });
+            return;
+        }
         if ('storage' in navigator && 'estimate' in (navigator as any).storage) {
             (navigator as any).storage.estimate().then((estimate: any) => {
                 callback({

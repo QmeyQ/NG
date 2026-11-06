@@ -1,0 +1,208 @@
+{
+  "out": "nor.br",
+  "magic": "BRP1",
+  "version": "1.0",
+  "fileCount": 49,
+  "rawSize": 4671248,
+  "containerSize": 4672718,
+  "brSize": 3862788,
+  "ratio": 0.8267,
+  "files": [
+    {
+      "path": "ani.controller",
+      "size": 1786
+    },
+    {
+      "path": "ball/ball.001.lm",
+      "size": 12654
+    },
+    {
+      "path": "ball@0.lh",
+      "size": 850
+    },
+    {
+      "path": "bcolor.png",
+      "size": 326673
+    },
+    {
+      "path": "bnor.png",
+      "size": 290889
+    },
+    {
+      "path": "body.lmat",
+      "size": 853
+    },
+    {
+      "path": "body_1.lmat",
+      "size": 853
+    },
+    {
+      "path": "boy/diving.lani",
+      "size": 232004
+    },
+    {
+      "path": "boy/down.lani",
+      "size": 28608
+    },
+    {
+      "path": "boy/hitoff.lani",
+      "size": 53028
+    },
+    {
+      "path": "boy/jumphit.lani",
+      "size": 31375
+    },
+    {
+      "path": "boy/left.lani",
+      "size": 52832
+    },
+    {
+      "path": "boy/node_0.005.lm",
+      "size": 216603
+    },
+    {
+      "path": "boy/right.lani",
+      "size": 53508
+    },
+    {
+      "path": "boy/stand.lani",
+      "size": 22316
+    },
+    {
+      "path": "boy/up.lani",
+      "size": 25699
+    },
+    {
+      "path": "boy@0.lh",
+      "size": 81610
+    },
+    {
+      "path": "court/floor.lm",
+      "size": 7304
+    },
+    {
+      "path": "court/floor_Take 001.lani",
+      "size": 468
+    },
+    {
+      "path": "court/inner.lmat",
+      "size": 221
+    },
+    {
+      "path": "court/net.lm",
+      "size": 500
+    },
+    {
+      "path": "court/nettop.lmat",
+      "size": 217
+    },
+    {
+      "path": "court/outer.lmat",
+      "size": 224
+    },
+    {
+      "path": "court/pole.1.lm",
+      "size": 1670
+    },
+    {
+      "path": "court/pole.lm",
+      "size": 1670
+    },
+    {
+      "path": "court/pole.lmat",
+      "size": 215
+    },
+    {
+      "path": "court/whiteL.lmat",
+      "size": 203
+    },
+    {
+      "path": "court.jpg",
+      "size": 126405
+    },
+    {
+      "path": "court@0.lh",
+      "size": 2796
+    },
+    {
+      "path": "gan.lmat",
+      "size": 200
+    },
+    {
+      "path": "gcolor.png",
+      "size": 377018
+    },
+    {
+      "path": "girl/au/hit.MP3",
+      "size": 3811
+    },
+    {
+      "path": "girl/au/hitF.MP3",
+      "size": 2557
+    },
+    {
+      "path": "girl1/node_0.004.lm",
+      "size": 194577
+    },
+    {
+      "path": "girl1@0.lh",
+      "size": 79326
+    },
+    {
+      "path": "gnor.png",
+      "size": 501016
+    },
+    {
+      "path": "head.lmat",
+      "size": 220
+    },
+    {
+      "path": "match/bg.jpg",
+      "size": 111556
+    },
+    {
+      "path": "match/match.ls",
+      "size": 5753
+    },
+    {
+      "path": "match/pve1.png",
+      "size": 645680
+    },
+    {
+      "path": "match/pve2.png",
+      "size": 671638
+    },
+    {
+      "path": "net.lmat",
+      "size": 657
+    },
+    {
+      "path": "net.png",
+      "size": 7424
+    },
+    {
+      "path": "racket/racket.lm",
+      "size": 28122
+    },
+    {
+      "path": "Racket.png",
+      "size": 465252
+    },
+    {
+      "path": "racket@0.lh",
+      "size": 839
+    },
+    {
+      "path": "rocket.lmat",
+      "size": 708
+    },
+    {
+      "path": "sky.lmat",
+      "size": 418
+    },
+    {
+      "path": "tail.lmat",
+      "size": 442
+    }
+  ]
+}

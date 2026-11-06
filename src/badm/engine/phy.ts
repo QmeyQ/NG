@@ -4,26 +4,28 @@
  */
 import { Timer } from "../../libs/time";
 import { MPMD } from "../../libs/mpm";
-import { PhyCfg, State, V3, Params, NetConfig, BallRegionConfig, NetCollisionParams, NetHitInfo } from "./phyCfg";
+import { PhyCfg, State, V3, Fx, Params, NetConfig, BallRegionConfig, NetCollisionParams, NetHitInfo } from "./phyCfg";
 import { Ball } from "../obj/ball";
 import { Obj } from "../obj/obj";
 
 export class Phy extends PhyCfg {
     private vEff = new Laya.Vector3();
+    private algQ = new Laya.Quaternion(); // 球头稳定对齐目标旋转
+    private _predMode = false; // 影子预测中: 屏蔽碰撞命中记录副作用
 
     constructor(ball: Ball, params: Partial<Params> = {}) {
         super();
         this.p = { ...this.DFLT, ...params };
         this.state = new State();
 
+        // 边界入(Laya 浮点坐标) → Q10 整数: 球心 = 球位置 + cmOff 旋转偏移
         const cmW = new Laya.Vector3();
         Laya.Vector3.transformQuat(this.p.cmOff, ball.rot, cmW);
-        V3.add(ball.pos, cmW, this.state.pos);
-
-        this.state.vel.setValue(0, 0, 0);
-        this.state.sn.setValue(0, 0, 0);
-        this.state.sa = 0;
-        this.state.rot = ball.rot;
+        const cmx = ball.pos.x + cmW.x; const cmy = ball.pos.y + cmW.y; const cmz = ball.pos.z + cmW.z;
+        this.state.px = Fx.f2i(cmx); this.state.py = Fx.f2i(cmy); this.state.pz = Fx.f2i(cmz);
+        this.state.qx = Fx.f2i(ball.rot.x); this.state.qy = Fx.f2i(ball.rot.y);
+        this.state.qz = Fx.f2i(ball.rot.z); this.state.qw = Fx.f2i(ball.rot.w);
+        this.state.iSync();
         this.state.time = Timer.now();
         this.startT = this.state.time;
 
@@ -34,7 +36,14 @@ export class Phy extends PhyCfg {
         this.map.addByTime(this.state.time, this.state.clone());
     }
 
-    public hit(power: number, angH: number, angV: number, spin?: Laya.Vector3 | null) {
+    /**
+     * 击球重置轨迹。
+     * @param hitTime 击球时刻(时间驱动同步, 用户规格): 省略=现在(本地击球);
+     *  PVP 远端重放传消息内击球时刻——轨迹从过去时刻起算, 双端从同一 (t, 参数) 出发
+     *  各自 simTo(现在) 必收敛(时间驱动模拟引擎的意义)。调用方需先把球状态回退到该时刻
+     *  (ball.hit 已内置: 从 map 取 ≤t 最近历史 state 作击球起点)。
+     */
+    public hit(power: number, angH: number, angV: number, spin?: Laya.Vector3 | null, hitTime?: number) {
         this.isSleeping = false; // 击球唤醒
         const np = power / 100;
         const v = this.p.vmax * Math.pow(np, 1.5);
@@ -44,29 +53,59 @@ export class Phy extends PhyCfg {
         this.isCalc = true;
 
         const ns = new State();
-        V3.copy(this.state.pos, ns.pos);
-        ns.vel.setValue(Math.sin(rh) * cv * v, sv * v, Math.cos(rh) * cv * v);
-
-        if (spin && V3.len(spin) > 0.01) V3.copy(spin, ns.sn);
-        else ns.sn.setValue(0, 0, 0);
+        ns.px = this.state.px; ns.py = this.state.py; ns.pz = this.state.pz;
+        // 边界入(浮点三角函数构造) → Q10 整数
+        ns.vy = Fx.f2i(sv * v);
+        ns.vx = Fx.f2i(Math.cos(rh) * cv * v);  // 0→-v(左), 90→0, 180→+v(右)
+        ns.vz = Fx.f2i(-Math.sin(rh) * cv * v);   // 0→0,   90→+v, 180→0
+        if (spin && V3.len(spin) > 0.01) {
+            ns.sx = Fx.f2i(spin.x); ns.sy = Fx.f2i(spin.y); ns.sz = Fx.f2i(spin.z);
+        }
+        ns.iSync();
 
         if (v > 0.01) this.alx(ns.vel, ns.rot);
         else this.alx(V3.UP, ns.rot);
 
-        const now = Timer.now();
+// 如果传了 spin，用它作为初始自转；否则按力度给
+// if (spin && V3.len(spin) > 0.01) {
+//     ns.sai = Fx.f2i(spin.z);   // spin.z 直接映射到 sa（绕球头 +Z）
+// } else {
+    ns.sai = Fx.f2i(30 + np * 8);
+// }
+
+// ★ 横向冲击：拍面击球不完美产生的横向力矩 → 球头绕速度轴摆动（进动）
+const latAmp = np * 120;
+ns.sx = Fx.f2i(latAmp * Math.cos(rh));
+ns.sy = Fx.f2i(latAmp * Math.sin(rh));
+
+
+        // alx 走引擎四元数(浮点) → 量化回整数网格
+        ns.fToI(); ns.iSync();
+
+        const now = hitTime != null ? hitTime : Timer.now();
         ns.time = now;
         this.state = ns;
         this.startT = now;
+        this.t = now;
         this.map.clear();
         this.map.addByTime(now, this.state.clone());
-        this.resetDbg();
+        this.resetTrk();
         this.lastNetHit = null;
         this.lastGndHit = null;
     }
 
-    sync(node: Obj) { this.state.pos = node.pos; this.state.rot = node.rot; }
+    /** 外部节点浮点位姿 → 内部 Q10 整数(边界入) */
+    sync(node: Obj) {
+        this.state.px = Fx.f2i(node.pos.x); this.state.py = Fx.f2i(node.pos.y); this.state.pz = Fx.f2i(node.pos.z);
+        this.state.qx = Fx.f2i(node.rot.x); this.state.qy = Fx.f2i(node.rot.y);
+        this.state.qz = Fx.f2i(node.rot.z); this.state.qw = Fx.f2i(node.rot.w);
+        this.state.iSync();
+        this.state.rot = node.rot;
+        this.state.fToI(); this.state.iSync();
+    }
 
     public applyToNode(node: Obj) {
+        // 边界出: Q10 整数 → Laya 浮点坐标(球位置 = 质心 - cmOff 旋转偏移)
         const off = new Laya.Vector3();
         Laya.Vector3.transformQuat(this.p.cmOff, this.state.rot, off);
         node.root.transform.position = new Laya.Vector3(
@@ -75,11 +114,52 @@ export class Phy extends PhyCfg {
         node.root.transform.rotation = this.state.rot.clone();
     }
 
-    public get(t?: number): State {
-        if (!this.isCalc || this.isSleeping) return this.state.clone();
-        const tt = t === undefined ? Timer.now() : t;
-        this.state.copyFrom(this.simTo(tt));
-        return this.state;
+    /**
+     * 按时间查询球状态(用户规格: 允许输入两个参数 st/et):
+     * - get() / get(t): 单时刻模式, 返回该时间(省略=当前时刻)的单个 State
+     * - get(st, et): 区间模式, 返回 [st, et] 时间段内按采样步长(40ms)的状态数组
+     *   (内部逐档 simTo 推进, 已算档位走缓存不重复积分; st>et 自动交换)
+     */
+    public get(t?: number, et?: number): State | State[] {
+        if (t === undefined || et === undefined) {
+            if (!this.isCalc || this.isSleeping) return this.state.clone();
+            const tt = t === undefined ? Timer.now() : t;
+            this.state.copyFrom(this.simTo(tt));
+            return this.state;
+        }
+        // 区间模式(用户规格 [st, et]):
+        // - 历史段(≤state.time)从 map 缓存提取——物理停算(isCalc=false, 结算后回持球)时
+        //   simTo 短路返回同一点, map 是唯一数据源("鹰眼回放球不动"根因);
+        // - 未来段(>state.time 且活球)simTo 前推预测, 快照防污染(查完恢复 state/time/t,
+        //   严禁把内核推进到未来——否则下一帧 simTo(now) 负时长球冻结);
+        // - st>et 自动交换; 全空兜底当前 state
+        let st = t, end = et;
+        if (st > end) { const tmp = st; st = end; end = tmp; }
+        const out: State[] = [];
+        const nowT = this.state.time;
+        const histEnd = Math.min(end, nowT);
+        if (this.map && histEnd >= st) {
+            const states: any[] = Array.from(this.map.get() as any)
+                .sort((a: any, b: any) => a.time - b.time)
+                .filter((s: any) => s.time >= st && s.time <= histEnd);
+            for (const s of states) out.push(s.clone() as State);
+        }
+        if (this.isCalc && !this.isSleeping && end > nowT) {
+            const real = this.state.clone();
+            const realTime = this.state.time;
+            const realT = this.t;
+            let cur = Math.max(st, nowT);
+            out.push(this.simTo(cur).clone());
+            while (cur < end) {
+                cur = Math.min(cur + 40, end);
+                out.push(this.simTo(cur).clone());
+            }
+            this.state.copyFrom(real);
+            this.state.time = realTime;
+            this.t = realT;
+        }
+        if (out.length === 0) out.push(this.state.clone());
+        return out;
     }
 
     private sphBox(sx: number, sy: number, sz: number, sr: number, net: NetConfig, outClosest: Laya.Vector3, outNormal: Laya.Vector3): number {
@@ -115,10 +195,10 @@ export class Phy extends PhyCfg {
 
         s.pos.x += normal.x * pen; s.pos.y += normal.y * pen; s.pos.z += normal.z * pen;
 
-        Laya.Vector3.transformQuat(V3.RIGHT, s.rot, this.cLx);
-        this.cOw.x = s.sn.x + this.cLx.x * s.sa;
-        this.cOw.y = s.sn.y + this.cLx.y * s.sa;
-        this.cOw.z = s.sn.z + this.cLx.z * s.sa;
+        Laya.Vector3.transformQuat(V3.FORWARD, s.rot, this.cLz); // ← 目标从 cLx 改 cLz
+        this.cOw.x = s.sn.x + this.cLz.x * s.sa;
+        this.cOw.y = s.sn.y + this.cLz.y * s.sa;
+        this.cOw.z = s.sn.z + this.cLz.z * s.sa;
 
         V3.cross(this.cOw, this.cR, this.cVc);
         V3.add(s.vel, this.cVc, this.cVc);
@@ -187,25 +267,51 @@ export class Phy extends PhyCfg {
             this.cDo.x += this.cT2.x * jtAng; this.cDo.y += this.cT2.y * jtAng; this.cDo.z += this.cT2.z * jtAng;
         }
 
-        const dSa = V3.dot(this.cDo, this.cLx);
+        const dSa = V3.dot(this.cDo, this.cLz);
         s.sa += dSa;
-        s.sn.x += this.cDo.x - this.cLx.x * dSa;
-        s.sn.y += this.cDo.y - this.cLx.y * dSa;
-        s.sn.z += this.cDo.z - this.cLx.z * dSa;
+        s.sn.x += this.cDo.x - this.cLz.x * dSa;
+        s.sn.y += this.cDo.y - this.cLz.y * dSa;
+        s.sn.z += this.cDo.z - this.cLz.z * dSa;/////cLx -> cLZ
         this.clampSt(s);
         return true;
     }
 
     private procCol(s: State, net: NetConfig, ncol: NetCollisionParams, isGround: boolean, dt: number): void {
         const reg = this.region;
+
+        // 地面判定(用户规则: y < 0 即到地, 不判 0 区间)——薄盒 hh=0.001 的穿透容错极小,
+        // 球心穿到 y<0 后 clamp 把 closest 钉回盒面、dy≈|y| ≥ featherR 时 sphBox pen=0 零穿透,
+        // recordGndHit 永不触发(球浮空不结算根因)。y<0 直接造法向碰撞并按弹跳衰减速度。
+        if (isGround) {
+            const gndY = net.cy - net.hh; // = setGround 的 y(默认 0)
+            if (s.pos.y < gndY) {
+                // 球心拉回地面 + 法向反弹 + 摩擦衰减(对齐 imp 地面语义)
+                s.pos.y = gndY;
+                if (s.vel.y < 0) {
+                    s.vel.y = -s.vel.y * ncol.restFeather;
+                    s.vel.x *= (1 - ncol.friction * 0.5);
+                    s.vel.z *= (1 - ncol.friction * 0.5);
+                }
+                this.recordGndHit(s, false, true);
+                return;
+            }
+            if (s.pos.y > gndY + 20) return; // 远离地面直接跳过(省 axes 计算)
+        }
+
         const ext = Math.max(reg.headDist + reg.headR, reg.featherDist + reg.featherR);
         if (s.pos.x < net.cx - net.hw - ext || s.pos.x > net.cx + net.hw + ext) return;
         if (s.pos.y < net.cy - net.hh - ext || s.pos.y > net.cy + net.hh + ext) return;
         if (s.pos.z < net.cz - net.hd - ext || s.pos.z > net.cz + net.hd + ext) return;
 
         this.axes(s.rot, this.cLx, this.cLy, this.cLz);
-        this.cHp.x = s.pos.x + this.cLx.x * reg.headDist; this.cHp.y = s.pos.y + this.cLx.y * reg.headDist; this.cHp.z = s.pos.z + this.cLx.z * reg.headDist;
-        this.cFp.x = s.pos.x - this.cLx.x * reg.featherDist; this.cFp.y = s.pos.y - this.cLx.y * reg.featherDist; this.cFp.z = s.pos.z - this.cLx.z * reg.featherDist;
+        // this.cHp.x = s.pos.x + this.cLx.x * reg.headDist; this.cHp.y = s.pos.y + this.cLx.y * reg.headDist; this.cHp.z = s.pos.z + this.cLx.z * reg.headDist;
+        // this.cFp.x = s.pos.x - this.cLx.x * reg.featherDist; this.cFp.y = s.pos.y - this.cLx.y * reg.featherDist; this.cFp.z = s.pos.z - this.cLx.z * reg.featherDist;
+        this.cHp.x = s.pos.x + this.cLz.x * reg.headDist;
+        this.cHp.y = s.pos.y + this.cLz.y * reg.headDist;
+        this.cHp.z = s.pos.z + this.cLz.z * reg.headDist;
+        this.cFp.x = s.pos.x - this.cLz.x * reg.featherDist;
+        this.cFp.y = s.pos.y - this.cLz.y * reg.featherDist;
+        this.cFp.z = s.pos.z - this.cLz.z * reg.featherDist;
 
         let penH = this.sphBox(this.cHp.x, this.cHp.y, this.cHp.z, reg.headR, net, this.cCl1, this.cN1);
         let penF = this.sphBox(this.cFp.x, this.cFp.y, this.cFp.z, reg.featherR, net, this.cCl2, this.cN2);
@@ -250,14 +356,19 @@ export class Phy extends PhyCfg {
             const hdx = this.cHp.x - this.cCl.x; const hdy = this.cHp.y - this.cCl.y; const hdz = this.cHp.z - this.cCl.z;
             const headPast = (hdx * this.cN.x + hdy * this.cN.y + hdz * this.cN.z) > 0;
             if (headPast) {
-                V3.cross(s.vel, this.cLx, this.bonus);
+                //V3.cross(s.vel, this.cLx, this.bonus);
+                V3.cross(s.vel, this.cLz, this.bonus);       // ← cLx → cLz
                 const bonusLen = V3.len(this.bonus);
                 if (bonusLen > 1e-6) {
                     V3.norm(this.bonus, this.bonus);
                     const vMag = V3.len(s.vel);
                     const torqueMag = ncol.catchBoost * vMag * this.p.m * 0.5 / this.p.I_perp;
-                    const bSa = V3.dot(this.bonus, this.cLx);
-                    this.bonus.x -= this.cLx.x * bSa; this.bonus.y -= this.cLx.y * bSa; this.bonus.z -= this.cLx.z * bSa;
+                    // const bSa = V3.dot(this.bonus, this.cLx);
+                    // this.bonus.x -= this.cLx.x * bSa; this.bonus.y -= this.cLx.y * bSa; this.bonus.z -= this.cLx.z * bSa;
+                    const bSa = V3.dot(this.bonus, this.cLz);    // ← cLx → cLz
+                    this.bonus.x -= this.cLz.x * bSa;            // ← cLx → cLz
+                    this.bonus.y -= this.cLz.y * bSa;
+                    this.bonus.z -= this.cLz.z * bSa;
                     const bSnLen = V3.len(this.bonus);
                     if (bSnLen > 1e-6) {
                         this.bonus.x *= torqueMag / bSnLen; this.bonus.y *= torqueMag / bSnLen; this.bonus.z *= torqueMag / bSnLen;
@@ -273,6 +384,7 @@ export class Phy extends PhyCfg {
     }
 
     private recordHit(s: State, head: boolean, feather: boolean, past: boolean) {
+        if (this._predMode) return; // 影子预测不产生真实命中事件
         if (!this.lastNetHit || s.time - this.lastNetHit.time > 50) {
             const info = new NetHitInfo(); info.time = s.time;
             info.headHit = head; info.featherHit = feather; info.headPastNet = past;
@@ -282,6 +394,7 @@ export class Phy extends PhyCfg {
     }
 
     private recordGndHit(s: State, head: boolean, feather: boolean) {
+        if (this._predMode) return; // 影子预测不产生真实命中事件
         if (!this.lastGndHit || s.time - this.lastGndHit.time > 50) {
             const info = new NetHitInfo(); info.time = s.time;
             info.headHit = head; info.featherHit = feather; info.headPastNet = false;
@@ -294,8 +407,8 @@ export class Phy extends PhyCfg {
         V3.norm(dir, this.ad);
         if (V3.lenSq(this.ad) < 1e-10) { out.identity(); return; }
         Laya.Quaternion.rotationLookAt(this.ad, V3.UP, out);
-        Laya.Quaternion.createFromAxisAngle(V3.UP, -Math.PI / 2, this.ar);
-        Laya.Quaternion.multiply(out, this.ar, out);
+        // Laya.Quaternion.createFromAxisAngle(V3.UP, -Math.PI / 2, this.ar);
+        // Laya.Quaternion.multiply(out, this.ar, out);
     }
 
     private gyr(lx: Laya.Vector3, vel: Laya.Vector3, v: number, sa: number, dt: number, outT: Laya.Vector3): { aa: number; nsa: number } {
@@ -367,12 +480,13 @@ export class Phy extends PhyCfg {
 
     private der(s: State, dt: number): { s: State; aa: number } {
         const d = this.derD;
-        V3.copy(s.vel, d.pos);
+        // d.pos = s.vel(整数直拷——RK4 导数缓存消费整数字段)
+        d.px = s.vx; d.py = s.vy; d.pz = s.vz;
 
         const vRaw = V3.len(s.vel);
         this.axes(s.rot, this.lx, this.ly, this.lz);
 
-        this.drg(this.lx, s.vel, vRaw, this.df);
+        this.drg(this.lz, s.vel, vRaw, this.df);/////
         this.gf.setValue(0, -this.p.m * this.p.g, 0);
         V3.add(this.df, this.gf, this.tf);
 
@@ -385,10 +499,11 @@ export class Phy extends PhyCfg {
         // this.mag(s.rot, s.sn, s.sa, this.vEff, vEff, this.mf);
         // V3.add(this.tf, this.mf, this.tf);
 
-        d.vel.x = this.tf.x / this.p.m; d.vel.y = this.tf.y / this.p.m; d.vel.z = this.tf.z / this.p.m;
+        // 力项出口量化(Q10): d.vel/d.sn 为导数(加速度/角加速度), 浮点内部计算后对齐网格
+        d.vx = Fx.f2i(this.tf.x / this.p.m); d.vy = Fx.f2i(this.tf.y / this.p.m); d.vz = Fx.f2i(this.tf.z / this.p.m);
 
         const I_na = this.p.I_perp;
-        let gy = this.gyr(this.lx, this.vEff, vEff, s.sa, halfDt, this.gt);
+        let gy = this.gyr(this.lz, this.vEff, vEff, s.sa, halfDt, this.gt);///
 
         if (vEff < 1.0) {
             const dampRate = 10.0 * Math.max(0, 1.0 - vEff);
@@ -397,18 +512,113 @@ export class Phy extends PhyCfg {
             this.nax(vEff, s.sn, this.nd);
         }
 
-        V3.projPlane(this.gt, this.lx, this.gn);
-        d.sn.x = (this.gn.x + this.nd.x) / I_na; d.sn.y = (this.gn.y + this.nd.y) / I_na; d.sn.z = (this.gn.z + this.nd.z) / I_na;
+
+
+        V3.projPlane(this.gt, this.lz, this.gn);///
+        d.sx = Fx.f2i((this.gn.x + this.nd.x) / I_na);
+        d.sy = Fx.f2i((this.gn.y + this.nd.y) / I_na);
+        d.sz = Fx.f2i((this.gn.z + this.nd.z) / I_na);
+        d.iSync();
 
         return { s: d, aa: gy.aa };
     }
 
+
+    //     private der(s: State, dt: number): { s: State; aa: number } {
+    //     const d = this.derD;
+    //     // d.pos = s.vel(整数直拷——RK4 导数缓存消费整数字段)
+    //     d.px = s.vx; d.py = s.vy; d.pz = s.vz;
+
+    //     const vRaw = V3.len(s.vel);
+    //     this.axes(s.rot, this.lx, this.ly, this.lz);
+
+    //     this.drg(this.lx, s.vel, vRaw, this.df);
+    //     this.gf.setValue(0, -this.p.m * this.p.g, 0);
+    //     V3.add(this.df, this.gf, this.tf);
+
+    //     const halfDt = dt * 0.5;
+    //     const aDragX = this.tf.x / this.p.m; const aDragY = this.tf.y / this.p.m; const aDragZ = this.tf.z / this.p.m;
+    //     this.vEff.x = s.vel.x + aDragX * halfDt; this.vEff.y = s.vel.y + aDragY * halfDt; this.vEff.z = s.vel.z + aDragZ * halfDt;
+    //     const vEff = V3.len(this.vEff);
+
+    //     // 【修改点】屏蔽马格努斯力计算，排查角度异常问题
+    //     // this.mag(s.rot, s.sn, s.sa, this.vEff, vEff, this.mf);
+    //     // V3.add(this.tf, this.mf, this.tf);
+
+    //     // 力项出口量化(Q10): d.vel/d.sn 为导数(加速度/角加速度), 浮点内部计算后对齐网格
+    //     d.vx = Fx.f2i(this.tf.x / this.p.m); d.vy = Fx.f2i(this.tf.y / this.p.m); d.vz = Fx.f2i(this.tf.z / this.p.m);
+
+    //     const I_na = this.p.I_perp;
+    //     let gy = this.gyr(this.lx, this.vEff, vEff, s.sa, halfDt, this.gt);
+
+    //     if (vEff < 1.0) {
+    //         const dampRate = 10.0 * Math.max(0, 1.0 - vEff);
+    //         this.nd.x = -s.sn.x * dampRate * I_na; this.nd.y = -s.sn.y * dampRate * I_na; this.nd.z = -s.sn.z * dampRate * I_na;
+    //     } else {
+    //         this.nax(vEff, s.sn, this.nd);
+    //     }
+
+    //     // ==================== 压心气动恢复力矩 ====================
+    //     // 真实羽毛球"球头朝前"的物理来源：压心在质心后方(局部 -X 方向 acOff 比 cmOff 更远)，
+    //     // 阻力合力作用在压心，相对质心产生 τ = lever × F_drag，方向把球头拧回速度方向。
+    //     // 之前靠 rk4 末尾 alx+slerp 硬拉姿态，现在物理化，可删掉那段 hack。
+    //     //
+    //     // 杠杆臂（局部）= acOff - cmOff = (-0.025 - 0.015, 0, 0) = (-0.04, 0, 0)
+    //     this.lever.x = this.p.acOff.x - this.p.cmOff.x;
+    //     this.lever.y = this.p.acOff.y - this.p.cmOff.y;
+    //     this.lever.z = this.p.acOff.z - this.p.cmOff.z;
+    //     Laya.Vector3.transformQuat(this.lever, s.rot, this.lever); // 局部 → 世界
+
+    //     // τ_restore = lever × F_drag
+    //     V3.cross(this.lever, this.df, this.aeroTq);
+
+    //     // 分解到轴向（绕球头自转轴 lx）与横向（垂直于 lx 的平面）
+    //     const tauAxial = V3.dot(this.aeroTq, this.lx);
+    //     V3.projPlane(this.aeroTq, this.lx, this.tauPerp);
+
+    //     // ==================== 横向进动阻尼 ====================
+    //     // 光有恢复力矩，球头到位后会因角速度惯性过冲 → 反向恢复 → 振荡不收敛。
+    //     // 物理阻尼来自裙边在空气中的横向运动，与横向角速度成正比，系数随速度增大。
+    //     const snAxial = V3.dot(s.sn, this.lx);
+    //     const snPerpX = s.sn.x - this.lx.x * snAxial;
+    //     const snPerpY = s.sn.y - this.lx.y * snAxial;
+    //     const snPerpZ = s.sn.z - this.lx.z * snAxial;
+    //     const dampCoef = 0.5 * vEff;                       // 经验系数：v=10 → 5/s
+    //     this.dampTq.x = -snPerpX * dampCoef * I_na;         // 力矩量纲 N·m
+    //     this.dampTq.y = -snPerpY * dampCoef * I_na;
+    //     this.dampTq.z = -snPerpZ * dampCoef * I_na;
+    //     // ============================================================
+
+    //     V3.projPlane(this.gt, this.lx, this.gn);
+
+    //     // 横向角加速度 = (陀螺 + 轴向阻尼 + 恢复力矩横向 + 进动阻尼) / I_perp
+    //     d.sx = Fx.f2i((this.gn.x + this.nd.x + this.tauPerp.x + this.dampTq.x) / I_na);
+    //     d.sy = Fx.f2i((this.gn.y + this.nd.y + this.tauPerp.y + this.dampTq.y) / I_na);
+    //     d.sz = Fx.f2i((this.gn.z + this.nd.z + this.tauPerp.z + this.dampTq.z) / I_na);
+    //     d.iSync();
+
+    //     // 轴向角加速度 = 陀螺轴向项 + 恢复力矩轴向分量 / I_axial
+    //     const aaTotal = gy.aa + tauAxial / this.p.Ia;
+
+    //     return { s: d, aa: aaTotal };
+    // }
+
+    /** 欧拉推进(纯整数运算): state += k * dt。
+     * d.px 是位置导数(der: d.px = s.vx), d.vx 是速度导数(加速度)。
+     * 步长 Q20(×1048576): dt=0.001s 在 Q10 下仅 1 单位(精度崩), Q20 有 1049 单位;
+     * 乘积加半偏置右移 = 整数 round(负数 floor 系统偏差修正, 纯整数保持) */
     eul(s: State, d: State, aa: number, dt: number) {
-        V3.addScaled(s.pos, d.pos, dt, s.pos);
-        V3.addScaled(s.vel, d.vel, dt, s.vel);
-        V3.addScaled(s.sn, d.sn, dt, s.sn);
-        s.sa += aa * dt;
-        s.sa = V3.clamp(s.sa, -200 * Math.PI, 200 * Math.PI);
+        const dti = Math.round(dt * 1048576);
+        if (dti <= 0) return;
+        const HALF = 524288;
+        s.px += (d.px * dti + HALF) >> 20; s.py += (d.py * dti + HALF) >> 20; s.pz += (d.pz * dti + HALF) >> 20;
+        s.vx += (d.vx * dti + HALF) >> 20; s.vy += (d.vy * dti + HALF) >> 20; s.vz += (d.vz * dti + HALF) >> 20;
+        s.sx += (d.sx * dti + HALF) >> 20; s.sy += (d.sy * dti + HALF) >> 20; s.sz += (d.sz * dti + HALF) >> 20;
+        const aai = Fx.f2i(aa);
+        s.sai += (aai * dti + HALF) >> 20;
+        const maxSpin = Fx.f2i(200 * Math.PI);
+        s.sai = V3.clamp(s.sai, -maxSpin, maxSpin);
+        s.iSync();
     }
 
     private rstep(rot: Laya.Quaternion, sn: Laya.Vector3, sa: number, lx: Laya.Vector3, dt: number) {
@@ -429,53 +639,84 @@ export class Phy extends PhyCfg {
 
     rk4(s: State, dt: number) {
         const r1 = this.der(s, dt);
-        V3.copy(r1.s.pos, this.k1.s.pos); V3.copy(r1.s.vel, this.k1.s.vel); V3.copy(r1.s.sn, this.k1.s.sn); this.k1.aa = r1.aa;
+        this.k1.s.copyFrom(r1.s); this.k1.aa = r1.aa;
 
         this.s2.copyFrom(s);
         this.eul(this.s2, this.k1.s, this.k1.aa, dt * 0.5);
         this.axes(s.rot, this.klx, this.kly, this.klz);
-        this.rstep(this.s2.rot, s.sn, s.sa, this.klx, dt * 0.5);
+        this.rstep(this.s2.rot, s.sn, s.sa, this.klz, dt * 0.5); //
 
         const r2 = this.der(this.s2, dt);
-        V3.copy(r2.s.pos, this.k2.s.pos); V3.copy(r2.s.vel, this.k2.s.vel); V3.copy(r2.s.sn, this.k2.s.sn); this.k2.aa = r2.aa;
+        this.k2.s.copyFrom(r2.s); this.k2.aa = r2.aa;
 
         this.s3.copyFrom(s);
         this.eul(this.s3, this.k2.s, this.k2.aa, dt * 0.5);
         this.axes(this.s2.rot, this.klx, this.kly, this.klz);
-        this.rstep(this.s3.rot, this.s2.sn, this.s2.sa, this.klx, dt * 0.5);
+        this.rstep(this.s3.rot, this.s2.sn, this.s2.sa, this.klz, dt * 0.5);//
 
         const r3 = this.der(this.s3, dt);
-        V3.copy(r3.s.pos, this.k3.s.pos); V3.copy(r3.s.vel, this.k3.s.vel); V3.copy(r3.s.sn, this.k3.s.sn); this.k3.aa = r3.aa;
+        this.k3.s.copyFrom(r3.s); this.k3.aa = r3.aa;
 
         this.s4.copyFrom(s);
         this.eul(this.s4, this.k3.s, this.k3.aa, dt);
         this.axes(this.s3.rot, this.klx, this.kly, this.klz);
-        this.rstep(this.s4.rot, this.s3.sn, this.s3.sa, this.klx, dt);
+        this.rstep(this.s4.rot, this.s3.sn, this.s3.sa, this.klz, dt);//
 
         const r4 = this.der(this.s4, dt);
-        V3.copy(r4.s.pos, this.k4.s.pos); V3.copy(r4.s.vel, this.k4.s.vel); V3.copy(r4.s.sn, this.k4.s.sn); this.k4.aa = r4.aa;
+        this.k4.s.copyFrom(r4.s); this.k4.aa = r4.aa;
 
-        this.comb(s.pos, this.k1.s.pos, this.k2.s.pos, this.k3.s.pos, this.k4.s.pos, dt);
-        this.comb(s.vel, this.k1.s.vel, this.k2.s.vel, this.k3.s.vel, this.k4.s.vel, dt);
-        this.comb(s.sn, this.k1.s.sn, this.k2.s.sn, this.k3.s.sn, this.k4.s.sn, dt);
+        // RK4 组合(纯整数): state += (k1 + 2k2 + 2k3 + k4)/6 * dt
+        this.combI(s, this.k1.s, this.k2.s, this.k3.s, this.k4.s, dt);
 
         const aaAvg = (this.k1.aa + 2 * this.k2.aa + 2 * this.k3.aa + this.k4.aa) / 6;
         s.sa += aaAvg * dt;
 
         this.axes(this.s4.rot, this.klx, this.kly, this.klz);
-        this.rstep(s.rot, s.sn, s.sa, this.klx, dt);
+        this.rstep(s.rot, s.sn, s.sa, this.klz, dt);//
+
+        // 球头稳定(羽毛球裙边气动特性): 球轴快速对齐速度方向(球头朝前)。
+        // 速率随速度增大(裙边阻力矩∝v²), 低速弱对齐; 对齐后自转横向分量同步衰减。
+        const vNow = V3.len(s.vel);
+        if (vNow > 0.5) {
+            this.alx(s.vel, this.algQ);
+            const k = Math.min(1, dt * (1.5 + vNow * 0.6));
+            Laya.Quaternion.slerp(s.rot, this.algQ, k, s.rot);//
+            this.axes(s.rot, this.klx, this.kly, this.klz);   // ← 新增这行（damp 必须用当前 s.rot 的 Z 轴）
+            const ax = this.klz;
+            const axial = V3.dot(s.sn, ax);
+            const damp = Math.exp(-k * 4);
+            s.sn.x = (ax.x * axial) + (s.sn.x - ax.x * axial) * damp;
+            s.sn.y = (ax.y * axial) + (s.sn.y - ax.y * axial) * damp;
+            s.sn.z = (ax.z * axial) + (s.sn.z - ax.z * axial) * damp;
+        }
+
+        // 出口量化: rstep/球头稳定走引擎浮点(四元数乘/slerp 无法整数化),
+        // rk4 边界统一对齐 1/1024 网格——每步状态严格定点, 平台 ulp 差异在此吸收
+        s.quant();
     }
 
-    private comb(out: Laya.Vector3, k1: Laya.Vector3, k2: Laya.Vector3, k3: Laya.Vector3, k4: Laya.Vector3, dt: number) {
-        V3.scale(k1, 1 / 6, this.ka);
-        V3.scale(k2, 2 / 6, this.kb); V3.add(this.ka, this.kb, this.ka);
-        V3.scale(k3, 2 / 6, this.kb); V3.add(this.ka, this.kb, this.ka);
-        V3.scale(k4, 1 / 6, this.kb); V3.add(this.ka, this.kb, this.ka);
-        V3.scale(this.ka, dt, this.ka);
-        V3.add(out, this.ka, out);
+    /** RK4 组合(纯整数): state += (k1 + 2*k2 + 2*k3 + k4) * dt / 6。
+     * k.px = 位置导数(速度), k.vx = 速度导数(加速度), k.sx = 角加速度导数 */
+    private combI(s: State, k1: State, k2: State, k3: State, k4: State, dt: number) {
+        // Q20 步长; (k1+2k2+2k3+k4)*dt/6 —— /6 非幂二不能纯移位(>>21 差 3 倍),
+        // 整数乘积(≤6.4e12 < 2^53)后单次 Math.round 除法收口(ECMAScript round 全平台一致)
+        const dti = Math.round(dt * 1048576);
+        if (dti <= 0) return;
+        const acc = (a: number, b: number, c: number, d: number): number =>
+            Math.round((a + 2 * b + 2 * c + d) * dti / 6291456);
+        s.px += acc(k1.px, k2.px, k3.px, k4.px);
+        s.py += acc(k1.py, k2.py, k3.py, k4.py);
+        s.pz += acc(k1.pz, k2.pz, k3.pz, k4.pz);
+        s.vx += acc(k1.vx, k2.vx, k3.vx, k4.vx);
+        s.vy += acc(k1.vy, k2.vy, k3.vy, k4.vy);
+        s.vz += acc(k1.vz, k2.vz, k3.vz, k4.vz);
+        s.sx += acc(k1.sx, k2.sx, k3.sx, k4.sx);
+        s.sy += acc(k1.sy, k2.sy, k3.sy, k4.sy);
+        s.sz += acc(k1.sz, k2.sz, k3.sz, k4.sz);
+        s.iSync();
     }
 
-    t:number;
+    t: number;
     simTo(target: number): State {
         if (!this.isCalc || this.isSleeping) return this.state.clone();
         let start = this.state;
@@ -523,6 +764,8 @@ export class Phy extends PhyCfg {
             // 碰撞处理
             if (this.net) this.procCol(cur, this.net, this.ncol, false, dt);
             if (this.gndNet) this.procCol(cur, this.gndNet, this.gndNcol, true, dt);
+            // 碰撞(imp/procCol 浮点写路径)出口量化——状态对齐 1/1024 网格
+            cur.quant();
 
             // ---- 过网检测：长时仿真时每步检测 ----
             if (isLongSim && this.net) {
@@ -594,5 +837,57 @@ export class Phy extends PhyCfg {
         }
 
         return cur;
+    }
+
+    /**
+     * 影子预测: 从当前 state 克隆模拟未来 dur 毫秒, 采样点(默认 40ms 间隔)追加进 out。
+     * 与 simTo 的差异(全部为防污染设计):
+     * - 不写 map 缓存(未来态入库会污染历史轨迹查询)
+     * - 不触发过网回调 / lastNetHit / lastGndHit(_predMode 屏蔽 recordHit/recordGndHit)
+     * - 不改真实 state / isSleeping / _netSide
+     * 性能: 自适应步长(低速 10ms 基步, 高速防隧穿收缩) ≈ simTo 1ms 基步的 1/10 计算量
+     */
+    predict(dur: number, out: Laya.Vector3[], replay = false): boolean {
+        if (!this.isCalc || this.isSleeping || dur <= 0) return false;
+        const cur = this.state.clone();
+        const t0 = cur.time;
+        const baseDt = 0.01;                  // 预测视觉精度 10ms 足够
+        const maxSteps = Math.ceil(dur / baseDt) + 8;
+        const sampleMs = 40;                  // 采样间隔: dur=2000 → 51 点
+        let nextSample = t0 + sampleMs;
+        out.push(new Laya.Vector3(cur.pos.x, cur.pos.y, cur.pos.z));
+
+        this._predMode = true;
+        try {
+            for (let step = 0; step < maxSteps; step++) {
+                const v = V3.len(cur.vel);
+                let dt = baseDt;
+                const remainMs = t0 + dur - cur.time;
+                if (remainMs <= 0) break;
+                if (dt * 1000 > remainMs) dt = remainMs / 1000;
+                if (v * dt > 0.01) dt = 0.01 / v; // 高速防隧穿(与 simTo 同阈)
+                if (dt < 1e-6) break;
+
+                this.rk4(cur, dt);
+                if (this.net) this.procCol(cur, this.net, this.ncol, false, dt);
+                if (this.gndNet) this.procCol(cur, this.gndNet, this.gndNcol, true, dt);
+                // 碰撞(imp/procCol 浮点写路径)出口量化
+                cur.quant();
+
+                cur.time += dt * 1000;
+                if (cur.time >= nextSample) {
+                    out.push(new Laya.Vector3(cur.pos.x, cur.pos.y, cur.pos.z));
+                    nextSample += sampleMs;
+                }
+                // 预测落地静止即止(后续轨迹无意义); 鹰眼回放模式跳过——
+                // 兜底结算场景(球低速悬停) hist 出发第一步即静止, break 会只产 1 点报"无回放数据";
+                // replay 让球自然弹跳滚动完整重演(静止后采样点堆同位置, dur 到即止)
+                if (!replay && V3.lenSq(cur.vel) < 0.04 && cur.pos.y <= this.gndNet!.cy + 0.01) break;
+                if (this.inv(cur)) break;
+            }
+        } finally {
+            this._predMode = false;
+        }
+        return out.length >= 2;
     }
 }

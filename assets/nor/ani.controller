@@ -1,0 +1,174 @@
+{
+  "_$type": "Animator",
+  "enabled": true,
+  "path": "",
+  "cullingMode": 2,
+  "controllerLayers": [
+    {
+      "name": "Base Layer",
+      "states": [
+        {
+          "x": -144,
+          "y": -168,
+          "id": "-1",
+          "name": "进入",
+          "nexts": [],
+          "soloTransitions": [
+            {
+              "id": "2",
+              "exitByTime": true,
+              "transduration": 0.15,
+              "exitTime": 0.85
+            }
+          ]
+        },
+        {
+          "y": 127,
+          "id": "-2",
+          "name": "任何状态",
+          "x": -80,
+          "soloTransitions": [
+            {
+              "id": "2",
+              "exitByTime": true,
+              "transduration": 0.15,
+              "exitTime": 0.85
+            }
+          ]
+        },
+        {
+          "x": 1,
+          "y": -152,
+          "loopState": 0,
+          "_isLooping": 2,
+          "id": "0",
+          "name": "diving",
+          "speed": 1,
+          "clipEnd": 1,
+          "clip": {
+            "_$uuid": "d342d960-d9b9-4c66-9521-99cdc3497c71@lani1"
+          },
+          "soloTransitions": [
+            {
+              "id": "2",
+              "exitByTime": true,
+              "transduration": 0.15,
+              "exitTime": 0.85
+            }
+          ]
+        },
+        {
+          "x": -81.5555515275197,
+          "y": -4.444447797658523,
+          "loopState": 0,
+          "_isLooping": 1,
+          "id": "2",
+          "name": "stand",
+          "speed": 1,
+          "clipEnd": 1,
+          "clip": {
+            "_$uuid": "d342d960-d9b9-4c66-9521-99cdc3497c71@lani14"
+          }
+        },
+        {
+          "x": 100.9090909090909,
+          "y": 87,
+          "loopState": 0,
+          "_isLooping": 1,
+          "id": "1",
+          "name": "down",
+          "speed": 1,
+          "clipEnd": 1,
+          "clip": {
+            "_$uuid": "d342d960-d9b9-4c66-9521-99cdc3497c71@lani2"
+          }
+        },
+        {
+          "x": 171,
+          "y": -130,
+          "loopState": 0,
+          "_isLooping": 2,
+          "id": "4",
+          "name": "hitoff",
+          "speed": 1,
+          "clipEnd": 1,
+          "clip": {
+            "_$uuid": "d342d960-d9b9-4c66-9521-99cdc3497c71@lani3"
+          },
+          "soloTransitions": [
+            {
+              "id": "2",
+              "exitByTime": true,
+              "transduration": 0.15,
+              "exitTime": 0.85
+            }
+          ]
+        },
+        {
+          "x": -210.77778013904017,
+          "y": -65.44444505411973,
+          "loopState": 0,
+          "_isLooping": 2,
+          "id": "5",
+          "name": "jumphit",
+          "speed": 1,
+          "clipEnd": 1,
+          "clip": {
+            "_$uuid": "d342d960-d9b9-4c66-9521-99cdc3497c71@lani4"
+          },
+          "soloTransitions": [
+            {
+              "id": "2"
+            }
+          ]
+        },
+        {
+          "x": 13,
+          "y": 22,
+          "loopState": 0,
+          "_isLooping": 1,
+          "id": "6",
+          "name": "left",
+          "speed": 1,
+          "clipEnd": 1,
+          "clip": {
+            "_$uuid": "d342d960-d9b9-4c66-9521-99cdc3497c71@lani5"
+          }
+        },
+        {
+          "x": 169,
+          "y": 19,
+          "loopState": 0,
+          "_isLooping": 1,
+          "id": "7",
+          "name": "right",
+          "speed": 1,
+          "clipEnd": 1,
+          "clip": {
+            "_$uuid": "d342d960-d9b9-4c66-9521-99cdc3497c71@lani13"
+          }
+        },
+        {
+          "x": 95.66666708336004,
+          "y": -36.66666758117961,
+          "loopState": 0,
+          "_isLooping": 1,
+          "id": "8",
+          "name": "up",
+          "speed": 1,
+          "clipEnd": 1,
+          "clip": {
+            "_$uuid": "d342d960-d9b9-4c66-9521-99cdc3497c71@lani15"
+          }
+        }
+      ],
+      "playOnWake": true,
+      "blendingMode": 0,
+      "defaultWeight": 1,
+      "stageX": 249.2555555555555,
+      "stageY": 319.2166666666667,
+      "stageScale": 1.1
+    }
+  ],
+  "layerW": 150
+}

@@ -1,6 +1,45 @@
 {
   "name": "LayaProject1",
-  "startupScene": "res://7340a7af-2f0b-4812-be44-9739fb6e5b09",
+  "icon": "res://094b0cc1-58ee-4e6d-9c09-c5e3250654ea",
+  "minifyJS": true,
+  "startupScene": "res://15eb7196-7863-4146-bb6a-061f1bcae159",
+  "includedScenes": [
+    "res://41c736bc-9e4d-455c-8140-6edae3cdd251",
+    "res://7340a7af-2f0b-4812-be44-9739fb6e5b09",
+    "res://bb166a08-6768-4747-a8f3-e4f9d5f2dbad"
+  ],
+  "alwaysIncluded": [],
+  "excludeFilesRule": [
+    "js/brotli_wasm.js",
+    "js/brotli_wasm_bg.wasm"
+  ],
+  "enableSubpackages": true,
+  "subpackages": [
+    {
+      "path": "ui",
+      "packAllAssets": true
+    },
+    {
+      "path": "Configs"
+    },
+    {
+      "path": "game",
+      "packAllAssets": true,
+      "autoLoad": true
+    },
+    {
+      "path": "sub",
+      "mainScript": "res://5c2263d5-5822-486a-bd0e-55bd10fef8bb",
+      "autoLoad": true
+    },
+    {
+      "path": "nor",
+      "packAllAssets": true
+    }
+  ],
+  "web": {
+    "compressWasm": true
+  },
   "android": {
     "targetArchitectures": {
       "ARMv7": true,
@@ -9,5 +48,8 @@
       "x86-64": false
     },
     "exportFormat": "APK"
+  },
+  "wxgame": {
+    "appid": "wx48511d5cec9a325a"
   }
 }

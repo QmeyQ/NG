@@ -1,0 +1,26 @@
+{
+  "manifest_version": 3,
+  "name": "AGC Storage Token Extractor",
+  "version": "1.0",
+  "description": "提取 AGC 云存储文件列表的下载 Token，生成直链",
+  "permissions": ["storage", "activeTab", "scripting"],
+  "host_permissions": [
+    "https://*.agcstorage.link/*",
+    "https://*.dbankcloud.cn/*",
+    "https://*.huawei.com/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://*.huawei.com/*", "https://*.dbankcloud.cn/*"],
+      "js": ["content.js"],
+      "run_at": "document_start"
+    }
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "AGC Token 提取器"
+  }
+}

@@ -1,0 +1,132 @@
+{
+  "out": "ui.br",
+  "magic": "BRP1",
+  "version": "1.0",
+  "fileCount": 30,
+  "rawSize": 3585201,
+  "containerSize": 3586137,
+  "brSize": 2401328,
+  "ratio": 0.6696,
+  "files": [
+    {
+      "path": "dialog/bg.png",
+      "size": 132778
+    },
+    {
+      "path": "dialog/dialog.lh",
+      "size": 3310
+    },
+    {
+      "path": "dialog/ok.png",
+      "size": 35119
+    },
+    {
+      "path": "head/0.png",
+      "size": 364616
+    },
+    {
+      "path": "head/2.png",
+      "size": 366182
+    },
+    {
+      "path": "head/3.png",
+      "size": 364615
+    },
+    {
+      "path": "head/4.png",
+      "size": 366182
+    },
+    {
+      "path": "internal/UI/Button.lh",
+      "size": 1420
+    },
+    {
+      "path": "internal/UI/CheckBox.lh",
+      "size": 984
+    },
+    {
+      "path": "internal/UI/ComboBox_ListItem.lh",
+      "size": 999
+    },
+    {
+      "path": "internal/UI/comp.atlas",
+      "size": 4755
+    },
+    {
+      "path": "internal/UI/comp.png",
+      "size": 322761
+    },
+    {
+      "path": "internal/UI/PopupMenu.lh",
+      "size": 766
+    },
+    {
+      "path": "internal/UI/ProgressBar.lh",
+      "size": 586
+    },
+    {
+      "path": "internal/UI/ScrollBarH.lh",
+      "size": 4398
+    },
+    {
+      "path": "internal/UI/ScrollBarV.lh",
+      "size": 4355
+    },
+    {
+      "path": "internal/UI/Tooltips.lh",
+      "size": 560
+    },
+    {
+      "path": "main/12+.png",
+      "size": 168361
+    },
+    {
+      "path": "main/battle.png",
+      "size": 151388
+    },
+    {
+      "path": "main/bg.jpg",
+      "size": 261539
+    },
+    {
+      "path": "main/game/0.jpg",
+      "size": 65192
+    },
+    {
+      "path": "main/game/1.jpg",
+      "size": 23139
+    },
+    {
+      "path": "main/game/2.jpg",
+      "size": 56336
+    },
+    {
+      "path": "main/game.png",
+      "size": 175407
+    },
+    {
+      "path": "main/me.png",
+      "size": 144550
+    },
+    {
+      "path": "main/message.png",
+      "size": 131654
+    },
+    {
+      "path": "main/setting.png",
+      "size": 141477
+    },
+    {
+      "path": "main/shop/dollar.png",
+      "size": 84289
+    },
+    {
+      "path": "main/shop.png",
+      "size": 190739
+    },
+    {
+      "path": "menu.ls",
+      "size": 16744
+    }
+  ]
+}

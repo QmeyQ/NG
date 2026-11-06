@@ -1,0 +1,199 @@
+{
+  "out": "tool/ui.br",
+  "zip": "tool/ui.zip",
+  "magic": "BRP1",
+  "version": "1.0",
+  "fileCount": 46,
+  "rawSize": 20359588,
+  "containerSize": 20360961,
+  "brSize": 12082734,
+  "zipSize": 12869263,
+  "ratio": 0.5934,
+  "idShortened": 1,
+  "files": [
+    {
+      "path": "dialog/bg.png",
+      "size": 968502
+    },
+    {
+      "path": "dialog/dialog.lh",
+      "size": 4688
+    },
+    {
+      "path": "dialog/ok.png",
+      "size": 831943
+    },
+    {
+      "path": "head/0101.png",
+      "size": 364614
+    },
+    {
+      "path": "head/0102.png",
+      "size": 364616
+    },
+    {
+      "path": "head/0103.png",
+      "size": 364615
+    },
+    {
+      "path": "head/0104.png",
+      "size": 364615
+    },
+    {
+      "path": "head/0201.png",
+      "size": 364614
+    },
+    {
+      "path": "head/0202.png",
+      "size": 364616
+    },
+    {
+      "path": "head/0203.png",
+      "size": 364616
+    },
+    {
+      "path": "head/0204.png",
+      "size": 364616
+    },
+    {
+      "path": "head/0301.png",
+      "size": 364615
+    },
+    {
+      "path": "head/0302.png",
+      "size": 364615
+    },
+    {
+      "path": "head/0303.png",
+      "size": 364614
+    },
+    {
+      "path": "head/0304.png",
+      "size": 364614
+    },
+    {
+      "path": "head/0401.png",
+      "size": 364614
+    },
+    {
+      "path": "head/0402.png",
+      "size": 364615
+    },
+    {
+      "path": "head/0404.png",
+      "size": 364613
+    },
+    {
+      "path": "head/1111.png",
+      "size": 366182
+    },
+    {
+      "path": "head/1112.png",
+      "size": 366182
+    },
+    {
+      "path": "head/1113.png",
+      "size": 366182
+    },
+    {
+      "path": "head/1114.png",
+      "size": 366182
+    },
+    {
+      "path": "head/1211.png",
+      "size": 366182
+    },
+    {
+      "path": "head/1212.png",
+      "size": 366182
+    },
+    {
+      "path": "head/1213.png",
+      "size": 366182
+    },
+    {
+      "path": "head/1311.png",
+      "size": 366182
+    },
+    {
+      "path": "head/1312.png",
+      "size": 366182
+    },
+    {
+      "path": "head/1313.png",
+      "size": 366183
+    },
+    {
+      "path": "head/1314.png",
+      "size": 366183
+    },
+    {
+      "path": "head/1411.png",
+      "size": 366181
+    },
+    {
+      "path": "head/1412.png",
+      "size": 366183
+    },
+    {
+      "path": "head/1413.png",
+      "size": 366182
+    },
+    {
+      "path": "head/1414.png",
+      "size": 366182
+    },
+    {
+      "path": "main/12.png",
+      "size": 168361
+    },
+    {
+      "path": "main/battle.png",
+      "size": 151388
+    },
+    {
+      "path": "main/bg.jpg",
+      "size": 261539
+    },
+    {
+      "path": "main/game/0.png",
+      "size": 2044263
+    },
+    {
+      "path": "main/game/1.png",
+      "size": 2148533
+    },
+    {
+      "path": "main/game/2.png",
+      "size": 1909696
+    },
+    {
+      "path": "main/game.png",
+      "size": 175407
+    },
+    {
+      "path": "main/me.png",
+      "size": 144550
+    },
+    {
+      "path": "main/message.png",
+      "size": 131654
+    },
+    {
+      "path": "main/setting.png",
+      "size": 141477
+    },
+    {
+      "path": "main/shop/dollar.png",
+      "size": 84289
+    },
+    {
+      "path": "main/shop.png",
+      "size": 190739
+    },
+    {
+      "path": "menu.ls",
+      "size": 40591
+    }
+  ]
+}

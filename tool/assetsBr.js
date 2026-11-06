@@ -65,6 +65,9 @@ function compressToBr(containerBuffer, quality = 11) {
     });
 }
 
+
+// ==================== 场景/预制体组件ID: 保持原样打包(ID 短化预编译已废弃) ====================
+
 function packDirectory(srcDir, outFile, quality) {
     if (!fs.existsSync(srcDir)) {
         console.error('源目录不存在: ' + srcDir);
@@ -98,7 +101,9 @@ function packDirectory(srcDir, outFile, quality) {
         rawSize: totalRaw,
         containerSize: container.length,
         brSize: brBuffer.length,
+
         ratio: +(brBuffer.length / container.length).toFixed(4),
+
         files: files.map(f => ({ path: f.path, size: f.data.length }))
     };
     const manifestPath = outFile.replace(/\.br$/, '.manifest.json');

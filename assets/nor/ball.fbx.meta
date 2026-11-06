@@ -1,0 +1,10 @@
+{
+  "uuid": "38e3fc6b-3dc3-4b81-9d1c-d4eb09857961",
+  "importer": {
+    "remappedMaterials": {
+      "gan": "res://6de083e0-4e1a-431e-9296-0f5e0f126457",
+      "head": "res://1c3137f5-6ea1-4ea2-b513-c83e5edeb15d",
+      "tail": "res://65556ea4-77e9-437f-b0f7-81eb7718a199"
+    }
+  }
+}

@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>超级管理终端</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: Consolas, "Microsoft YaHei", monospace; background: #0d1117; color: #c9d1d9; min-height: 100vh; }
+a { color: #58a6ff; }
+button { cursor: pointer; border: 1px solid #30363d; background: #21262d; color: #c9d1d9; padding: 6px 14px; border-radius: 6px; font-family: inherit; }
+button:hover { background: #30363d; border-color: #8b949e; }
+button.primary { background: #238636; border-color: #2ea043; color: #fff; }
+button.primary:hover { background: #2ea043; }
+button.danger { background: #da3633; border-color: #f85149; color: #fff; }
+button.danger:hover { background: #f85149; }
+button.small { padding: 3px 10px; font-size: 12px; }
+input { background: #161b22; border: 1px solid #30363d; color: #c9d1d9; padding: 6px 10px; border-radius: 6px; font-family: inherit; font-size: 14px; }
+input:focus { outline: none; border-color: #58a6ff; }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th, td { padding: 8px 10px; border-bottom: 1px solid #21262d; text-align: left; white-space: nowrap; }
+th { color: #8b949e; font-weight: normal; background: #161b22; position: sticky; top: 0; }
+tr:hover td { background: #161b22; }
+
+#loginView { display: flex; align-items: center; justify-content: center; min-height: 100vh; }
+.login-box { background: #161b22; border: 1px solid #30363d; border-radius: 10px; padding: 32px; width: 320px; }
+.login-box h1 { font-size: 18px; margin-bottom: 6px; color: #58a6ff; }
+.login-box p { font-size: 12px; color: #8b949e; margin-bottom: 20px; }
+.login-box .row { margin-bottom: 14px; }
+.login-box label { display: block; font-size: 12px; color: #8b949e; margin-bottom: 4px; }
+.login-box input { width: 100%; }
+.login-box button { width: 100%; padding: 8px; }
+#loginErr { color: #f85149; font-size: 12px; min-height: 16px; margin-top: 8px; }
+
+#mainView { display: none; padding: 20px; max-width: 1200px; margin: 0 auto; }
+.topbar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
+.topbar h1 { font-size: 18px; color: #58a6ff; }
+.topbar .ops { display: flex; gap: 8px; }
+.toolbar { display: flex; gap: 8px; margin-bottom: 12px; align-items: center; }
+.toolbar input { width: 260px; }
+.toolbar .count { font-size: 12px; color: #8b949e; margin-left: auto; }
+
+.panel { background: #161b22; border: 1px solid #30363d; border-radius: 10px; margin-bottom: 16px; overflow: hidden; }
+.panel > .hd { padding: 10px 14px; border-bottom: 1px solid #21262d; display: flex; align-items: center; justify-content: space-between; }
+.panel > .hd b { font-size: 14px; color: #f0f6fc; }
+.panel > .bd { padding: 14px; }
+
+.form-grid { display: grid; grid-template-columns: auto 1fr; gap: 10px 14px; align-items: center; font-size: 13px; }
+.form-grid label { color: #8b949e; }
+.form-grid input { width: 100%; max-width: 320px; }
+.form-grid .static { color: #f0f6fc; }
+.form-ops { margin-top: 14px; display: flex; gap: 8px; }
+
+.bag-add { display: flex; gap: 8px; margin-bottom: 10px; }
+.bag-add input { flex: 1; }
+#shellOut { background: #010409; border: 1px solid #21262d; border-radius: 6px; padding: 12px; font-family: Consolas, monospace; font-size: 13px; color: #7ee787; max-height: 320px; overflow: auto; white-space: pre-wrap; word-break: break-all; margin: 0; }
+.muted { color: #8b949e; font-size: 12px; }
+.dollar { color: #ffa800; font-weight: bold; }
+#toast { position: fixed; top: 16px; left: 50%; transform: translateX(-50%); background: #238636; color: #fff; padding: 8px 18px; border-radius: 6px; font-size: 13px; display: none; z-index: 99; }
+#toast.err { background: #da3633; }
+.tbl-wrap { max-height: 420px; overflow: auto; }
+.hidden { display: none !important; }
+</style>
+</head>
+<body>
+
+<div id="toast"></div>
+
+<!-- 登录 -->
+<div id="loginView">
+  <div class="login-box">
+    <h1>超级管理终端</h1>
+    <p>Super Admin Console</p>
+    <div class="row"><label>账号</label><input id="inUser" autocomplete="username"></div>
+    <div class="row"><label>密码</label><input id="inPass" type="password" autocomplete="current-password"></div>
+    <button class="primary" id="btnLogin">登 录</button>
+    <div id="loginErr"></div>
+  </div>
+</div>
+
+<!-- 管理主页 -->
+<div id="mainView">
+  <div class="topbar">
+    <h1>超级管理终端</h1>
+    <div class="ops">
+      <button id="btnPasswd">改密码</button>
+      <button id="btnReload">刷新列表</button>
+      <button id="btnLogout">退出</button>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="hd"><b>用户列表</b><span class="muted" id="userCount"></span></div>
+    <div class="bd">
+      <div class="toolbar">
+        <input id="inSearch" placeholder="搜索 ID / 昵称 / 签名">
+      </div>
+      <div class="tbl-wrap">
+        <table>
+          <thead><tr><th>ID</th><th>昵称</th><th>签名</th><th>头像</th><th>金币</th><th>注册时间</th><th>操作</th></tr></thead>
+          <tbody id="userRows"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- Shell 终端 -->
+  <div class="panel">
+    <div class="hd"><b>Shell 终端</b><span class="muted">cwd = 函数目录</span></div>
+    <div class="bd">
+      <div class="bag-add">
+        <input id="shellCmd" placeholder="输入 shell 命令, 如 ls users/ 或 cat users/*/user.json" autocomplete="off">
+        <button class="primary small" id="btnShell">执行</button>
+      </div>
+      <pre id="shellOut">就绪</pre>
+    </div>
+  </div>
+
+  <!-- 用户详情编辑 -->
+  <div class="panel hidden" id="editPanel">
+    <div class="hd"><b id="editTitle">用户编辑</b><button class="small" id="btnCloseEdit">关闭</button></div>
+    <div class="bd">
+      <div class="form-grid">
+        <label>ID</label><span class="static" id="fUserid"></span>
+        <label>昵称</label><input id="fName">
+        <label>签名</label><input id="fFlag">
+        <label>头像</label><input id="fHead" placeholder="head/0101.png">
+        <label>金币</label><input id="fDollar" type="number" min="0">
+        <label>注册时间</label><span class="static" id="fCtime"></span>
+      </div>
+      <div class="form-ops">
+        <button class="primary" id="btnSaveUser">保存用户信息</button>
+        <button class="danger" id="btnDelUser">删除此用户</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 背包管理 -->
+  <div class="panel hidden" id="bagPanel">
+    <div class="hd"><b id="bagTitle">背包管理</b></div>
+    <div class="bd">
+      <div class="bag-add">
+        <input id="bagNewItem" placeholder="物品路径 如 head/0103.png">
+        <input id="bagNewCount" type="number" min="1" value="1" style="width:90px">
+        <button class="primary small" id="btnBagAdd">添加/设置</button>
+      </div>
+      <table>
+        <thead><tr><th>物品</th><th>数量</th><th>操作</th></tr></thead>
+        <tbody id="bagRows"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<script src="mag.js"></script>
+</body>
+</html>

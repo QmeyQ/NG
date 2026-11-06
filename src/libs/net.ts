@@ -3,6 +3,7 @@
  * 使用 MPM 管理事件分发，IDBStorage 做本地持久化，Timer 做定时控制
  */
 import { IDBStorage } from "./IDBStorage";
+import { pFetch, pAbortCtrl, mkBlob, blobAb } from "./wx";
 import { Timer } from "./time";
 import { MPM } from "./mpm";
 
@@ -110,7 +111,7 @@ export class Net {
     // ======================== 事件系统（MPM） ========================
 
     /** 注册事件监听 */
-    on(event: 'downloadComplete' | 'downloadError' | 'downloadProgress' | 'downloadPaused', cb: Function): void {
+    on(event: 'DC' | 'DE' | 'DP' | 'DL', cb: Function): void {
         this._mpm.on(event, cb);
     }
 
@@ -127,44 +128,103 @@ export class Net {
      * @param opts 选项 { key, force, cache, onProgress, onComplete, onError }
      */
     download(url: string, opts: any = {}): void {
-        if(opts.cache == undefined){
+        if (opts.cache == undefined) {
             opts.cache = true;
         }
+        // 检查现有任务
         if (this.tasks.get(url)) {
-            if (this.tasks.get(url).st === DST.DOWNLOADING) {
-                this._mpm.emit('downloadError', url, '任务已在进行中');
+            const existing = this.tasks.get(url);
+            if (existing.st === DST.DOWNLOADING) {
+                this._mpm.emit('DE', url, '任务已在进行中');
                 opts.onError?.('任务已在进行中');
                 return;
             }
-            if (this.tasks.get(url).st === DST.PAUSED) { this.resume(url); return; }
+            if (existing.st === DST.PAUSED) {
+                this.resume(url);
+                return;
+            }
         }
 
         if (!opts.force) {
+            // 先检查缓存
             this.cGet(url, (cached: any) => {
                 if (cached) {
-                    this._mpm.emit('downloadComplete', url, cached, true);
+                    this._mpm.emit('DC', url, cached, true);
                     opts.onComplete?.(cached, true);
                     return;
                 }
+                // 没有缓存，尝试恢复断点
                 this._resume(url, (task) => {
                     if (task) {
-                        task.onP = opts.onProgress; task.onC = opts.onComplete; task.onE = opts.onError; task.c = opts.cache;
+                        // 恢复已有任务
+                        task.onP = opts.onProgress;
+                        task.onC = opts.onComplete;
+                        task.onE = opts.onError;
+                        task.c = opts.cache;
                         this._start(task);
-                        return;
+                    } else {
+                        // 没有断点，创建新任务并开始下载
+                        const t: DTask = {
+                            url,
+                            key: url,
+                            st: DST.PENDING,
+                            ld: 0,
+                            tot: 0,
+                            rs: true,
+                            stT: Timer.now(),
+                            rt: 0,
+                            ctrl: null,
+                            onP: opts.onProgress,
+                            onC: opts.onComplete,
+                            onE: opts.onError,
+                            lPU: 0,
+                            lL: 0,
+                            c: opts.cache,
+                            cSize: this.cSize,
+                            chunks: [],
+                            failCnt: [],
+                            anyS: false
+                        };
+                        this.tasks.set(url, t);
+                        if (!opts.full) {
+                            this._startChunked(t);
+                        } else {
+                            this._startNormal(t);
+                        }
                     }
                 });
             });
             return;
         }
-        var t:DTask = {
-            url, key:url, st: DST.PENDING,
-            ld: 0, tot: 0, rs: true, stT: Timer.now(),
-            rt: 0, ctrl: null, onP:opts.onProgress, onC:opts.onComplete , onE:opts.onError,
-            lPU: 0, lL: 0, c: opts.cache,
-            cSize: this.cSize, chunks: [], failCnt: [], anyS: false
+
+        // force 分支：强制重新下载
+        const t: DTask = {
+            url,
+            key: url,
+            st: DST.PENDING,
+            ld: 0,
+            tot: 0,
+            rs: true,
+            stT: Timer.now(),
+            rt: 0,
+            ctrl: null,
+            onP: opts.onProgress,
+            onC: opts.onComplete,
+            onE: opts.onError,
+            lPU: 0,
+            lL: 0,
+            c: opts.cache,
+            cSize: this.cSize,
+            chunks: [],
+            failCnt: [],
+            anyS: false
         };
         this.tasks.set(url, t);
-        if (!opts.full) this._startChunked(t); else this._startNormal(t);
+        if (!opts.full) {
+            this._startChunked(t);
+        } else {
+            this._startNormal(t);
+        }
     }
 
     /** 暂停下载（无参时暂停所有） */
@@ -175,7 +235,7 @@ export class Net {
         if (t.ctrl) { t.ctrl.abort(); t.ctrl = null; }
         t.st = DST.PAUSED;
         this.active.delete(key);
-        this._mpm.emit('downloadPaused', key, t.ld, t.tot);
+        this._mpm.emit('DP', key, t.ld, t.tot);
         t.onSC?.(DST.PAUSED);
         this._processQ();
     }
@@ -224,7 +284,7 @@ export class Net {
         if (!t) return;
         this.pause(key);
         this._cleanup(key, () => {
-            this.storage.delete(`${key}_chunks_state`, () => {});
+            this.storage.delete(`${key}_chunks_state`, () => { });
             t.st = DST.PENDING; t.ld = 0; t.tot = 0; t.rt = 0;
             if (t.ctrl) { t.ctrl.abort(); t.ctrl = null; }
             t.chunks = []; t.failCnt = []; t.anyS = false;
@@ -238,14 +298,14 @@ export class Net {
     /** 清空所有缓存 */
     cClear(cb: (ok: boolean) => void): void {
         this.storage.getKeys((keys) => {
-            keys.dataKeys.forEach(k => { if (k.endsWith('_resume')) this.storage.deleteFile(k, () => {}); });
+            keys.dataKeys.forEach(k => { if (k.endsWith('_resume')) this.storage.deleteFile(k, () => { }); });
         });
         this.storage.clear(cb);
     }
 
     /** 移除指定缓存 */
     cRemove(key: string, cb: (ok: boolean) => void): void {
-        this.storage.deleteFile(`${key}_resume`, () => {});
+        this.storage.deleteFile(`${key}_resume`, () => { });
         this.storage.deleteFile(key, cb);
     }
 
@@ -309,32 +369,117 @@ export class Net {
 
     /** 启动分片下载 */
     private _startChunked(t: DTask): void {
-        this._fetchSize(t).then(tot => {
+        this.fetchSize(t.url).then(tot => {
             if (tot <= 0) { this._startNormal(t); return; }
             t.tot = tot;
             this._execChunked(t, Math.ceil(tot / t.cSize));
         }).catch(() => { this._startNormal(t); });
     }
 
-    /** 通过 HEAD 请求获取文件大小 */
-    private _fetchSize(t: DTask): Promise<number> {
-        return new Promise((resolve, reject) => {
-            const ctrl = new AbortController();
-            const tid = setTimeout(() => { ctrl.abort(); reject(new Error('timeout')); }, 10000);
-            fetch(t.url, { method: 'HEAD', signal: ctrl.signal })
+    // ======================== 文件大小查询 ========================
+
+    /**
+     * 查询远端文件大小（不下载内容）
+     * 先 HEAD 拿 Content-Length，拿不到再 Range 拿 Content-Range。
+     * @param url 文件 URL
+     * @returns Promise<number> 文件字节数，失败返回 0
+     */
+    public fetchSize(url: string): Promise<number> {
+        return new Promise((resolve) => {
+            const ctrl = pAbortCtrl();
+            const tid = Timer.setTimeout(10000, () => {
+                ctrl.abort();
+                resolve(0);
+            });
+
+            pFetch(url, { method: 'HEAD', cache: 'no-store', signal: ctrl.signal })
                 .then(res => {
-                    clearTimeout(tid);
-                    const len = res.headers.get('Content-Length');
-                    if (len) resolve(parseInt(len, 10));
-                    else this._fetchRange(t).then(resolve).catch(reject);
+                    Timer.clear(tid);
+                    if (res.ok) {
+                        const len = res.headers.get('Content-Length');
+                        if (len) {
+                            resolve(parseInt(len, 10));
+                            return;
+                        }
+                    }
+                    // HEAD 失败/无 Content-Length(如仅允许 GET 的链接): 降级 Range GET
+                    this._fetchRangeByUrl(url).then(resolve).catch(() => resolve(0));
                 })
-                .catch(() => { clearTimeout(tid); this._fetchRange(t).then(resolve).catch(reject); });
+                .catch(() => {
+                    Timer.clear(tid);
+                    this._fetchRangeByUrl(url).then(resolve).catch(() => resolve(0));
+                });
         });
+    }
+
+    /**
+     * 查询远端文件大小（回调形式，失败回调 0）
+     */
+    public fetchSizeCb(url: string, cb: (size: number) => void): void {
+        this.fetchSize(url).then(cb).catch(() => cb(0));
+    }
+
+    /**
+     * 一次性查询远端文件信息（大小 + ETag + Last-Modified）。
+     *
+     * AGC 存储跨域限制(实测 2026-10-20)：
+     *   - 不暴露 ETag / Content-Range(非 CORS safelisted) → 跨域 JS 读到 null
+     *   - Last-Modified / Content-Length 是 safelisted 可读
+     *   - 响应无 Cache-Control → 浏览器启发式缓存会复用旧响应头(旧 lm/size), 版本对比失真
+     *
+     * 因此用普通 GET(simple request 无预检) + cache:'no-store'(绕本地缓存) + 立即 cancel body：
+     * 头到手即断流, 成本≈一次 HEAD, 且 lm/size 必为服务器实时值。
+     */
+    public fetchInfo(url: string): Promise<{ size: number; etag: string | null; lm: string | null }> {
+        return new Promise((resolve) => {
+            const ctrl = pAbortCtrl();
+            const tid = Timer.setTimeout(10000, () => {
+                ctrl.abort();
+                resolve({ size: 0, etag: null, lm: null });
+            });
+            const done = (r: { size: number; etag: string | null; lm: string | null }) => {
+                Timer.clear(tid);
+                resolve(r);
+            };
+
+            // AGC 无 Cache-Control+有 LM → 网络层启发式缓存回旧头(web 已有 no-store, 微信 wx.request 无等价物);
+            // URL 加时间戳破坏缓存键(AGC token 验签不受额外 query 影响, 2026-10-22 curl 实测)
+            const bustUrl = url + (url.includes('?') ? '&' : '?') + '_t=' + Date.now();
+            pFetch(bustUrl, { method: 'GET', cache: 'no-store', signal: ctrl.signal, headerOnly: true } as any)
+                .then(res => {
+                    try { res.body?.cancel(); } catch (e) { }
+                    const etag = res.headers.get('ETag');
+                    const lm = res.headers.get('Last-Modified');
+                    const len = res.headers.get('Content-Length');
+                    done({ size: len ? parseInt(len, 10) : 0, etag, lm });
+                })
+                .catch(() => done({ size: 0, etag: null, lm: null }));
+        });
+    }
+
+    /** 通过 Range 请求获取文件大小（仅 URL，不依赖 DTask）。cache:'no-store' 防启发式缓存合成旧 206 */
+    private _fetchRangeByUrl(url: string): Promise<number> {
+        return pFetch(url, { headers: { Range: 'bytes=0-0' }, cache: 'no-store' })
+            .then(res => {
+                try { res.body?.cancel(); } catch (e) { }
+                const range = res.headers.get('Content-Range');
+                if (range) {
+                    const m = range.match(/\/(\d+)/);
+                    if (m) return parseInt(m[1], 10);
+                }
+                // 206 的 Content-Length 是分片 body 长度(bytes=0-0 即 1), 不能当全量大小;
+                // 仅当服务器忽略 Range 返回 200 全量时, Content-Length 才是文件大小(CORS safelisted 必可读)
+                if (res.status === 200) {
+                    const len = res.headers.get('Content-Length');
+                    if (len) return parseInt(len, 10);
+                }
+                return 0;
+            });
     }
 
     /** 通过 Range 请求获取文件大小 */
     private _fetchRange(t: DTask): Promise<number> {
-        return fetch(t.url, { headers: { Range: 'bytes=0-0' } })
+        return pFetch(t.url, { headers: { Range: 'bytes=0-0' }, cache: 'no-store' })
             .then(res => {
                 const range = res.headers.get('Content-Range');
                 if (range) { const m = range.match(/\/(\d+)/); if (m) return parseInt(m[1], 10); }
@@ -345,7 +490,7 @@ export class Net {
     /** 执行分片下载核心逻辑 */
     private _execChunked(t: DTask, totalChunks: number): void {
         const sk = `${t.key}_chunks_state`;
-        const ctrl = new AbortController();
+        const ctrl = pAbortCtrl();
         t.ctrl = ctrl;
 
         if (t.chunks.length === 0) {
@@ -377,7 +522,7 @@ export class Net {
             this.storage.set(sk, JSON.stringify({
                 url: t.url, tot: t.tot, cSize: t.cSize,
                 chunks: t.chunks, anyS: t.anyS
-            }), () => {});
+            }), () => { });
         };
 
         const downloadChunk = async (i: number, retryCount = 0): Promise<boolean> => {
@@ -404,11 +549,11 @@ export class Net {
             let tid: any = null;
 
             try {
-                const fc = new AbortController();
-                tid = setTimeout(() => fc.abort(), 30000);
+                const fc = pAbortCtrl();
+                tid = Timer.setTimeout(30000, () => fc.abort());
 
-                const res = await fetch(t.url, { headers, signal: fc.signal });
-                clearTimeout(tid);
+                const res = await pFetch(t.url, { headers, cache: 'no-store', signal: fc.signal });
+                Timer.clear(tid);
 
                 if (!res.ok && res.status !== 206) {
                     if (res.status === 200) throw new Error('服务器不支持Range');
@@ -425,7 +570,7 @@ export class Net {
                     if (!isLast || cd.length !== maxAccept) throw new Error(`分片 ${i} 大小不匹配`);
                 }
 
-                const blob = new Blob([cd]);
+                const blob = mkBlob([cd]);
                 const bk = ckKey(t.key, i);
 
                 await new Promise<void>((resolve, reject) => {
@@ -449,7 +594,7 @@ export class Net {
                 return true;
 
             } catch (error: any) {
-                if (tid) clearTimeout(tid);
+                if (tid) Timer.clear(tid);
                 if (error.name === 'AbortError') return false;
 
                 t.failCnt[i]++;
@@ -457,14 +602,14 @@ export class Net {
 
                 if (t.failCnt[i] >= maxRet) {
                     t.st = DST.ERROR;
-                    this._mpm.emit('downloadError', t.key, `分片 ${i} 下载失败`);
+                    this._mpm.emit('DE', t.key, `分片 ${i} 下载失败`);
                     t.onE?.(`分片 ${i} 下载失败`);
                     ctrl.abort();
                     return false;
                 }
 
                 const wait = 200 * (retryCount + 1);
-                await new Promise(r => setTimeout(r, wait));
+                await new Promise(r => Timer.setTimeout(wait, r));
                 return downloadChunk(i, retryCount + 1);
             }
         };
@@ -486,7 +631,7 @@ export class Net {
 
             if (!t.chunks.every(c => c)) {
                 t.st = DST.ERROR;
-                this._mpm.emit('downloadError', t.key, '部分分片下载失败');
+                this._mpm.emit('DE', t.key, '部分分片下载失败');
                 t.onE?.('部分分片下载失败');
                 return;
             }
@@ -497,7 +642,7 @@ export class Net {
         run().catch(err => {
             if (!ctrl.signal.aborted) {
                 t.st = DST.ERROR;
-                this._mpm.emit('downloadError', t.key, err.message);
+                this._mpm.emit('DE', t.key, err.message);
                 t.onE?.(err.message);
             }
         });
@@ -517,21 +662,28 @@ export class Net {
             szMap.set(i, sz);
         }
 
-        setTimeout(() => {
+        Timer.setTimeout(100, () => {
+            // 分片读回后先提取纯 ArrayBuffer 再合并: 微信原生 Blob 构造器不支持 Blob 类型 part,
+            // 直接 mkBlob(Blob[]) 会让每个分片被 String() 降级成 "[object Object]", 产出伪文件
             const readPs = keys.map((k, idx) => {
-                return new Promise<{ index: number; blob: Blob | null }>((resolve) => {
-                    this.storage.getFile(k, (blob: Blob | null) => resolve({ index: idx, blob }));
+                return new Promise<{ index: number; ab: ArrayBuffer | null }>((resolve) => {
+                    this.storage.getFile(k, (blob: Blob | null) => {
+                        if (!blob) { resolve({ index: idx, ab: null }); return; }
+                        blobAb(blob)
+                            .then((ab) => resolve({ index: idx, ab }))
+                            .catch(() => resolve({ index: idx, ab: null }));
+                    });
                 });
             });
 
             Promise.all(readPs).then(results => {
-                const blobs: (Blob | null)[] = new Array(n).fill(null);
+                const abs: (ArrayBuffer | null)[] = new Array(n).fill(null);
                 let miss = false;
                 let actTot = 0;
 
-                for (const { index, blob } of results) {
+                for (const { index, ab } of results) {
                     const exp = szMap.get(index)!;
-                    if (blob && blob.size === exp) { blobs[index] = blob; actTot += blob.size; }
+                    if (ab && ab.byteLength === exp) { abs[index] = ab; actTot += ab.byteLength; }
                     else { miss = true; t.chunks[index] = false; }
                 }
 
@@ -542,75 +694,83 @@ export class Net {
 
                 if (actTot !== t.tot) {
                     t.st = DST.ERROR;
-                    this._mpm.emit('downloadError', t.key, '文件大小不匹配');
+                    this._mpm.emit('DE', t.key, '文件大小不匹配');
                     t.onE?.('文件大小不匹配');
                     return;
                 }
 
-                const fb = new Blob(blobs.filter(b => b !== null) as Blob[]);
+                const fb = mkBlob(abs.filter(a => a !== null) as ArrayBuffer[]);
 
                 this.storage.setFile(t.key, fb, (ok) => {
                     if (ok) {
-                        const delKeys = [...keys, sk, `${t.key}_resume`];
-                        let del = 0;
-                        delKeys.forEach(k => {
-                            this.storage.delete(k, () => { if (++del === delKeys.length) {} });
-                        });
+                        // 🚨 分片是 setFile 落盘的文件, 必须走 deleteFile; 此前误用 delete(KV) 分片永久残留 → 200MB 配额爆掉主因
+                        keys.forEach(k => this.storage.deleteFile(k, () => { }));
+                        this.storage.deleteFile(`${t.key}_resume`, () => { });
+                        this.storage.delete(sk, () => { });
                         this._finish(t, fb, false);
                     } else { this._err(t, '保存最终文件失败'); }
                 });
             }).catch(() => { this._err(t, '合并分片时发生异常'); });
-        }, 100);
+        });
     }
 
     // ======================== 普通完整下载 ========================
 
     /** 启动普通整包下载（非分片模式） */
     private _startNormal(t: DTask): void {
-        const ctrl = new AbortController();
+        const ctrl = pAbortCtrl();
         t.ctrl = ctrl; t.ld = 0; t.tot = 0;
 
         const tp = new Promise<never>((_, reject) => {
-            const timer = setTimeout(() => reject(new Error('timeout')), this.DTO);
-            ctrl.signal.addEventListener('abort', () => clearTimeout(timer));
+            const timer = Timer.setTimeout(this.DTO, () => reject(new Error('timeout')));
+            ctrl.signal.addEventListener('abort', () => Timer.clear(timer));
         });
 
-        Promise.race([fetch(t.url, { signal: ctrl.signal }), tp])
+        Promise.race([pFetch(t.url, { cache: 'no-store', signal: ctrl.signal }), tp])
             .then(async res => {
                 if (!res.ok) throw new Error(`HTTP ${res.status}`);
                 const cl = res.headers.get('Content-Length');
                 if (cl) t.tot = parseInt(cl, 10);
 
-                const reader = res.body?.getReader();
-                if (!reader) throw new Error('无响应流');
+                const bodyAny: any = res.body;
+                if (bodyAny && typeof bodyAny.getReader === 'function') {
+                    const reader = bodyAny.getReader();
+                    const parts: Uint8Array[] = [];
+                    let recv = 0;
+                    let lastUpd = Timer.now();
 
-                const parts: Uint8Array[] = [];
-                let recv = 0;
-                let lastUpd = Timer.now();
+                    while (true) {
+                        const { done, value } = await reader.read();
+                        if (done) break;
+                        parts.push(value);
+                        recv += value.length;
+                        t.ld = recv;
 
-                while (true) {
-                    const { done, value } = await reader.read();
-                    if (done) break;
-                    parts.push(value);
-                    recv += value.length;
-                    t.ld = recv;
-
-                    const now = Timer.now();
-                    if (now - lastUpd >= 100) {
-                        this._progress(t, t.ld, t.tot);
-                        lastUpd = now;
+                        const now = Timer.now();
+                        if (now - lastUpd >= 100) {
+                            this._progress(t, t.ld, t.tot);
+                            lastUpd = now;
+                        }
                     }
+
+                    const blob = mkBlob(parts);
+                    console.log("下载", blob.size)
+                    return blob;
                 }
 
-                const blob = new Blob(parts);
-                console.log("下载" ,  blob.size)
+                // 微信等无流式 body: 一次性 arrayBuffer(无中途进度)
+                const abAll = await res.arrayBuffer();
+                t.ld = abAll.byteLength;
+                this._progress(t, t.ld, t.tot);
+                const blob = mkBlob([abAll]);
+                console.log("下载", blob.size)
                 return blob;
             })
             .then(blob => {
                 this.storage.setFile(t.key, blob, ok => {
                     if (ok) {
                         this._cleanup(t.key, () => {
-                            this.storage.deleteFile(`${t.key}_resume`, () => {});
+                            this.storage.deleteFile(`${t.key}_resume`, () => { });
                             this._finish(t, blob, false);
                         });
                     } else { this._err(t, '保存失败'); }
@@ -643,7 +803,7 @@ export class Net {
     private _finish(t: DTask, blob: Blob, fromCache: boolean): void {
         this.active.delete(t.key);
         t.st = DST.COMPLETED;
-        this._mpm.emit('downloadComplete', t.key, blob, fromCache);
+        this._mpm.emit('DC', t.key, blob, fromCache);
         t.onC?.(blob, fromCache);
         t.onSC?.(DST.COMPLETED);
         this.tasks.delete(t.key);
@@ -662,7 +822,7 @@ export class Net {
         }
         t.lL = ld;
         t.lPU = now;
-        this._mpm.emit('downloadProgress', t.key, pct, spd, ld, tot);
+        this._mpm.emit('DP', t.key, pct, spd, ld, tot);
         t.onP?.(pct, spd, ld, tot);
     }
 
@@ -675,7 +835,7 @@ export class Net {
             Timer.setTimeout(1000 * t.rt, () => this._start(t));
         } else {
             t.st = DST.ERROR;
-            this._mpm.emit('downloadError', t.key, err);
+            this._mpm.emit('DE', t.key, err);
             t.onE?.(err);
             t.onSC?.(DST.ERROR);
             this._processQ();

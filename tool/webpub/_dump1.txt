@@ -1,0 +1,39 @@
+URL: https://developer.huawei.com/consumer/cn/hdc-console/index.html#/home/101653523124949886 | TITLE: HUAWEI Developer
+links: 37
+  -  => /consumer/cn/hdc-console
+  - 开发者管理 => #/home/98341621547925998
+  - 应用管理 => #/app/101653523124950145?appId=5765880207855344723&projectId=388421841221717430
+  - 智能体管理 => /consumer/cn/hag/hagindex.html?isInFrame=true&lang=zh_CN#/agentHome/createProject/createAg
+  - 总览 => https://developer.huawei.com/consumer/cn/hdc-console/index.html#/home/101653523124949886?
+  - 开发者信息 => https://developer.huawei.com/consumer/cn/hdc-console/index.html#/home/101653523124949947?
+  - 团队账号 => https://developer.huawei.com/consumer/cn/hdc-console/index.html#/home/101653523124949953?
+  - 关联主体 => https://developer.huawei.com/consumer/cn/hdc-console/index.html#/home/101653523124949959?
+  - 沙盒测试账号 => https://developer.huawei.com/consumer/cn/hdc-console/index.html#/home/9249519184595931378?
+  - 第三方授权管理 => https://developer.huawei.com/consumer/cn/hdc-console/index.html#/home/243650030996422009?
+  - 协议与声明 => https://developer.huawei.com/consumer/cn/hdc-console/index.html#/home/101653523124949969?
+  - 隐私联系信息 => https://developer.huawei.com/consumer/cn/hdc-console/index.html#/home/101653523124949995?
+  - APP ID => https://developer.huawei.com/consumer/cn/hdc-console/index.html#/home/101653523124950003?
+  - 证书 => https://developer.huawei.com/consumer/cn/hdc-console/index.html#/home/9249519184596237889?
+  - 设备 => https://developer.huawei.com/consumer/cn/hdc-console/index.html#/home/9249519184596237893?
+  - Profile => https://developer.huawei.com/consumer/cn/hdc-console/index.html#/home/172249065903274468?
+  - 凭证 => https://developer.huawei.com/consumer/cn/hdc-console/index.html#/home/101653523124950083?
+  - 模拟器调试凭据 => https://developer.huawei.com/consumer/cn/hdc-console/index.html#/home/245150415728676629?
+  - 资金账户 => https://developer.huawei.com/consumer/cn/hdc-console/index.html#/home/101653523124950091?
+  - 预算管理 => https://developer.huawei.com/consumer/cn/hdc-console/index.html#/home/101653523124950093?
+  - 订单管理 => https://developer.huawei.com/consumer/cn/hdc-console/index.html#/home/101653523124950095?
+  - 账单 => https://developer.huawei.com/consumer/cn/hdc-console/index.html#/home/101653523124950097?
+  - 发票管理 => https://developer.huawei.com/consumer/cn/hdc-console/index.html#/home/101653523124950132?
+  - 收益结算 => https://developer.huawei.com/consumer/cn/hdc-console/index.html#/home/101653523124950137?
+  - 商户服务 => https://developer.huawei.com/consumer/cn/hdc-console/index.html#/home/101653523124950141?
+  - 典游 => https://developer.huawei.com/consumer/cn/hdc-console/index.html#/home/101653523124950145?a
+  - 开发 => https://developer.huawei.com/consumer/cn/hdc-console/index.html#/home/101653523124950145?a
+  - 分发 => https://developer.huawei.com/consumer/cn/hdc-console/index.html#/home/9249519184596237673?
+  - 经典同游 => https://developer.huawei.com/consumer/cn/hdc-console/index.html#/home/101653523124950145?a
+  - 开发 => https://developer.huawei.com/consumer/cn/hdc-console/index.html#/home/101653523124950145?a
+  - 问题反馈 => 
+  - 使用条款 => 
+  - 关于华为开发者联盟与隐私的声明 => 
+  - 关于华为 HarmonyOS 开发者中心应用管理与隐私的声明 => 
+  - 隐私政策 => 
+  - Cookies => 
+  - 开源软件声明 => 

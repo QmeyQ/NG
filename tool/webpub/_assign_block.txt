@@ -1,0 +1,158 @@
+    // ============ 角色指派(单一权威源; 时序定义见 libs/pvpProto) ============
+    // 旧实现: 满员后每端各算一份表广播 first, 房主挑"第一个有表的"发 final, 再靠 okplay 互认。
+    // 实测后果: 后进那端的 players 列表还没刷新就自认房主、给自己发 final, 两端拿到不同的表
+    //           (A 停在 1/2 只看得到自己, B 与遗留玩家配成 2/2 各自开场)。
+    // 现在: 满员只由房主判定并出唯一一份 role_assign; 其他端只认房主的表,
+    //       回 ack 后等 match_start —— 只有收到开赛令的一方才跳场景。
+
+    /** 房主生成的指派序号(用生成时刻, 全员按它幂等) */
+    private _assignSeq: number = 0;
+    /** 本机已应用过的指派序号 */
+    private _appliedAssignSeq: number = 0;
+    /** 房主已收到的 ack */
+    private _assignAcks: Set<string> = new Set();
+    /** 已采纳但还没等到 match_start 的分配表 */
+    private _pendingAssign: any[] | null = null;
+
+    /** 本机在房间体系里的 id(GOBE 分配的 playerId) */
+    private _myRoomPid(): string {
+        return String(Gnet.getCurrentPlayerId() || this.openId || '');
+    }
+
+    /** 本房间房主(GOBE 建房者); 拿不到就退回当前权威端/自己 */
+    private _matchOwnerId(): string {
+        const room: any = Gnet.getRoom();
+        return String(Gnet.getRoomOwnerId() || (room && room.ownerId) || this._myRoomPid());
+    }
+
+    /** 换房/退房/重匹配/回菜单: 指派状态整体归零 */
+    private _resetAssignmentState(): void {
+        this._assignSeq = 0;
+        this._appliedAssignSeq = 0;
+        this._assignAcks = new Set<string>();
+        this._pendingAssign = null;
+        this._finalAssignment = null;
+        this._assignmentResolved = false;
+        if (this._resolveTimer) {
+            Timer.clear(this._resolveTimer);
+            this._resolveTimer = null;
+        }
+    }
+
+    /** 满员入口: 只有房主出表, 其他端安静等 role_assign */
+    private _assignRoles(players: any[]): void {
+        if (this._assignmentResolved || this._assignSeq > 0) return;
+        const ownerId = this._matchOwnerId();
+        if (ownerId !== this._myRoomPid()) {
+            console.log(`[load] 满员 ${players.length} 人, 本机非房主(房主=${ownerId}), 等待 role_assign`);
+            return;
+        }
+        const roleIds = players.map((_p: any, i: number) => i);
+        for (let i = roleIds.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            const t = roleIds[i]; roleIds[i] = roleIds[j]; roleIds[j] = t;
+        }
+        const assignments = players.map((p: any, i: number) => ({
+            playerId: String(p.playerId),
+            roleId: roleIds[i],
+            teamId: Proto.teamOfRoleId(roleIds[i], players.length)
+        }));
+        const room: any = Gnet.getRoom();
+        this._assignSeq = Timer.now();
+        this._finalAssignment = assignments;
+        this._assignAcks = new Set<string>([this._myRoomPid()]);
+        this._sendAssign(Proto.Kind.RoleAssign, this._assignSeq, assignments, String((room && (room.id || room.roomId)) || ''));
+        console.log(`[load] 房主指派角色 seq=${this._assignSeq}: ${JSON.stringify(assignments)}`);
+        // 房主自己先生效; 其他端必须等 match_start
+        this._applyAssignmentAndStart(assignments);
+        this._resolveTimer = Timer.setTimeout(Proto.ASSIGN_ACK_WAIT_MS, () => this._broadcastStart());
+    }
+
+    private _sendAssign(kind: string, seq: number, assignments: any[], roomId?: string): void {
+        const msg: any = { v: Proto.V, kind: kind, playerId: this._myRoomPid(), seq: seq, assignments: assignments };
+        if (roomId !== undefined) msg.roomId = roomId;
+        Gnet.sendToClient(load.ASSIGN_SEND_SCOPE, JSON.stringify(msg));
+    }
+
+    /** 收齐 ack 或超时 → 广播开赛令(同一 seq, 端上幂等) */
+    private _broadcastStart(): void {
+        if (!this._finalAssignment) return;
+        this._resolveTimer = null;
+        this._sendAssign(Proto.Kind.MatchStart, this._assignSeq, this._finalAssignment);
+        console.log(`[load] 广播 match_start seq=${this._assignSeq} (已 ack ${this._assignAcks.size} 端)`);
+    }
+
+    /** role_assign / role_ack / match_start 的唯一入口 */
+    private _onAssignMsg(data: any, sendPlayerId: string): void {
+        const ownerId = this._matchOwnerId();
+        const mine = this._myRoomPid();
+        if (data.kind === Proto.Kind.RoleAssign) {
+            // 只认房主的表: 任何端自己算出来的分配都不作数
+            if (String(sendPlayerId) !== ownerId) {
+                console.warn(`[load] 丢弃非房主 role_assign from=${sendPlayerId} 房主=${ownerId}`);
+                return;
+            }
+            const why = Proto.checkAssign(data, mine);
+            if (why) {
+                console.warn(`[load] role_assign 校验失败(${why}) seq=${data.seq}`);
+                return;
+            }
+            if (Number(data.seq) <= this._appliedAssignSeq) return;
+            this._appliedAssignSeq = Number(data.seq);
+            this._assignSeq = Number(data.seq);
+            this._pendingAssign = data.assignments;
+            this._finalAssignment = data.assignments;
+            console.log(`[load] 采纳房主指派 seq=${data.seq}: ${JSON.stringify(data.assignments)}`);
+            this._sendAssign(Proto.Kind.RoleAck, data.seq, data.assignments);
+            return;
+        }
+        if (data.kind === Proto.Kind.RoleAck) {
+            // ack 只给房主处理; seq 必须是本次指派
+            if (mine !== ownerId || Number(data.seq) !== this._assignSeq || !this._finalAssignment) return;
+            this._assignAcks.add(String(sendPlayerId));
+            if (this._assignAcks.size >= this._finalAssignment.length && this._resolveTimer) {
+                Timer.clear(this._resolveTimer);
+                this._broadcastStart();
+            }
+            return;
+        }
+        if (data.kind === Proto.Kind.MatchStart) {
+            if (String(sendPlayerId) !== ownerId) return;
+            const why = Proto.checkAssign(data, mine);
+            if (why) {
+                console.warn(`[load] match_start 校验失败(${why}) seq=${data.seq}`);
+                return;
+            }
+            const list = this._pendingAssign || data.assignments;
+            this._pendingAssign = null;
+            this._appliedAssignSeq = Math.max(this._appliedAssignSeq, Number(data.seq));
+            console.log(`[load] 收到 match_start seq=${data.seq}, 开赛`);
+            this._applyAssignmentAndStart(list);
+        }
+    }
+
+    /** 应用最终分配并跳游戏场景 */
+    private _applyAssignmentAndStart(assignment: any[]): void {
+        if (this._assignmentResolved) return;
+        this._assignmentResolved = true;
+        if (this._resolveTimer) {
+            Timer.clear(this._resolveTimer);
+            this._resolveTimer = null;
+        }
+        const myId = this._myRoomPid();
+        let mine: any = null;
+        for (const a of assignment || []) if (String(a.playerId) === myId) mine = a;
+        if (!mine) {
+            console.error(`[load] 分配表里没有本机 pid=${myId}: ${JSON.stringify(assignment)}`);
+            return;
+        }
+        const playerCount = assignment.length;
+        (window as any).gamePlayerCount = playerCount;
+        (window as any).gameMode = "pvp";
+        (window as any).gamePlayerAssignments = assignment;
+        this._gameStarted = true;
+        console.log(`%c[load] 最终角色分配: ${JSON.stringify(assignment)} 本机 roleId=${mine.roleId}`, "color: #FF00FF; font-weight:bold");
+        this._stopFx();
+        SceneNav.open(load.SCENE_URL, { playerCount });
+    }
+
