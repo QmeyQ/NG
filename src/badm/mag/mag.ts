@@ -28,6 +28,8 @@ interface HitState {
      *  PVP 远端重放=消息内击球时刻——出手时传 ball.hitAt 把轨迹从过去时刻起算 */
     hitTime?: number;
     ballPos: Laya.Vector3 | null;
+    /** 起手瞬间球是否就钉在本角色手上(发球)。出手判定用它跳过"接球够不够得到"——见 _executeHit */
+    startedWithBall?: boolean;
     recoveryDuration: number;
     compensating: boolean;
     lastDist: number;
@@ -89,19 +91,8 @@ export abstract class Mag {
     public lastHitCha: Cha | null = null;
     public lastScoreReason = "";
     public isAuthoritative = true;
-        /** 鹰眼记录: 轨迹点(落地前 2.5s 取自 phy.map 历史 + 落地后继续采样) */
-    public eagleRecPts: State[] | null = null;
-    /** 记录完成标志(落地后采样窗结束) */
-    public eagleRecDone = false;
-    /** 落地后追加采样定时器(40ms 采 ballO 实际位置) */
-    public eagleRecTid: string | null = null;
-    /** 记录开始时刻(落地时刻) */
-    public eagleRecT0 = -1;
     /** PVP 联机模式标志(非权威端 rule 不本地推进, 状态由权威端 state 帧驱动) */
     public isPvpMode = false;
-    /** 鹰眼回放进行中(badm 维护; PVP 非权威端 applyState 开窗同步时防回放中重开提示) */
-    public eaglePlaying = false;
-    /** 鹰眼回放记录就绪回调(badm 接线: 落地时已存前后 2.5s 轨迹记录; 无记录不开挑战窗) */
     /** 发球阶段开始回调(rule COUNTDOWN→SERVING 转换时调; badm 接线清鹰眼记录——
      *  用户规格: 记录每次发球阶段才清, 没清不覆盖(结算后的鹰眼窗口期旧记录保留可回放)) */
     public onServeStart?: () => void;
@@ -370,44 +361,62 @@ export abstract class Mag {
     private _updateBallHolding(): void {
         // 钉球是"附件"不是"弹道": 持球者是谁由权威状态给( ballHolderChaId / isP ), 手在哪由本机
         // 角色位置决定(角色坐标本身就是同步来的)——两端各钉各的手才是【一致】的, 而不是分家。
-        // 旧版只在权威端钉球、非权威端等权威快照拽球位, 于是发球阶段两端一个球在甲手一个球在乙手。
-        // 飞行中的球不归这里管(下面 isCalc 一判就返回)。
 
-        // 准备阶段(用户规格): 无人持球——球停在上回合落地处直到分球瞬移到手
-        if (this.phase === MatchPhase.COUNTDOWN && !this.isBallAssigned) return;
+        // 钉球只属于"这一拍要从手上发出去"的窗口: 发球阶段。准备期/结算/鹰眼段一概不钉——
+        // 否则刚落地的球(甚至还在滚)会被瞬移回某人手里, 玩家看到的就是"球怎么突然飞回去了"
+        // (用户规格: 比分结算不该停止球的模拟状态)
+        if (this.phase !== MatchPhase.SERVING) return;
 
-        // 持球兜底铁律(用户规则): 物理未激活(!isCalc) = 球在"待发球"态——必须始终钉在持球者手上。
-        // isP 流转空窗(hit 判罚 score→resetMatch→ballAssignDelay 窗口期 isP 全 false)钉回 currentServer,
-        // 任何路径都不允许球滞留物理残态(prefab 初始位 0,0,0"卡原点"根因)。
-        if (this.ball && this.ball.phy && this.ball.phy.isCalc) return;
-
-        let holder: Cha | null = null;
-        for (const cha of this.players) {
-            if (cha.isP) { holder = cha; break; }
+        // 持球者口径: 权威认定的 id 优先。联机时"球到底停了没有"两端不会同时成立(各自积分的
+        // 休眠/贴地判定的差一拍), 于是一端钉回手上、另一端还躺在地上 = 发球阶段两端差 9m
+        // (run38 实测连续 36 个样本超差的主因)。权威说有人持球, 本端就照办。
+        let holder: Cha | null = this.authBallHolderId >= 0
+            ? (this.players.find(p => p.id === this.authBallHolderId) || null)
+            : null;
+        const authHolds = !!holder;
+        if (!holder) {
+            for (const cha of this.players) {
+                if (cha.isP) { holder = cha; break; }
+            }
         }
+        // 正在飞的弹道一律不钉, 与"谁被认定持球"无关: 发球事件走可靠消息通道, 比阶段帧(10Hz)快——
+        // 球已被击球事件打出去、本端阶段还停在 SERVING/holderId 未清的那几帧, 照钉不误就会把
+        // 刚应用的发球整个抹掉(球冻在手上 calc=false, 对端已在飞 = run d 每回合开局差 7m 的根因)。
+        if (this.ball && this.ball.flying()) return;
         if (!holder) {
             // 空窗兜底: 钉回当前发球员(发球权转移/回合重置的过渡帧)
             holder = this.currentServer || null;
             if (holder) holder.isP = true;
         }
         if (!holder) return;
+        if (authHolds) holder.isP = true;
 
         const holderNode = holder.ballHolderNode;
-        if (holderNode) {
-            const wm = holderNode.transform.worldMatrix;
-            this.ball.pos = new Laya.Vector3(
-                wm.elements[12],
-                wm.elements[13],
-                wm.elements[14]
-            );
+        const wm = holderNode ? holderNode.transform.worldMatrix.elements : null;
+        // 钉在"手"上取的是蒙皮节点世界位: 刚传送完的那一帧它可能还是上一位置的矩阵, 甚至没更新
+        // (prefab 原点)。离谱位置一律回落到"角色身前 0.5m"——球被钉到几米外, 正是
+        // "发球站位不对 → 球打不出去 → 卡在原地"的现场来源。
+        // 钉球=附件, 走 Ball 的 attachTo(内核里速度清零、时钟对齐、命中记录清干净)。
+        const handSane = !!wm
+            && [wm[12], wm[13], wm[14]].every((n: any) => Number.isFinite(n))
+            && Math.hypot(wm[12] - holder.x, wm[14] - holder.z) < 2.0
+            && wm[13] > 0.2 && wm[13] < 2.8;
+        if (handSane) {
+            this.ball.attachTo({ x: wm[12], y: wm[13], z: wm[14] });
         } else {
-            const dir = holder.x > 0 ? -1 : 1;
-            this.ball.pos = new Laya.Vector3(
-                holder.x + 0.5 * dir,
-                1.0,
-                holder.z
-            );
+            this.parkBallAt(holder);
         }
+    }
+
+    /**
+     * 把球当附件停在角色身前(脚下坐标 + 身前 0.5m, 高 1m)。
+     * 两个用途: ①蒙皮手节点世界位离谱(刚传送完/没更新/prefab 原点)时的兜底钉位;
+     * ②开局给球一个"看得见、够得着"的位置——不这么做, 准备阶段那颗球就杵在场景原点 (0,0,0)。
+     */
+    public parkBallAt(cha: Cha): void {
+        if (!this.ball || !cha) return;
+        const dir = cha.x > 0 ? -1 : 1;
+        this.ball.attachTo({ x: cha.x + 0.5 * dir, y: 1.0, z: cha.z });
     }
 
     /**
@@ -817,6 +826,9 @@ export abstract class Mag {
         }
 
         cha.isP = false;
+        // 球离手: 持球口径一起清掉。不清的话发球阶段结束前, 两端都会继续把球往这只手上钉,
+        // 对端拿到的权威帧里 holderId 也一直是这个人 → 球"粘"在发球员手上不打出去
+        this.authBallHolderId = -1;
 
         const bp = state.ballPos ?? new Laya.Vector3(
             this.ball.x,
@@ -824,7 +836,9 @@ export abstract class Mag {
             this.ball.z
         );
 
-        const hitOK = this._canHitBall(cha, bp, state);
+        // 球此刻就钉在这名角色手上(发球/接发球起手)→ 必然出手: 用"接球够不够得到"的距离/朝向/
+        // 高度层去判一只在手里的球, 得到的是"发球站位稍偏/抬手动画高一点 → 打不出去 → 球卡在原地不模拟"
+        const hitOK = state.startedWithBall || this._canHitBall(cha, bp, state);
 
         // 弹道由【击球参数 + 击球时刻】唯一决定, 与"本机是不是权威端"无关: 每个端都照同一组参数
         // 起算, 之后各自 simTo(现在) 必然得到同一个位置(时间驱动物理的意义)。
@@ -1011,6 +1025,7 @@ export abstract class Mag {
             stroke,
             hitTime,
             ballPos,
+            startedWithBall: !!cha.isP,
             recoveryDuration: 0,
             compensating: false,
             lastDist: Math.hypot(ballPos.x - cha.x, ballPos.z - cha.z),

@@ -20,8 +20,13 @@
  * 去重 / 过期 / 体积三件事在 registry 里逐 kind 声明一次, 由 accept() 统一执行;
  * 校验器仍住 pvpProto(线上字段语义的规范处): checkAssign 管指派三件套, checkHit 管击球事件。
  *
- * 通道分工与 pvpProto 顶部一致: ch='msg' 走 sendToClient(可靠, 事件与协商),
+ * 通道分工与 pvpProto 顶部一致: ch='msg' 走 sendToClient(事件与协商),
  * ch='frame' 走 sendFrame(服务端聚合、不可靠, 承载"当前画面"与小量选举通告)。
+ * 注意: sendToClient 实测会丢包(限流/中继丢弃, 信封序号缺口为证), 并非真可靠。
+ * registry 里标 reliable 的种类(hit_event/ball_stop)由本文件加【应用层 ACK+重传】:
+ * 发送即挂起待 ack, 每 300ms 未签收就重发同一载荷(接收端按 eventId/stopId 去重, 幂等),
+ * 收到 event_ack 销账; 重传 16 次(~5s)仍无 ack 放弃并告警(交给击球序号缺口 recovery 兜底)。
+ * 接收端对可靠种类【接受成功与去重命中都回 ack】——ack 丢了, 下一份重传会再换一份。
  */
 import { Gnet } from "./net";
 import { Timer } from "../time";
@@ -40,6 +45,8 @@ export interface SpaceCtx {
     authTerm(): number;
     /** 收到该端任何消息时的旁路(存活判定口径: 帧与消息都算"还在说话") */
     onAnyMessage?(senderId: string, kind: string): void;
+    /** 本端此刻是否被禁止发言(__qa.mute): 重传线程也要闭嘴, 否则静默升格测不出来 */
+    silent?(): boolean;
 }
 
 /** 校验器上下文: selfId/authTerm 供 pvpProto 的校验函数使用 */
@@ -70,6 +77,10 @@ interface KindSpec {
     maxAgeMs?: number;
     /** 结构校验器(pvpProto 提供), 返回拒绝原因; 失败原因在 accept 里加 check: 前缀 */
     check?: (data: any, ctx: CheckCtx) => string | null;
+    /** 必须可靠送达: 发送挂起待 event_ack, 未签收按 ACK_RETRY_MS 重传(仅 ch='msg' 有效) */
+    reliable?: boolean;
+    /** 可靠种类的业务主键(ack 按它销账/去重命中按它补签收); 返回 null = 本条不挂起 */
+    ackId?: (data: any) => string | null;
 }
 
 /** 单条消息序列化上限(字符): 超出说明调用方把大块画面数据塞进了点对点消息 */
@@ -110,14 +121,18 @@ export const registry: Record<string, KindSpec> = {
         ch: 'msg', space: 'game', authOnly: true,
         // 不设 maxAgeMs: 迟到也要落地(入口不落地=两端两段弹道, 之后再也对不上)。
         // 射程失控由 catchUpBall 的补算封顶挡住, 残余误差由 ball_stop 兜底对齐。
+        reliable: true, ackId: (d) => key(d.eventId),
         dedupe: (d) => key(d.eventId),
         check: (d, ctx) => Proto.checkHit(d, { now: Timer.now(), authTerm: ctx.authTerm })
     },
     // 球停止后权威端报一次自己的球位: 参数同步的兜底对齐点(只在"停了"这个时刻发一次)
     [K.BallStop]: {
         ch: 'msg', space: 'game', authOnly: true,
+        reliable: true, ackId: (d) => key(d.stopId),
         dedupe: (d) => key(d.stopId)
     },
+    // 可靠种类的签收: 谁收到 hit_event/ball_stop 谁回, 不限权威端(非权威端才是主要签收人)
+    [K.EventAck]: { ch: 'msg', space: 'game' },
 
     // ---- 对局: 异常恢复 ----
     [K.SyncRecover]: { ch: 'msg', space: 'game', dedupe: (d) => key(d.requestId) },
@@ -147,6 +162,96 @@ const lastEnv = new Map<string, number>();
 let sendSeq = 0;
 let lastDropLogAt = 0;
 
+/** 排障计数(日志有 1s 节流, 丢包/拒收的完整分布只能看这里): __qa.msgStats() 读取 */
+export const stats = {
+    /** kind → 上线次数(含重传, 一次 sendRaw 算一次) */
+    sent: {} as Record<string, number>,
+    /** kind → 被 accept 放行并路由的次数(去重命中不算) */
+    recv: {} as Record<string, number>,
+    /** kind:reason → 次数(含 dedupe/self-echo 这类设计内丢弃) */
+    reject: {} as Record<string, number>,
+    /** kind → 出现信封缺口的次数 */
+    gap: {} as Record<string, number>,
+    /** kind → 缺失信封总数 */
+    gapMissing: {} as Record<string, number>,
+    /** kind → 应用层重传次数(首发的重发, 不含首发) */
+    resend: {} as Record<string, number>,
+    /** kind → 重传预算耗尽仍无 ack 的条数(交给 recovery 兜底) */
+    giveup: {} as Record<string, number>
+};
+
+// ==================== 应用层 ACK + 重传(只覆盖 registry 标 reliable 的种类) ====================
+
+/** 重传间隔: GOBE 中继丢包是瞬时限流, 300ms 后重发同一载荷大概率能过 */
+const ACK_RETRY_MS = 300;
+/** 总发送次数上限(首发+15 次重传 ≈ 4.8s): 再丢就是链路断了, 交给击球序号缺口 recovery */
+const ACK_MAX_TRIES = 16;
+
+interface Pending {
+    kind: string;
+    payload: any;
+    target?: string[];
+    /** 挂起时的身份上下文: unbind 按它认领旧账(新实例先 bind、旧实例后 destroy 是常态) */
+    ctx?: SpaceCtx;
+    tries: number;
+    last: number;
+}
+
+/** kind:ackId → 待签收; 键含 kind 是因为不同种类的主键定义域各自独立 */
+const pending = new Map<string, Pending>();
+let ackTimer: string | null = null;
+
+function pendingKey(kind: string, id: string): string { return kind + ':' + id; }
+
+function trackPending(kind: string, id: string, payload: any, target?: string[]): void {
+    const k = pendingKey(kind, id);
+    if (pending.has(k)) return;
+    const spec = registry[kind];
+    pending.set(k, { kind, payload, target, ctx: spec && ctxs[spec.space], tries: 1, last: Timer.now() });
+    if (ackTimer == null) {
+        ackTimer = Timer.setInterval(ACK_RETRY_MS, retransmitTick);
+    }
+}
+
+function removePending(kind: string, id: string): void {
+    pending.delete(pendingKey(kind, id));
+    if (!pending.size && ackTimer != null) {
+        Timer.clear(ackTimer);
+        ackTimer = null;
+    }
+}
+
+function retransmitTick(): void {
+    const now = Timer.now();
+    for (const [k, p] of Array.from(pending.entries())) {
+        // 被 mute 的端重传也闭嘴: 预算按实际发送次数计, 静默期不消耗
+        if (p.ctx && p.ctx.silent && p.ctx.silent()) continue;
+        if (now - p.last < ACK_RETRY_MS) continue;
+        if (p.tries >= ACK_MAX_TRIES) {
+            pending.delete(k);
+            stats.giveup[p.kind] = (stats.giveup[p.kind] || 0) + 1;
+            console.warn(`[msg] ${p.kind} 重传${p.tries}次仍无签收, 放弃(交给 recovery 兜底)`);
+            continue;
+        }
+        sendRaw(p.kind, p.payload, p.target);
+        p.tries++;
+        p.last = now;
+        stats.resend[p.kind] = (stats.resend[p.kind] || 0) + 1;
+    }
+    if (!pending.size && ackTimer != null) {
+        Timer.clear(ackTimer);
+        ackTimer = null;
+    }
+}
+
+/** 可靠种类的签收: 接受成功与去重命中都回(ack 丢了, 重传会再换一份) */
+function ackReliable(kind: string, data: any, senderId: string): void {
+    const spec = registry[kind];
+    const id = spec && spec.ackId && spec.ackId(data);
+    if (!id) return;
+    sendRaw(K.EventAck, { ackKind: kind, ackId: id }, [senderId]);
+}
+
 function key(v: any, prefix = ''): string | null {
     if (typeof v === 'string' && v) return prefix + v;
     if (typeof v === 'number' && Number.isFinite(v)) return prefix + v;
@@ -171,14 +276,35 @@ export function unbind(space: Space, ctx: SpaceCtx, subs: Record<string, Handler
     for (const kind of Object.keys(subs)) {
         if (handlers.get(kind) === subs[kind]) handlers.delete(kind);
     }
+    // 待签收按【挂起时的 ctx】认领: 只按 ctxs[space] 当前值清, 会漏掉"新实例已 bind、
+    // 旧实例才 destroy"时旧实例挂起的账, 旧局击球就重传进新局了
+    for (const [k, p] of Array.from(pending.entries())) {
+        if (p.ctx === ctx) pending.delete(k);
+    }
+    if (!pending.size && ackTimer != null) {
+        Timer.clear(ackTimer);
+        ackTimer = null;
+    }
     if (ctxs[space] === ctx) delete ctxs[space];
 }
 
 /**
  * 按 registry 组装并发送。返回 false = 没发出去(未登记 / 体积超限)。
  * target 省略即广播; 只有一个收件人时写入信封 to, 由接收侧的 forMe 规则过滤。
+ * reliable 种类首发即挂起待签收, 之后由重传线程兜底(见 ACK_RETRY_MS)。
  */
 export function send(kind: string, payload?: any, target?: string[]): boolean {
+    if (!sendRaw(kind, payload, target)) return false;
+    const spec = registry[kind];
+    if (spec.reliable && spec.ch === 'msg' && spec.ackId) {
+        const id = spec.ackId(payload);
+        if (id) trackPending(kind, id, payload, target);
+    }
+    return true;
+}
+
+/** 只组装+上线, 不挂起待签收(重传与 ack 本身走这里, 避免 ack 再挂一层) */
+function sendRaw(kind: string, payload?: any, target?: string[]): boolean {
     const spec = registry[kind];
     const ctx = spec && ctxs[spec.space];
     if (!spec || !ctx) {
@@ -201,6 +327,7 @@ export function send(kind: string, payload?: any, target?: string[]): boolean {
     }
     if (spec.ch === 'frame') Gnet.sendFrame(text);
     else Gnet.sendToClient(1, text, target);
+    stats.sent[kind] = (stats.sent[kind] || 0) + 1;
     return true;
 }
 
@@ -216,6 +343,12 @@ function isFromAuthority(ctx: SpaceCtx, data: any, senderId: string): boolean {
  * 不做路由, 所以 A 通道内嵌的小载荷(权威快照帧、击球事件)也复用这同一个函数。
  */
 export function accept(kind: string, data: any, senderId: string): string | null {
+    const why = acceptRule(kind, data, senderId);
+    if (why) noteReject(kind, why);
+    return why;
+}
+
+function acceptRule(kind: string, data: any, senderId: string): string | null {
     const spec = registry[kind];
     const ctx = spec && ctxs[spec.space];
     if (!spec || !ctx) return 'unknown-kind';
@@ -254,6 +387,11 @@ export function accept(kind: string, data: any, senderId: string): string | null
     return null;
 }
 
+function noteReject(kind: string, why: string): void {
+    const k = kind + ':' + why;
+    stats.reject[k] = (stats.reject[k] || 0) + 1;
+}
+
 /** accept 之前先读该发送方上一个被接受的业务序号, 供调用方做缺口检测 */
 export function lastAcceptedSeq(kind: string, senderId: string): number {
     return lastSeq.get(kind + '@' + String(senderId)) ?? 0;
@@ -271,13 +409,21 @@ export function dispatch(data: any, senderId: string): boolean {
     ctx.onAnyMessage?.(senderId, kind);
     const why = accept(kind, data, senderId);
     if (why) {
+        // 去重命中 = 载荷早已落地, 补一份签收让发送方销账(它的第一份 ack 可能丢了)
+        if (why === 'dedupe' && spec.reliable) ackReliable(kind, data, senderId);
         logDrop(kind, why, senderId);
         return false;
     }
     trackEnvSeq(data, senderId);
+    stats.recv[kind] = (stats.recv[kind] || 0) + 1;
+    if (kind === K.EventAck) {
+        removePending(String(data.ackKind), String(data.ackId));
+        return true;
+    }
     const h = handlers.get(kind);
     if (!h) return false;
     h(data, senderId);
+    if (spec.reliable) ackReliable(kind, data, senderId);
     return true;
 }
 
@@ -296,6 +442,9 @@ function trackEnvSeq(data: any, senderId: string): void {
     const cur = Number(data.seq);
     if (Proto.isNum(cur)) {
         if (prev != null && cur > prev + 1) {
+            const kind = String(data.kind || '?');
+            stats.gap[kind] = (stats.gap[kind] || 0) + 1;
+            stats.gapMissing[kind] = (stats.gapMissing[kind] || 0) + (cur - prev - 1);
             const now = Timer.now();
             if (now - lastDropLogAt > 1000) {
                 lastDropLogAt = now;
