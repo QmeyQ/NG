@@ -545,6 +545,9 @@ export class Dialog {
         // —— btn → 取消 → callback(0) ——
         const btnCancel = Dialog._findByName(panel, "btn");
         if (btnCancel) {
+            // lh 里 btn/ok 是 GImage: mouseEnabled 默认 false, 不开的话点击会穿透到 panel 根节点
+            // 走 callback(3)(遮罩语义), 玩家点"下载"实际等于取消——新设备永远下不了 nor 包
+            (btnCancel as Laya.Sprite).mouseEnabled = true;
             Dialog._setLabelText(btnCancel, cancelText);
             btnCancel.offAllCaller(Dialog);
             btnCancel.on(Laya.Event.CLICK, Dialog, (e: Laya.Event) => {
@@ -560,6 +563,7 @@ export class Dialog {
         // 有 confirmText → callback(1); 单按钮场景也绑定(取消语义 callback(0)), 保证按钮始终可点
         const imgConfirm = Dialog._findByName(panel, "Image_1") || Dialog._findByName(panel, "img_1") || Dialog._findByName(panel, "ok");
         if (imgConfirm) {
+            (imgConfirm as Laya.Sprite).mouseEnabled = true;
             imgConfirm.offAllCaller(Dialog);
             if (confirmText !== undefined) {
                 Dialog._setLabelText(imgConfirm, confirmText);
