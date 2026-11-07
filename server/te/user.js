@@ -12,7 +12,8 @@
  *   - 认证: code.keyOk(userid, key), 不查库
  *   - 注册下发 key = code.key(userid), 数据库不再存 secret 字段
  *
- * 存储: id(主键)=userid  name  flag  bag(JSON)  dollar  head  etc(ctime)
+ * 存储: id(主键)=userid  name  flag  bag(JSON)  dollar  head  etc(注册认领令牌 "ctime:随机串",
+ *       rowToUser 用 parseInt 取前段当 ctime; 随机后缀用于并发注册回读校验, 见 reg 分支)
  *       老数据行的 secret 字段保留但不再读取/写入
  *
  * 错误码: 0成功 1用户不存在 2认证失败 3背包数量不足 4金币不足 5参数错误 6已注册
@@ -34,7 +35,12 @@ async function recordDbOperation(userid, op) {
 const DEFAULT_HEAD = 'head/0.png';
 const DEFAULT_FLAG = '美好的一天开始喽！';
 const SEQ_ROW = '_seq';
-const CODE_V = 'v1022b';
+const CODE_V = 'v1107a';
+
+/** 注册认领令牌: 前段是 ctime(rowToUser parseInt 取前段), 随机后缀区分并发写入者 */
+function claimToken() {
+    return Date.now() + ':' + Math.random().toString(36).slice(2);
+}
 
 function out(code, extra) {
     return Object.assign({ code: code, v: CODE_V }, extra || {});
@@ -195,23 +201,28 @@ let myHandler = async function (event, context, callback, logger) {
                     bag: bag0
                 };
                 const userKey0 = code.key(id0);   // ✅ 确定性 key, 不再随机
+                const claim0 = claimToken();
                 const ok0 = await db.dbPut(id0, {
                     name: user0.name,
                     flag: user0.flag,
                     head: user0.head,
                     dollar: user0.dollar,
                     bag: JSON.stringify(bag0),
-                    etc: String(Date.now())
+                    etc: claim0
                 });
                 if (!ok0) { callback(out(5, { msg: '存储写入失败: ' + (db.dbErr() || '未知') })); return; }
+                // 查存在→写入不是原子序列, 并发显式注册会互相覆盖: 回读认自己的令牌才算成功
+                const back0 = await db.dbGet(id0);
+                if (!db.dbOk) { callback(out(5, { msg: '存储访问失败: ' + (db.dbErr() || '未知') })); return; }
+                if (!back0 || back0.etc !== claim0) { callback(out(6, { msg: '该用户已注册' })); return; }
                 await recordDbOperation(id0, 0);
                 if (logger) logger.info('reg user: ' + id0);
                 callback(out(0, { key: userKey0, user: user0, gobe: await gobeInfo() }));
                 return;
             }
 
-            // 顺序 id 分配
-            for (let attempt = 0; attempt < 8; attempt++) {
+            // 顺序 id 分配(认领失败要让号重试, 预算须覆盖并发数: N 路并发最坏让 N-1 次)
+            for (let attempt = 0; attempt < 16; attempt++) {
                 const seqRow = await db.dbGet(SEQ_ROW);
                 if (!db.dbOk) { callback(out(5, { msg: '存储访问失败: ' + (db.dbErr() || '未知') })); return; }
                 let n = parseInt(seqRow && seqRow.etc, 10);
@@ -234,15 +245,24 @@ let myHandler = async function (event, context, callback, logger) {
                     bag: bag
                 };
                 const userKey = code.key(id);     // ✅ 确定性 key
+                const claim = claimToken();
                 const ok = await db.dbPut(id, {
                     name: user.name,
                     flag: user.flag,
                     head: user.head,
                     dollar: user.dollar,
                     bag: JSON.stringify(bag),
-                    etc: String(Date.now())
+                    etc: claim
                 });
                 if (!ok) { callback(out(5, { msg: '存储写入失败: ' + (db.dbErr() || '未知') })); return; }
+                // 读序号→查存在→写入不是原子序列: 并发注册会同时相中同一个 id 互相覆盖,
+                // 两端拿到同一账号(实测双开同撞 1035)。回读认自己的令牌才算成功, 否则让号重试。
+                const back = await db.dbGet(id);
+                if (!db.dbOk) { callback(out(5, { msg: '存储访问失败: ' + (db.dbErr() || '未知') })); return; }
+                if (!back || back.etc !== claim) {
+                    await db.dbPut(SEQ_ROW, { etc: String(n + 1) });
+                    continue;
+                }
                 const seqOk = await db.dbPut(SEQ_ROW, { etc: String(n + 1) });
                 if (!seqOk) { callback(out(5, { msg: '序号写入失败: ' + (db.dbErr() || '未知') })); return; }
                 await recordDbOperation(id, 0);
