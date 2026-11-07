@@ -639,7 +639,7 @@ function pruneEmptyGroups(){
       if(isMirrorKey(k))continue;
       const n=tree.nodes[k];
       if(!n||!n.node_tree)continue;
-      if(!treeHasContent(n.node_tree)&&!active.has(n.node_tree)){delete n.node_tree;continue;}
+      if(!treeHasContent(n.node_tree)&&!active.has(n.node_tree)&&!n.node_tree_file){delete n.node_tree;continue;}   // 有未解析引用的空组保留
       walk(n.node_tree);
     }
   })(root);
@@ -1469,21 +1469,23 @@ function loadEntries(entries){
   if(!main){toast('没有找到主文档 index.js / index.json',true);return;}
   const obj=JSON.parse(JSON.stringify(files[main]));
   const miss=[];
-  const missing=hydrateDoc(obj,files,miss);
+  const used=new Set([main]);
+  const missing=hydrateDoc(obj,files,miss,used);
   insertDoc(obj);
+  const orphans=collectUnreferenced(files,used,'导入文件夹');   // 未被引用的文件 → 未使用区展示
   if(missing)toast('有 '+missing+' 个子组文件没找到，已置空：'+miss.slice(0,2).join('、'),true);
-  else toast('已从文件夹装配 '+paths.length+' 个数据文件');
+  else toast('已从文件夹装配 '+used.size+' 个数据文件'+(orphans?'，另有 '+orphans+' 个未引用文件已放入「未使用节点」':''));
 }
 
 /* ---- 子组内容拆分：node_tree_file 指向子组自己的 .js，导入时再装配 ---- */
-function hydrateDoc(obj,files,missingRefs){
+function hydrateDoc(obj,files,missingRefs,usedRefs){
   let missing=0;
   const norm=p=>String(p||'').replace(/^\.\//,'');
   const lookup=ref=>{                  // 允许误选上一层/子目录：按路径后缀兜底匹配
     if(!files)return null;
-    if(files[ref])return files[ref];
+    if(files[ref])return ref;
     const k=Object.keys(files).find(x=>x===ref||x.endsWith('/'+ref)||ref.endsWith('/'+x));
-    return k?files[k]:null;
+    return k||null;
   };
   function fixTree(t,depth){
     if(!t||typeof t!=='object'||depth>64)return t;
@@ -1494,16 +1496,42 @@ function hydrateDoc(obj,files,missingRefs){
       if(n.node_tree){fixTree(n.node_tree,depth+1);continue;}
       if(!n.node_tree_file)continue;
       const ref=norm(n.node_tree_file);
-      const f=lookup(ref);
+      const hit=lookup(ref);
+      const f=hit?files[hit]:null;
       const sub=f?(f.node_tree||(f.nodes?f:null)):null;
-      delete n.node_tree_file;
-      if(sub)n.node_tree=fixTree(JSON.parse(JSON.stringify(sub)),depth+1);
-      else{missing++;if(missingRefs)missingRefs.push(ref);}
+      if(sub){delete n.node_tree_file;n.node_tree=fixTree(JSON.parse(JSON.stringify(sub)),depth+1);if(usedRefs)usedRefs.add(hit);}
+      else{missing++;if(missingRefs)missingRefs.push(ref);}   // 找不到就保留引用，别删
     }
     return t;
   }
   fixTree(obj,0);
   return missing;
+}
+/* 遍历导入的文件表：凡没被任何 node_tree_file 引用到的数据文件，
+   作为「未使用节点」放进左侧工作区展示（不丢失、可恢复）。 */
+function collectUnreferenced(files,usedRefs,fromLabel){
+  let cnt=0;
+  for(const p in files){
+    if(usedRefs.has(p))continue;
+    const o=files[p];
+    if(!o||typeof o!=='object')continue;
+    if(!(o.inputs||o.outputs||o.type||o.node_tree||o.nodes))continue;   // 不是节点/文档形态则跳过
+    const u=JSON.parse(JSON.stringify(o));
+    if(u.nodes&&!u.node_tree){                       // 整份文档形态 → 包成一个组节点快照
+      const g={name:u.name||'未命名',label:u.name||'未命名',type:'Group',desc:u.desc||'',inputs:[],outputs:[],
+        node_tree:{name:(u.name||'未命名')+' 子树',nodes:u.nodes,links:Array.isArray(u.links)?u.links:[]}};
+      Object.keys(u).forEach(k=>{if(!(k in g)&&k!=='nodes'&&k!=='links')g[k]=u[k];});
+      normNode(g);normAll(g.node_tree,g);
+      g.unused_from=fromLabel+'（未被引用：'+p+'）';
+      pushUnused(g);cnt++;continue;
+    }
+    if(!u.name)u.name='未命名节点';
+    normNode(u);if(u.node_tree)normAll(u.node_tree,u);
+    u.unused_from=fromLabel+'（未被引用：'+p+'）';
+    pushUnused(u);cnt++;
+  }
+  if(cnt)touch();                              // 刷新左侧未使用区并存档
+  return cnt;
 }
 /* 读取本工具导出的 ZIP（STORE 无压缩） */
 async function unzipStore(buf){
@@ -1547,29 +1575,38 @@ async function loadZip(buf){
     ||paths.filter(p=>p.indexOf('/')<0).sort((a,b)=>a.length-b.length)[0];
   if(!main){toast('ZIP 中没有找到主文档 index.js',true);return;}
   const obj=JSON.parse(JSON.stringify(files[main]));
-  const missing=hydrateDoc(obj,files);
+  const used=new Set([main]);
+  const missing=hydrateDoc(obj,files,null,used);
   insertDoc(obj);
+  const orphans=collectUnreferenced(files,used,'导入 ZIP');
   if(missing)toast('有 '+missing+' 个子组缺少数据文件，已置空',true);
+  else if(orphans)toast('已导入，另有 '+orphans+' 个未引用文件已放入「未使用节点」');
 }
 /* 导入单个数据 JS（子组引用无法解析时会为空） */
-function loadJsText(txt){
+async function loadJsText(txt){
   const obj=evalDataScript(txt);
   if(!obj||typeof obj!=='object'){toast('JS 数据解析失败：未找到文档对象',true);return;}
   if(!obj.nodes||typeof obj.nodes!=='object'){toast('格式不符：缺少 nodes 字段',true);return;}
   const miss=[];
-  const missing=hydrateDoc(obj,null,miss);
+  let missing=hydrateDoc(obj,null,miss);
+  if(missing){                              // 单文件带引用：尝试按页面所在目录动态加载 nodes/*.js
+    const before=missing;
+    missing=await hydrateDocAsync(obj,'');
+    if(missing<before)toast('已按页面目录动态加载 '+(before-missing)+' 个子组文件');
+  }
   try{
     insertDoc(obj);
-    if(missing)toast('该文件只含 '+missing+' 个子组引用（node_tree_file），单独导入会为空；请用「导入文件夹」选整个导出目录或导入整包 ZIP',true);
+    if(missing)toast('有 '+missing+' 个子组文件没找到（'+miss.slice(0,2).join('、')+'）；请把 nodes/ 放到页面同目录，或用「导入文件夹」选整个导出目录',true);
   }catch(err){toast('导入失败：'+err.message,true);}
 }
 
 /* ---- 导入 JSON：整份项目作为一个组节点插入，可无限嵌套 ---- */
-function loadText(txt,filename){
+async function loadText(txt,filename){
   let obj;
   try{obj=JSON.parse(txt);}catch(err){toast('JSON 解析失败：'+err.message,true);return;}
   if(!obj||typeof obj!=='object'){toast('格式不符',true);return;}
-  const missing=hydrateDoc(obj,null);      // 单文件导入时子组引用无法还原
+  let missing=hydrateDoc(obj,null);
+  if(missing)missing=await hydrateDocAsync(obj,'');   // 引用尝试按页面目录动态加载
   if(!obj.nodes||typeof obj.nodes!=='object'){
     // 单节点 JSON（含 inputs/outputs/type 字段）：直接作为节点插入，不做组包装
     if(obj.inputs||obj.outputs||obj.type){
@@ -1579,7 +1616,7 @@ function loadText(txt,filename){
   }
   try{
     insertDoc(obj);
-    if(missing)toast('该文件只含 '+missing+' 个子组引用（node_tree_file），单独导入会为空；请用「导入文件夹」选整个导出目录或导入整包 ZIP',true);
+    if(missing)toast('有 '+missing+' 个子组文件没找到；请把 nodes/ 放到页面同目录，或用「导入文件夹」选整个导出目录',true);
   }catch(err){toast('导入失败：'+err.message,true);}
 }
 function insertDoc(obj){
@@ -1587,6 +1624,11 @@ function insertDoc(obj){
   if(obj._singleNode)return insertNodes(obj,t);
   const nodes=obj.nodes||{};
   if(!Object.keys(nodes).length){toast('该 JSON 没有节点',true);return;}
+  if(countDirectNodes(root)===0){            // 页面还没有任何节点：index 直接作为项目展开，不再包成组节点
+    loadFromObject(obj);
+    toast('已展开项目「'+String(obj.name||obj.export_name||'导入项目')+'」');
+    return;
+  }
   const base=String(obj.name||obj.export_name||'导入项目');
   const nk=unameAll(base);
   const g={location:[0,0],width:240,name:nk,label:base,type:'Group',desc:obj.desc||'',
@@ -1718,7 +1760,7 @@ const jsWrap=(name,obj)=>
   'window.__DOC_FILES=window.__DOC_FILES||{};\n'
   +'window.__DOC_FILES['+JSON.stringify(name)+']='+JSON.stringify(obj,null,2)+';\n'
   +'window.__LAST_DOC=window.__DOC_FILES['+JSON.stringify(name)+'];\n';
-function buildExportFiles(){
+async function buildExportFiles(){
   const docName=safeName(root.export_name||root.name||'nodes');
   const {nameOf,refOf}=planSplit();
   const files=[{name:'index.js',text:EXPORT_DOC_COMMENT+jsWrap('index.js',exportTree(root,true,refOf))}];
@@ -1737,12 +1779,112 @@ function buildExportFiles(){
       files.push({name:p,text:jsWrap(p,o)});
     }
   })(root);
+  const png=await captureCanvasPng();                       // 截取当前画布画面一并导出
+  if(png)files.push({name:'preview.png',data:png});
+  files.push({name:'README.md',text:buildExportReadme(docName,!!png)});   // 附 README：在线地址 + 画布预览图
   return {docName,files};
 }
-function saveFile(){
-  const {docName,files}=buildExportFiles();
+/* README.md：可直接提交到 git 仓库（GitHub 不支持内嵌 HTML，改用画布截图 preview.png），
+   并附在线查看地址 src = https://qmeyq.github.io/NG/node-workflow.html */
+function buildExportReadme(docName,hasPng){
+  const url='https://qmeyq.github.io/NG/node-workflow.html';
+  const lines=[
+    '# '+docName,
+    '',
+    '在线查看：['+url+']('+url+')',
+    ''
+  ];
+  if(hasPng)lines.push('## 画布预览','','![画布预览](preview.png)','');
+  lines.push(
+    '## 文件说明',
+    '',
+    '- `index.js`：主文档数据（JS 注入格式，内容为 JSON）',
+    '- `nodes/*.js`：含子节点的分组数据文件（父级通过 `node_tree_file` 引用）'
+  );
+  if(hasPng)lines.push('- `preview.png`：导出时当前画布画面的截图');
+  lines.push('');
+  return lines.join('\n');
+}
+/* 把当前画布手动绘制成 PNG（不用 SVG foreignObject——那样 canvas 会被污染无法导出）；空画布返回 null */
+async function captureCanvasPng(){
+  const tree=cur();
+  let minX=1/0,minY=1/0,maxX=-1/0,maxY=-1/0;
+  for(const k in tree.nodes){
+    const n=tree.nodes[k];
+    if(!n||isMirrorKey(k))continue;
+    minX=Math.min(minX,n._x);minY=Math.min(minY,n._y);
+    maxX=Math.max(maxX,n._x+(n._w||200));maxY=Math.max(maxY,n._y+(n._h||60));
+  }
+  if(minX===1/0)return null;
+  const pad=60;minX-=pad;minY-=pad;maxX+=pad;maxY+=pad;
+  const W=Math.min(4096,Math.ceil(maxX-minX)),H=Math.min(4096,Math.ceil(maxY-minY));
+  const cv=document.createElement('canvas');cv.width=W;cv.height=H;
+  const g=cv.getContext('2d');
+  g.fillStyle='#14161a';g.fillRect(0,0,W,H);
+  g.translate(-minX,-minY);
+  const FONT='system-ui,"Segoe UI","Microsoft YaHei",sans-serif';
+  const rrect=(x,y,w,h,r)=>{g.beginPath();g.moveTo(x+r,y);g.arcTo(x+w,y,x+w,y+h,r);
+    g.arcTo(x+w,y+h,x,y+h,r);g.arcTo(x,y+h,x,y,r);g.arcTo(x,y,x+w,y,r);g.closePath();};
+  const clipText=(t,x,y,mw)=>{t=String(t);if(g.measureText(t).width<=mw){g.fillText(t,x,y);return;}
+    while(t.length&&g.measureText(t+'…').width>mw)t=t.slice(0,-1);g.fillText(t+'…',x,y);};
+  g.textBaseline='middle';
+  // 连线
+  for(const l of tree.links||[]){
+    const fn=tree.nodes[l.from_node],tn=tree.nodes[l.to_node];
+    if(!fn||!tn||!l._fs||!l._ts||l._fs._i==null||l._ts._i==null)continue;
+    const p1=sockPos(fn,'out',l._fs._i),p2=sockPos(tn,'in',l._ts._i);
+    const ddx=Math.max(40,Math.abs(p2[0]-p1[0])*0.5);
+    g.strokeStyle=linkColor(l);g.lineWidth=2;g.lineCap='round';
+    g.beginPath();g.moveTo(p1[0],p1[1]);
+    g.bezierCurveTo(p1[0]+ddx,p1[1],p2[0]-ddx,p2[1],p2[0],p2[1]);g.stroke();
+  }
+  // 节点
+  for(const key in tree.nodes){
+    const n=tree.nodes[key];
+    if(!n)continue;
+    const x=n._x,y=n._y,w=n._w||200,h=n._h||60;
+    rrect(x,y,w,h,8);g.fillStyle='#262b33';g.fill();
+    g.strokeStyle=n.attr?'#5a6372':'#3a414c';g.lineWidth=1;
+    if(n.attr)g.setLineDash([4,3]);g.stroke();g.setLineDash([]);
+    g.save();rrect(x,y,w,HEAD_H,8);g.clip();g.fillStyle=headColor(n);g.fillRect(x,y,w,HEAD_H);g.restore();
+    g.fillStyle='#f2f5f9';g.font='600 12px '+FONT;
+    clipText(n.label||n.name||'',x+10,y+HEAD_H/2,w-64);
+    g.fillStyle='rgba(255,255,255,.85)';g.font='10px '+FONT;g.textAlign='right';
+    g.fillText(n.type||'',x+w-10,y+HEAD_H/2);g.textAlign='left';
+    const ins=n._in||[],outs=n._out||[];
+    ins.forEach((s,i)=>{const p=sockPos(n,'in',i);
+      g.fillStyle=typeColor(s.type);g.beginPath();g.arc(p[0],p[1],6,0,7);g.fill();
+      g.lineWidth=2;g.strokeStyle='#12151a';g.stroke();
+      g.fillStyle='#aeb8c2';g.font='11px '+FONT;clipText(s.label||s.name||'',p[0]+9,p[1],w/2-18);});
+    outs.forEach((s,i)=>{const p=sockPos(n,'out',i);
+      g.fillStyle=typeColor(s.type);g.beginPath();g.arc(p[0],p[1],6,0,7);g.fill();
+      g.lineWidth=2;g.strokeStyle='#12151a';g.stroke();
+      g.fillStyle='#aeb8c2';g.font='11px '+FONT;g.textAlign='right';
+      clipText(s.label||s.name||'',p[0]-9,p[1],w/2-18);g.textAlign='left';});
+    let fy=y+HEAD_H+PAD_T+Math.max(ins.length,outs.length)*ROW_H+7;
+    if(n.node_tree){g.fillStyle='#7fd18a';g.font='600 10px '+FONT;
+      g.fillText('▸ '+countDirectNodes(n.node_tree)+' 个子节点',x+10,fy);fy+=13;}
+    if(n.attr){g.fillStyle='#e0a34a';g.font='10px '+FONT;
+      g.fillText('◇ 属性 · 导出时并入所连节点',x+10,fy);fy+=13;}
+    if(n.desc){                                 // 说明：最多两行，按宽度折行
+      g.fillStyle='#8b96a3';g.font='11px '+FONT;
+      const words=String(n.desc);let line='',lines=0;
+      for(const ch of words){
+        if(lines>=2)break;
+        if(g.measureText(line+ch).width>w-20){g.fillText(line,x+10,fy);fy+=14;line=ch;lines++;continue;}
+        line+=ch;
+      }
+      if(line&&lines<2)g.fillText(line,x+10,fy);
+    }
+  }
+  const blob=await new Promise(res=>cv.toBlob(res,'image/png'));
+  return new Uint8Array(await blob.arrayBuffer());
+}
+async function saveFile(){
+  const {docName,files}=await buildExportFiles();
   downloadJSON(makeZip(files),docName+'.zip');
-  toast('已导出 '+docName+'.zip（index.js + '+(files.length-1)+' 个数据 JS）');
+  const nData=files.filter(f=>f.name.endsWith('.js')).length-1;
+  toast('已导出 '+docName+'.zip（index.js + '+nData+' 个数据 JS + preview.png + README.md）');
 }
 /* ---- 动态加载：用 <script> 读取数据 JS（file:// 本地可用，无需服务器） ---- */
 function dirOf(p){const i=String(p).lastIndexOf('/');return i<0?'':String(p).slice(0,i+1);}
@@ -1771,9 +1913,8 @@ async function hydrateDocAsync(doc,base){
       const ref=String(n.node_tree_file).replace(/^\.\//,'');
       const obj=await loadDataScript(base+ref);
       const sub=obj?(obj.node_tree||(obj.nodes?obj:null)):null;
-      delete n.node_tree_file;
-      if(sub)n.node_tree=await fixTree(JSON.parse(JSON.stringify(sub)),depth+1);
-      else missing++;
+      if(sub){delete n.node_tree_file;n.node_tree=await fixTree(JSON.parse(JSON.stringify(sub)),depth+1);}
+      else missing++;                                          // 找不到就保留引用，别删
     }
     return t;
   }
@@ -1808,7 +1949,7 @@ function makeZip(files){
   const dosDate=(((now.getFullYear()-1980)<<9)|((now.getMonth()+1)<<5)|now.getDate())&0xFFFF;
   let offset=0;
   for(const f of files){
-    const name=enc.encode(f.name),data=enc.encode(f.text),crc=crc32(data);
+    const name=enc.encode(f.name),data=f.data?f.data:enc.encode(f.text),crc=crc32(data);   // f.data：二进制（如 PNG）
     const h=new DataView(new ArrayBuffer(30));       // 本地文件头
     h.setUint32(0,0x04034b50,true);h.setUint16(4,20,true);
     h.setUint16(6,0x0800,true);                      // UTF-8 文件名标志
@@ -1932,7 +2073,7 @@ function emptyDoc(){return{name:'未命名文档',tree_type:'ProjectTree',export
 /* ================= 启动 ================= */
 window.__loadDoc=loadFromObject;   // 调试入口
 window.__exportDoc=exportDoc;
-window.__insertDoc=insertDoc;
+window.__insertDoc=insertDoc;window.__loadJsText=loadJsText;
 window.__exportFiles=buildExportFiles;
 window.__hydrateDoc=hydrateDoc;
 window.__loadEntries=loadEntries;
