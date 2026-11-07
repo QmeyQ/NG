@@ -28,6 +28,7 @@
     拿它判稳态合格率是自相矛盾的; 它由 [6] 单独验收, 稳态段才看 [2][3]。
 """
 import json
+import math
 import os
 import sys
 import time
@@ -58,8 +59,14 @@ def open_tabs():
     p = ChromiumPage(ADDR)
     live = {}
     for tid in p.tab_ids:
-        t = p.get_tab(tid)
-        u = t.url or ''
+        try:
+            # 逐个 tab 建立 CDP 会话, 任何一个卡住(挂起的第三方页/前一轮留下的僵死 tab)
+            # 都会让 get_tab 抛 TimeoutError 把整轮测量带走——这里跳过它, 不复用那个 tab
+            t = p.get_tab(tid)
+            u = t.url or ''
+        except Exception as e:
+            print(f'  跳过取不到的 tab {tid}: {str(e)[:50]}')
+            continue
         for tag, key in ORIGIN.items():
             if key in u:
                 live[tag] = t
@@ -89,7 +96,11 @@ def js(tag, code):
 
 
 def qa(tag, call):
-    return js(tag, 'return String(__qa.' + call + ');')
+    # 指令口一次失败不该把整轮测量掀翻(run37 就是这么死的): 报错串当返回值, 由调用方的等待条件消化
+    try:
+        return js(tag, 'return String(__qa.' + call + ');')
+    except Exception as e:
+        return 'ERR ' + str(e)[:70].replace('\n', ' ')
 
 
 def state(tag):
@@ -176,12 +187,14 @@ def pick(st):
         'authId': str(n.get('authId') or ''), 'phase': str(g.get('phase')),
         'cd': g.get('cd'), 'ball': g.get('ball'), 'scores': g.get('scores'),
         'remain': g.get('remainMs'), 'holder': g.get('holderId'), 'reason': g.get('lastScoreReason'),
-        'party': g.get('party'),
+        'party': g.get('party'), 'calc': bool(g.get('ballCalc')),
         # 同步线程存活: 权威端 tx 在涨而对端 rx 不涨 = 帧根本没送到(而不是"送到了但被拒")
         'tx': n.get('txAuthFrames'), 'rx': n.get('rxAuthFrames'), 'rxSeq': n.get('rxAuthSeq'),
         # 页面内 Date.now() + 球速: 两端是先后两次读页(实测差 100~400ms), 球速 30m/s 时
         # 这个采样误差本身就有 3~12m, 不对齐就等于在用 harness 的抖动验收游戏
         't': st.get('at'), 'vel': g.get('ballVel'),
+        # 鹰眼回放段(球由本地记录插值驱动, 权威端不模拟这颗球): 采样落在这一段就不能算同步偏差
+        'eagle': bool(g.get('eaglePlaying')), 'track': g.get('trackPts'),
     }
 
 
@@ -279,10 +292,12 @@ def check_ball(rows, split_t=None):
         pa, pb = align_mid(r['A'], r['B'])
         d = sum((x - y) ** 2 for x, y in zip(pa, pb)) ** 0.5
         skew = ((r['A'].get('t') or 0) - (r['B'].get('t') or 0))
-        w = (d, r['t'], a, b, r['A']['phase'], r['A']['auth'], r['A']['holder'], r['B']['holder'], skew)
+        w = (d, r['t'], a, b, r['A']['phase'], r['A']['auth'], r['A']['holder'], r['B']['holder'], skew,
+             r['A'].get('calc'), r['B'].get('calc'))
         if in_stall(r['t'], split_t):
             stall_d.append(d)
-        elif r['A']['phase'] in EAGLE_PHASES or r['B']['phase'] in EAGLE_PHASES:
+        elif r['A']['phase'] in EAGLE_PHASES or r['B']['phase'] in EAGLE_PHASES \
+                or r['A'].get('eagle') or r['B'].get('eagle'):
             eagle.append(w)          # 鹰眼回放段: 本地记录驱动, 不是权威模拟
         elif abs(a[0]) > COURT_X or abs(b[0]) > COURT_X:
             outside.append(w)          # 球已在场地外: 记数不记入同步合格率
@@ -313,6 +328,10 @@ def check_ball(rows, split_t=None):
           % (med, LIM_MEDIAN, p90, LIM_P90, mx, len(s)))
     print('      >%.0fm 单样本 %d 个(最长连续 %d, 需 <=1) 明细: %s'
           % (LIM_OVER, len(over), over_run, [(round(o[0], 2), o[1], o[4]) for o in over[:6]]))
+    # 同一批超差要拆开看: 两端都在积分=真飞行段分歧(同步模型坏了);
+    # 至少一端停算/钉位=附件口径分歧(谁持球、钉在哪)。两者的修法完全不同, 混在一起只能瞎猜。
+    fly = [w for w in over if w[9] and w[10]]
+    print('      其中两端都在积分(真飞行段) %d 个, 至少一端已停算或钉位 %d 个' % (len(fly), len(over) - len(fly)))
     for w in sorted(worst, key=lambda x: -x[0])[:3]:
         print('      最差 d=%.2fm @%dms A=%s B=%s phase=%s authA=%s holderA/B=%s/%s 采样差=%dms'
               % (w[0], w[1], w[2], w[3], w[4], w[5], w[6], w[7], w[8]))
@@ -401,27 +420,114 @@ def check_auth(rows, tails):
     return ok
 
 
-def pair_once():
-    """确定性配对: A 直接建房 → 读出房号 → B 按房号加入(建房不行再退回随机匹配)。
+def pool_dump():
+    """匹配池现场: 池子里挂着几个房、每个房几个人。配不上对到底是我们的参数问题,
+    还是池子里全是"只剩一个已离线玩家"的鬼房(实测能挂十几分钟)——两者修法完全不同。"""
+    try:
+        # 异步接口: 第一次触发查询, 第二次读上一次拿到的快照(必须走 JSON.stringify,
+        # qa() 里的 String() 会把对象压成 "[object Object]" 然后 json 解析炸掉)
+        js('A', 'return JSON.stringify(__qa.rooms());')
+        time.sleep(3)
+        r = js('A', 'return JSON.stringify(__qa.rooms());')
+        d = json.loads(r) if isinstance(r, str) else r
+        if not isinstance(d, dict):
+            print('  池子: 无快照(%s)' % str(d)[:80])
+            return
+        rooms = d.get('roomInfos') or d.get('rooms') or []
+        print('  池子: %d 个房 样例=%s' % (len(rooms),
+              [(x.get('roomId'), '%s/%s' % (len(x.get('players') or []), x.get('maxPlayers'))) for x in rooms[:6]]))
+    except Exception as e:
+        print('  池子读取失败:', str(e)[:80])
 
-    为什么不再依赖两端各自随机匹配: 华为匹配池会把"只剩一个已离线玩家"的房挂在池子里十几分钟
-    (实测读到过 createTime 差 16 分钟、players 里那个 id 早已不在房间), 于是 matchRoom 要么各开
-    各的新房, 要么干脆迟迟不返回(连续 6 轮一人房 + 后来连 A 都落不了房) —— 那测的是池子不是协议。
-    建房+按号进房得到的房间结构与随机匹配一致: 满员后仍然由房主单源发 role_assign。"""
+
+def why_stuck(tag):
+    """配对失败时的现场: 到底是"页面没起到菜单/GOBE 没初始化/matchRoom 不返回"哪一种。
+    这三种的修法完全不同, 而日志里只写"落房超时"等于没写(run43/44 就是这么盲打的)。"""
+    try:
+        st = state(tag)
+        n, pg, r = (st.get('net') or {}), (st.get('page') or {}), (st.get('roles') or {})
+        print('  %s 现场: 页面=%s inited=%s me=%s roomId=%s isMatching=%s'
+              % (tag, ('game' if r.get('game') else 'match' if r.get('matchPage')
+                       else 'menu' if r.get('menuPage') else '未装载'),
+                 n.get('inited'), str(n.get('me'))[:6], n.get('roomId'), pg.get('isMatching')))
+        try:
+            for line in json.loads(js(tag, 'return JSON.stringify(__qa.tail(120).filter(function(x){'
+                                  'return /GOBE|匹配|房|init|Error|错误/.test(x);}).slice(-4);')):
+                print('     ', line[:170])
+        except Exception:
+            pass
+    except Exception as e:
+        print('  %s 现场取不到: %s' % (tag, str(e)[:70]))
+
+
+def pair_once():
+    """混合配对: A 走【真匹配】拿到一个匹配服务建的房 → B 按房号进这个房 → 两端都开赛且同房。
+
+    为什么这样配对: 两端各自 matchRoom 时, 华为侧池子里的鬼房会把两人分开(实测连输 6 轮),
+    而 A 有房、B 一直没房的等待要 60~70s, 一整轮就没了。B 直接按号进 A 的房是确定的。
+    为什么不像早期那样让 A `createRoom` 自建(run33 的教训): 客户端自己建的房间【收不到 GOBE 帧】
+    (实测两端帧回调全程 0 次、双端各认各的权威), 那种房间里量到的任何数字都不算数;
+    匹配服务建的房则一切正常(run38/41 里 n=1210、rx=774)。同是"按号进房", 房是谁建的才是关键。
+
+    配对一失败就【立刻两边 cancel】并打印现场: 抱着单人房干等, 自己也变成池子里的下一具鬼房,
+    于是越试越配不上(run39/run44 都死在这)。"""
     leave_all()
-    print('  A:', qa('A', 'create()'))
-    if not wait_for('A', lambda t: bool(brief(t)[0].get('roomId')), 45, 'A 建房'):
-        print('  A 建房没成 → 退回随机匹配')
-        print('  A:', qa('A', 'match()'))
-        if not wait_for('A', lambda t: bool(brief(t)[0].get('roomId')), 60, 'A 落房'):
-            return False
-    rid = brief('A')[0].get('roomId')
-    print('  A 房间=%s → B 按房号加入' % rid)
-    print('  B:', qa('B', 'join(%s)' % json.dumps(str(rid))))
-    if not wait_for('B', lambda t: brief(t)[0].get('roomId') == rid and bool(rid), 40, 'B 进同一房'):
+    print('  A:', qa('A', 'match()'))
+    if not wait_for('A', lambda t: bool(brief(t)[0].get('roomId')), 60, 'A 落房'):
+        why_stuck('A')
+        qa('A', 'cancel()')
+        pool_dump()
         return False
-    return bool(wait_for('A', started_in_game, 60, 'A 开赛')
-                and wait_for('B', started_in_game, 60, 'B 开赛'))
+    print('  A 房=%s(匹配服务建的房, 帧通道有效) → B 按房号加入' % brief('A')[0].get('roomId'))
+    rid = brief('A')[0].get('roomId')
+    print('  B:', qa('B', 'join(%s)' % json.dumps(str(rid))))
+    # 按号进房比"两端各自匹配"确定得多: 只有 A 需要匹配服务给一个房, B 直接进那一个。
+    # 为什么这样仍然有帧: 房间是【匹配服务建的】, 不是客户端 createRoom 自建的(run33 的教训)。
+    joined = wait_for('B', lambda t: str(brief(t)[0].get('roomId') or '') == str(rid), 35, 'B 进 A 的房')
+    if not joined:
+        print('  按号进房没成(房可能已锁/满员) → 退回两端各自匹配')
+        print('  B:', qa('B', 'match()'))
+        joined = wait_for('B', lambda t: bool(brief(t)[0].get('roomId')), 30, 'B 落房')
+        if not joined:
+            why_stuck('B')
+            pool_dump()
+            qa('A', 'cancel()')
+            qa('B', 'cancel()')
+            return False
+    ok = (wait_for('A', started_in_game, 45, 'A 开赛')
+          and wait_for('B', started_in_game, 45, 'B 开赛'))
+    if not ok:
+        print('  没开成赛: A 房=%s B 房=%s' % (brief('A')[0].get('roomId'), brief('B')[0].get('roomId')))
+        why_stuck('A')
+        why_stuck('B')
+        pool_dump()
+        qa('A', 'cancel()')
+        qa('B', 'cancel()')
+        return False
+    rid, rid2 = brief('A')[0].get('roomId'), brief('B')[0].get('roomId')
+    if str(rid) != str(rid2) or not rid:
+        print('  各进各的房: A=%s B=%s' % (rid, rid2))
+        pool_dump()
+        return False
+    print('  同房=%s' % rid)
+    return True
+
+
+def frames_flowing():
+    """帧通道体检: 两端都必须真的收到 GOBE 帧(含自回环)。
+    收不到帧的房间不能用来测量——那时两端会各自成为权威、各跑各的物理, 所有偏差数字都是假的。"""
+    ok = True
+    for tag in ('A', 'B'):
+        try:
+            f = json.loads(js(tag, 'return JSON.stringify(__qa.frames());'))
+        except Exception:
+            f = {}
+        n = f.get('n') or 0
+        if not n or not (f.get('selfEntry') or f.get('otherEntry')):
+            ok = False
+        print('  %s 原始帧 n=%s withInfo=%s self=%s other=%s'
+              % (tag, n, f.get('withInfo'), f.get('selfEntry'), f.get('otherEntry')))
+    return ok
 
 
 def bound_ok():
@@ -452,6 +558,35 @@ def freeze_authority():
     return tag, other
 
 
+def booted(tag):
+    """页面真的起来了没有: __qa 是包加载完才会挂的全局。
+    实测踩过: 静态服务偶尔在重建的那一下返回 404 错误页(readyState=complete 但没有 __qa),
+    之后整轮所有采样都是 "ReferenceError: __qa is not defined" —— 那不是被测代码坏了, 是压根没载入。"""
+    try:
+        return 'object' in str(js(tag, 'return typeof __qa;'))
+    except Exception:
+        return False
+
+
+def ensure_boot(tag, tries=3):
+    """没起来就重新导航(run37 的整轮报废就是这个: B 停在 404 页面上跑了 10 分钟)"""
+    for i in range(tries):
+        if booted(tag):
+            return True
+        body = ''
+        try:
+            body = str(js(tag, 'return String((document.body&&document.body.innerText||"").slice(0,40));'))
+        except Exception:
+            pass
+        print(f'  {tag} 第{i + 1}次没起来(页面={body[:40]!r}) → 重新导航')
+        try:
+            pages[tag].get(URL[tag] + '?qa=1&v=' + str(int(time.time())))
+        except Exception as e:
+            print(f'    {tag} 重新导航失败: {str(e)[:60]}')
+        time.sleep(6)
+    return booted(tag)
+
+
 def prepare():
     """把两端拉起到"匹配页待命"。每一轮配对尝试前都要重跑(含页面重载):
     同一页面里上一次尝试留下的游戏场景/旧 PVP 实例还活着(心跳线程继续往现在的房间里发权威帧),
@@ -463,7 +598,8 @@ def prepare():
         leave_all()   # 手上还连着房就先退掉(重载前退, 别留鬼房)
     open_tabs()
     for tag in ('A', 'B'):
-        wait_for(tag, lambda t: 'object' in str(js(t, 'return typeof __qa;')), 60, '__qa 挂载')
+        if not ensure_boot(tag):
+            raise SystemExit(f'!! {tag} 页面反复装载不出 __qa(静态服务/构建产物有问题), 测量作废')
     leave_all()
     for tag in ('A', 'B'):
         ok = wait_for(tag, lambda t: brief(t)[2].get('menuPage'), 90, '菜单实例注册')
@@ -479,23 +615,45 @@ def prepare():
         wait_for(tag, lambda t: brief(t)[2].get('matchPage'), 60, '匹配页实例')
 
 
+def preflight():
+    """开跑前先确认两个 origin 真的在发这份构建。
+    这台机器上会冒出一个【没带 -d 的第二个 `python -m http.server 8123`】抢下 localhost 的解析,
+    于是 B 端整轮都在读 404 错误页(run40/run42 都死在这)——量十分钟垃圾不如先花一秒问一句。"""
+    import urllib.request
+    for tag in ('A', 'B'):
+        try:
+            with urllib.request.urlopen(URL[tag], timeout=6) as r:
+                code = r.status
+        except Exception as e:
+            code = 'ERR ' + str(e)[:50]
+        if code != 200:
+            raise SystemExit('!! %s (%s) 取不到 index.html → %s ; 静态服务没起或被别的进程抢了端口, '
+                             '测量不开始(先把 8123 上多余的 http.server 停掉)' % (tag, ORIGIN[tag], code))
+    print('  两个 origin 都在发 %s ✓' % ORIGIN['A'].split(':')[0] + ' / ' + ORIGIN['B'].split(':')[0])
+
+
 def main():
     secs = int(sys.argv[1]) if sys.argv[1:2] and sys.argv[1].isdigit() else 45
     same_room = same_assign = False
+    preflight()
     print('== 1) 拉起两端 → 匹配页 ==')
     prepare()
 
-    print('== 2) 配对开赛(匹配在华为侧, 各进各房的概率不低 → 最多重试 6 次, 每轮重载页面) ==')
+    print('== 2) 配对开赛(匹配在华为侧, 各进各房的概率不低 → 最多重试 8 次, 每轮重载页面 + 凉一会) ==')
     paired = False
-    for attempt in range(1, 7):
+    for attempt in range(1, 9):
         print(f'-- 第 {attempt} 次 --')
         if attempt > 1:
+            # 上一轮拆掉的房在服务端还要挂一会儿; 急着再匹配只会撞上自己刚留下的尸体
+            time.sleep(20)
             prepare()
-        if pair_once() and wait_for('A', lambda _t: bound_ok(), 20, '两端绑网完整'):
+        if pair_once() and wait_for('A', lambda _t: bound_ok(), 20, '两端绑网完整') \
+                and wait_for('A', lambda _t: frames_flowing(), 15, '帧通道有流'):
             paired = True
             break
+        print('  本次配对不合格(不同房/绑网缺人对/帧通道没流) → 换一轮')
     if not paired:
-        print('  !! 6 次都没能"同房 + 绑网完整", 本次无法测量(停在配对阶段)')
+        print('  !! 8 次都没能"同房 + 绑网完整 + 帧通道有流", 本次无法测量(停在配对阶段)')
         return
 
     sa, sb = state('A'), state('B')
@@ -527,12 +685,21 @@ def main():
             muted = res[0] if res else None
         for tag in ('A', 'B'):
             try:
-                if i % 6 == 1:
-                    qa(tag, 'serve()')
-                elif i % 3 == 0:
-                    qa(tag, 'hit()')
+                g = (state(tag) or {}).get('game') or {}
+                b, c = g.get('ball'), g.get('localCha')
+                d = 99.0
+                ang = (i * 37) % 360 - 180
+                if b and c:
+                    dx, dz = b[0] - c[0], b[2] - c[2]
+                    d = (dx * dx + dz * dz) ** 0.5
+                    # 摇杆数学角(0=+x 右, 90=+z 上): 直接朝着球跑, 而不是随机乱甩
+                    ang = math.degrees(math.atan2(dz, dx))
+                if d < 2.0 and i % 4 == 1:
+                    qa(tag, 'serve()')       # 球在手边=该发球
+                elif d < 2.6:
+                    qa(tag, 'hit()')         # 球在够得到的范围里才挥拍
                 else:
-                    qa(tag, 'moveTo(%d,%d)' % ((i * 37) % 360 - 180, 60))
+                    qa(tag, 'moveTo(%d,80)' % int(ang))   # 否则跑向球
             except Exception:
                 pass
         a, b = pick(state('A')), pick(state('B'))
@@ -549,12 +716,27 @@ def main():
 
     print('  成对样本: %d' % len(rows))
     tails = {}
+    mstats = {}
     for tag in ('A', 'B'):
         r = js(tag, 'return JSON.stringify(__qa.tail(1200));')
         try:
             tails[tag] = json.loads(r) if isinstance(r, str) else []
         except Exception:
             tails[tag] = []
+        r = js(tag, 'return JSON.stringify(__qa.msgStats ? __qa.msgStats() : {});')
+        try:
+            mstats[tag] = json.loads(r) if isinstance(r, str) else {}
+        except Exception:
+            mstats[tag] = {}
+    # 原始样本/日志/消息计数落盘: 验收 FAIL 时离线分析不用重跑
+    try:
+        with open('local/pvp_rows.jsonl', 'w', encoding='utf-8') as f:
+            for r in rows:
+                f.write(json.dumps(r, ensure_ascii=False) + '\n')
+        with open('local/pvp_tails.json', 'w', encoding='utf-8') as f:
+            json.dump({'tails': tails, 'msgStats': mstats, 'splitT': split_t, 'muted': muted}, f, ensure_ascii=False)
+    except Exception as e:
+        print('  样本落盘失败: %s' % e)
 
     print('== 5) 验收 ==')
     ok_ball = check_ball(rows, split_t if injected else None) if rows else False
