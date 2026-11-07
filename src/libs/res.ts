@@ -2082,6 +2082,20 @@ export class Res {
         return first ? first.index : null;
     }
 
+    /**
+     * 头像键归一(唯一口径): 云端存的 head 可能是当前包里根本不存在的旧路径
+     * (弃用的 0101 那套 30 张头像)或空串——直接 Res.get 会静默空白, 玩家看到的就是"头像没显示"。
+     * 这里统一回落到包里真实存在的第一张; 包索引还没就绪时原样返回(别把合法路径误判成不存在)。
+     */
+    static headKey(head?: string): string {
+        const files = Res.getList("ui")?.files || {};
+        if (head && files[head]) return head;
+        const hs = Object.keys(files)
+            .filter(p => p.indexOf("head/") === 0 && /\.(png|jpe?g|webp|bmp)$/i.test(p))
+            .sort();
+        return hs.length ? hs[0] : (head || "");
+    }
+
     static getTab(): Record<string, { v: string; fileCount: number; sampleFiles: string[] }> {
         const tab: any = {};
         for (const [name, data] of _packMap) {

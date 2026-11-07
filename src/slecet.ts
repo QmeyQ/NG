@@ -591,20 +591,17 @@ export class slecet extends Laya.Script {
     }
 
     /**
-     * 头像归一: 云端记录里的头像路径可能不在当前 ui 包内(旧账号默认头像写的是已弃用的
-     * head/0101.png), 直接取会空白并刷 "[Res] 路径未匹配任何文件" → 回落到头像集第一张。
-     * 包索引还没就绪时不动(避免把合法路径误判成不存在)。
+     * 头像归一: 统一走 Res.headKey(包里不存在的旧路径/空值 → 回落头像集第一张),
+     * 场景列表那边用的也是同一个口径。
      */
     private headKey(head: string): string {
-        const files = Res.getList("ui")?.files || {};
-        if (!head || files[head]) return head;
-        const hs = this.getHeads();
-        return hs.length ? hs[0] : head;
+        return Res.headKey(head);
     }
 
     private setHeadImg(head: string): void {
-        if (!head || !this.headImg) return;
+        if (!this.headImg) return;
         const key = this.headKey(head);
+        if (!key) return;
         Res.get("ui/" + key, (tex: Laya.Texture) => {
             if (tex && this.headImg && !this.headImg.destroyed) UI.setTex(this.headImg, tex);
         });
@@ -633,7 +630,7 @@ export class slecet extends Laya.Script {
         const img = UI.findNode(box3, "img") as Laya.GImage;
         if (img) {
             const key = this.headKey(u.head);
-            Res.get("ui/" + key, (tex: Laya.Texture) => {
+            if (key) Res.get("ui/" + key, (tex: Laya.Texture) => {
                 if (tex && img && !img.destroyed) UI.setTex(img, tex);
             });
         }

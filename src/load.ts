@@ -460,6 +460,24 @@ export class load extends Laya.Script {
 
             this._reconnectAttempts++;
             console.warn("[load] 按旧房间 ID 恢复失败:", err && err.message ? err.message : err);
+            // 房间已经不存在(101117 invalid room / 101103 room info not exist): 这不是网络抖动,
+            // 重试三次只是让玩家干等十几秒——而这段 _reconnecting/_isProcessing 在飞的窗口里,
+            // 玩家(或自动化)点的"开始匹配"会被 _startMatch 的入口判断直接吃掉, 表现就是
+            // "按了匹配没反应/一直配不上"(实测: 旧房间号在本地缓存里活了很久, 每次进匹配页都重试它)。
+            // 遇到这种确定性错误: 立刻清掉缓存的房间号并回到可操作态。
+            const emsg = String((err && err.message) || err || '');
+            if (/101117|101103|101105|invalid room|room.*not.*exist/i.test(emsg)) {
+                this._clearSavedRoomId({ roomId });
+                this._roomRecoveryRequired = false;
+                this._autoReconnectOnEnter = false;
+                this._reconnecting = false;
+                this._matchSucceeded = false;
+                this.isMatching = false;
+                this._isProcessing = false;
+                this._setBtnMatching(false);
+                console.warn("[load] 旧房间已不存在, 已清除缓存房间号, 可直接重新匹配");
+                return;
+            }
             // 限制恢复次数，避免永远卡在“匹配成功”且按钮不可用。失败后回到可操作态。
             if (this._reconnectAttempts >= 3) {
                 this._roomRecoveryRequired = false;
