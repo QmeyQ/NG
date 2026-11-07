@@ -1313,11 +1313,13 @@ document.addEventListener('keydown',e=>{
 
 /* ================= 自动存档 ================= */
 let asTimer=null;
+// 当前文档对应的存档键：带 ?doc= 时按文档分开存，避免两份工作流互相覆盖
+const DOC_KEY=(()=>{const w=new URLSearchParams(location.search).get('doc');return w?LS_KEY+':'+w:LS_KEY;})();
 function autosave(){
   commitUndo();   // 同步记录撤销快照（内容相同则自动去重）
   clearTimeout(asTimer);
   asTimer=setTimeout(()=>{
-    try{localStorage.setItem(LS_KEY,JSON.stringify(exportDoc()));}catch(_){/* 容量超限则忽略 */}
+    try{localStorage.setItem(DOC_KEY,JSON.stringify(exportDoc()));}catch(_){/* 容量超限则忽略 */}
   },400);
 }
 
@@ -1414,30 +1416,35 @@ function demoDoc(){return{
 window.__loadDoc=loadFromObject;   // 调试入口
 window.__exportDoc=exportDoc;
 (async function boot(){
+  // 支持 ?doc=xxx.json 切换文档（如 ?doc=badminton.json）；换了文档就不复用别人的本地存档
+  const qs=new URLSearchParams(location.search);
+  const want=qs.get('doc');
+  const storeKey=want?LS_KEY+':'+want:LS_KEY;
   let doc=null, src='';
   try{                                   // 1) 本地存档优先
-    const saved=localStorage.getItem(LS_KEY);
+    const saved=localStorage.getItem(storeKey);
     if(saved){doc=JSON.parse(saved);src='本地存档';}
   }catch(_){doc=null;}                   // 存档损坏：当作没有，继续下一优先级
   let failMsg='';
   if(!doc){
-    for(const u of ['index.json','/index.json']){   // 先同目录，再站点根（预览服务可能改写了页面路径）
+    const cands=want?[want,'/'+want.replace(/^\.?\//,''),'index.json','/index.json']:['index.json','/index.json'];
+    for(const u of cands){                // 指定文档 → 同目录 → 站点根（预览服务可能改写了页面路径）
       try{
         const r=await fetch(u,{cache:'no-cache'});
         const ct=(r.headers.get('content-type')||'').toLowerCase();
-        if(r.ok&&ct.includes('json')){doc=await r.json();src='index.json';break;}
-        else if(r.ok)failMsg='index.json 返回的不是 JSON（可能被服务端回退成 HTML）：'+u;
-        else failMsg='index.json 不存在（HTTP '+r.status+'）：'+u;
+        if(r.ok&&ct.includes('json')){doc=await r.json();src=u;break;}
+        else if(r.ok)failMsg='返回的不是 JSON（可能被服务端回退成 HTML）：'+u;
+        else failMsg='不存在（HTTP '+r.status+'）：'+u;
       }catch(_){
-        failMsg=location.protocol==='file:'?'file:// 下浏览器禁止读取 index.json，请用 http 打开（如 python -m http.server）':'读取 index.json 失败：'+u;
+        failMsg=location.protocol==='file:'?'file:// 下浏览器禁止读取本地 JSON，请用 http 打开（如 python -m http.server）':'读取失败：'+u;
       }
     }
   }
   if(!doc)doc=demoDoc();                 // 3) 内置示例文档
   try{
     loadFromObject(doc);
-    if(src==='index.json')toast('已载入 index.json');
-    else if(!src)toast(failMsg||'未找到 index.json，已载入内置示例',true);
+    if(src&&src!=='本地存档')toast('已载入 '+src.replace(/^\//,''));
+    else if(!src)toast(failMsg||'未找到数据文件，已载入内置示例',true);
   }catch(err){
     root=null;path=[];
     loadFromObject(demoDoc());

@@ -4,12 +4,15 @@ LayaAir 羽毛球游戏（微信小游戏 + Web 双端），单机 PVE 与华为
 
 ## 架构可视化（在线可交互）
 
-[![架构可视化](https://img.shields.io/badge/打开-节点工作流文档-4c8dff)](https://qmeyq.github.io/NG/node-workflow.html)
+项目拆成**两份独立的工作流文档**：平台层（账号/选局/社交/多玩法聚合）与羽毛球游戏（进入比赛之后的全部逻辑）。
 
-项目架构以「节点工作流文档」形式可视化展示，**在线可交互**：
+| 工作流 | 在线演示 |
+| --- | --- |
+| 平台工作流 | [qmeyq.github.io/NG/node-workflow.html](https://qmeyq.github.io/NG/node-workflow.html) |
+| 羽毛球游戏工作流 | [qmeyq.github.io/NG/node-workflow.html?doc=badminton.json](https://qmeyq.github.io/NG/node-workflow.html?doc=badminton.json) |
 
-- 在线演示：<https://qmeyq.github.io/NG/node-workflow.html>
-- 离线查看：打开 `docs/node-workflow.html`（需用 http 方式打开，例如在仓库根目录执行 `python -m http.server`，再访问 `http://localhost:8000/docs/node-workflow.html`）
+离线查看：在仓库根目录执行 `python -m http.server`，再打开
+`http://localhost:8000/docs/node-workflow.html`（加 `?doc=badminton.json` 看游戏侧）。
 
 操作方式：
 
@@ -18,21 +21,52 @@ LayaAir 羽毛球游戏（微信小游戏 + Web 双端），单机 PVE 与华为
 - 单击节点查看属性、描述与端口定义；拖动节点底边可拉高
 - 「导出」可下载整包 ZIP：全工程 JSON + 每个节点的独立 JSON
 
-## 文档覆盖范围
+## 平台工作流
 
-按分层梳理，逐层可下钻：
+覆盖从启动到进入比赛的完整平台链路，社交与其他小游戏为占位（已在文档中标注）。
 
 | 分组 | 内容 |
 | --- | --- |
-| 项目总览 | 多玩法聚合：羽毛球（已开发）+ 社交模块 / 其他小游戏（规划中） |
-| 启动流程 | index.ts 启动页 → 隐私协议 → 资源检查 → SceneNav 导航 |
-| 主菜单 | 玩法入口分发壳 |
-| 羽毛球游戏 | select 选局 → netboot 会话 → 匹配页 → 实时联网 / 比赛核心 |
-| 比赛核心 | badm 主场景、Control 输入、UI、比赛管理（Mag/PVP/PVE/Rule/AI）、物理引擎（Phy rk4/碰撞）、场上对象（球/角色/动画） |
-| 实时联网 | Gnet（GOBE 房间 / 帧同步）、pvpProto 协议、同步与补算 |
-| 云服务与账号 | Cloud 云函数（注册 / 背包 / 商店）、AGC 通道、Worker 凭据代理 |
-| 资源管线 | 多包加载、包编解码、Brotli 解压、本地缓存 |
-| 公共支撑库 | 平台适配、数学库、空间索引、音频音效、系统/输入/计时 |
+| 平台总览 | 多玩法聚合：羽毛球（已开发）+ 社交 / 其他小游戏（规划中） |
+| 启动与隐私 | index.ts 启动页 → 隐私协议弹窗 → 资源版本检查 → 下载/恢复 → 主菜单 |
+| 主菜单 | menu.ls 的 item0~4 五页：首页 / 商店 / 社交（占位）/ 我的 / 设置 |
+| 游戏大厅·选局 | slecet.ts 游戏列表、账号校验、nor 包检查；其他游戏提示未开放 |
+| 匹配与加载 | load.ts 会话恢复、Gnet 初始化、随机匹配、role_assign 协商、断线重连 |
+| 账号与云服务 | Cloud 用户体系、云函数（注册/验证/改名/头像/购买/背包/清除）、AGC token |
+| 社交模块（规划） | 好友 / 私聊 / 排行榜 / 分享均无实现，含接入前提说明 |
+| 其他小游戏（规划） | 仅列表占位项，含新增玩法的接入清单 |
+| 资源与存储 | nor / ui / game 分包、版本比对、下载解压、进度预测、IndexedDB / 微信缓存 |
+| 平台适配 | 微信 vs Web、音频解锁、SceneNav 导航、本地设置与隐私标记 |
+
+## 羽毛球游戏工作流
+
+从「匹配成功进入 `game/badm.ls`」开始，与选局/平台无关。
+
+| 分组 | 内容 |
+| --- | --- |
+| 比赛入口与装配 | 场景装配、hit/move 控件注册、模型加载、人数与角色克隆、PVP/PVE 分支、每帧驱动 |
+| 比赛管理 Mag | 核心状态、hit 入口与前置拦截、事件回调、阶段推进、权威标志 |
+| 规则与判定 | 8 个 MatchPhase、发球权/接发、站位校验、发球区、越界、落地结算、21 分制、换边、鹰眼 |
+| PVP 对战 | 进房指派、setup、bindNetwork、权威选举、100ms 帧心跳、操作上行/重放、三层球校正、快照恢复 |
+| PVE 单机 | 本地权威、AI 装配、发球目标、退出清理 |
+| 联网与协议 | Gnet 初始化、消息信封（v/kind/seq/time/from/authTerm）、双通道、注册表、pvpProto 校验、NetBoot |
+| 物理内核 | Q10 定点 + RK4 + 固定步；strike / attachAt / restore 三个写入面，其余只读采样 |
+| 碰撞检测 | CollisionManager、角色推挤、球-角色检测（含未接线风险标注） |
+| 场上对象 | Obj 基类、Ball 与 Phy 绑定、Cha 状态、Ani 根骨骼对齐 |
+| 输入控制 | 按下/滑动/松手、单手与双手角度映射、特殊击球、释放与取消 |
+| AI 对手 | 四档难度、发球/对打决策、落点预测、PID 自纠错、双打分工与回防 |
+| 界面与表现 | CUI 摇杆箭头、比赛 HUD、弹窗、音频、相机、结算缺失 |
+| 已知问题与待办 | 按 P0 / P1 / P2 归集的同步与判定缺口，可直接当迭代清单 |
+
+### 当前 PVP 待完善项（摘自工作流）
+
+- **P0** `gamesWon` 按边统计，换边不翻转，可能判错冠军
+- **P0** 权威切换后击球序号回绕，落后端 Action 被静默丢弃
+- **P0** `ball_recovery` 不带 `hitEvents`，恢复窗口内击球事件被吞
+- **P0** 击球时刻用发送端本机时钟，钟差不收敛
+- **P0** 结束/断线无结算链路，2v2 掉人不转 AI
+- **P1** 帧内不含球状态、压线判出界、触网无判罚、鹰眼双开窗
+- **P2** `CollisionManager` 疑似未接线、调试日志遗留、魔法数值分散
 
 ## 目录
 
@@ -40,5 +74,6 @@ LayaAir 羽毛球游戏（微信小游戏 + Web 双端），单机 PVE 与华为
 src/            TypeScript 源码
 docs/
   ├─ node-workflow.html   节点工作流编辑器（单文件，零依赖）
-  └─ index.json           架构节点树数据（页面默认加载）
+  ├─ index.json           平台工作流数据（默认加载）
+  └─ badminton.json       羽毛球游戏工作流数据（?doc=badminton.json）
 ```
