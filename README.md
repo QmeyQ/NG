@@ -2,6 +2,8 @@
 
 一个小游戏平台：LayaAir 3.3.1 + TypeScript，微信小游戏与 Web 双端共用一套源码。平台层负责启动、账号、资源分包、选局与匹配，首个完整玩法是羽毛球 3D（PVE 单机 / PVP 实时对战）。
 
+点击进入工作流查看完整项目规划。
+
 [![NG 项目规划](https://qmeyq.github.io/NG/preview.png)](https://qmeyq.github.io/NG/node-workflow.html)
 
 ## 平台层
