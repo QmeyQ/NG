@@ -1,0 +1,862 @@
+{
+  "name": "LayaProject 工作流",
+  "tree_type": "ProjectTree",
+  "export_name": "LayaProject-项目工作流",
+  "nodes": {
+    "ov": {
+      "location": [-700, -90],
+      "width": 270,
+      "name": "ov",
+      "label": "项目总览",
+      "type": "Doc",
+      "desc": "多玩法聚合小游戏平台（LayaAir，微信小游戏 + Web 双端）。已开发玩法：羽毛球；规划中：社交模块、更多小游戏。场景链：load.ls(index) → menu 主菜单 → badm.ls 比赛场景。",
+      "inputs": [],
+      "outputs": [{ "name": "导读", "type": "String" }],
+      "use_custom_color": true,
+      "color": [0.25, 0.51, 0.96]
+    },
+    "boot": {
+      "location": [-350, -90],
+      "width": 220,
+      "name": "boot",
+      "label": "启动流程",
+      "type": "Group",
+      "desc": "版本检查 → 隐私协议 → 资源下载/恢复 → 进入主菜单。",
+      "inputs": [{ "name": "平台启动", "type": "Event", "default": "" }],
+      "outputs": [{ "name": "主菜单就绪", "type": "Event" }],
+      "node_tree": {
+        "name": "启动流程 子树",
+        "nodes": {
+          "idx": {
+            "location": [180, 0],
+            "width": 250,
+            "name": "idx",
+            "label": "index.ts 启动页",
+            "type": "Page",
+            "desc": "onStart 初始化 Dialog/Res/SceneNav，注册资源进度事件；Res.vers 判断是否需要下载。",
+            "inputs": [{ "name": "平台启动", "type": "Event", "default": "" }],
+            "outputs": [{ "name": "协议弹出", "type": "Event" }]
+          },
+          "dlg": {
+            "location": [180, 170],
+            "width": 220,
+            "name": "dlg",
+            "label": "Dialog 弹窗",
+            "type": "UI",
+            "desc": "隐私协议等弹窗（ui/DIalog.ts），用户同意后放行。",
+            "inputs": [{ "name": "协议弹出", "type": "Event", "default": "" }],
+            "outputs": [{ "name": "用户同意", "type": "Event" }]
+          },
+          "reschk": {
+            "location": [180, 340],
+            "width": 230,
+            "name": "reschk",
+            "label": "Res 资源检查",
+            "type": "Class",
+            "desc": "Res.vers 判断下载/恢复；Res.url 加载 UI 资源包，进度事件驱动启动页。",
+            "inputs": [{ "name": "用户同意", "type": "Event", "default": "" }],
+            "outputs": [{ "name": "UI 资源就绪", "type": "Event" }]
+          },
+          "nav": {
+            "location": [180, 510],
+            "width": 230,
+            "name": "nav",
+            "label": "SceneNav 导航",
+            "type": "Class",
+            "desc": "场景历史栈 + 返回键（pushState 截断）；跳转一律走 open/reset，禁止散落 Scene.open。",
+            "inputs": [{ "name": "UI 资源就绪", "type": "Event", "default": "" }],
+            "outputs": [{ "name": "主菜单就绪", "type": "Event" }]
+          }
+        },
+        "links": [
+          { "from_node": "__group_in__", "from_socket": "平台启动", "from_socket_identifier": "平台启动", "from_socket_type": "Event", "to_node": "idx", "to_socket": "平台启动", "to_socket_identifier": "平台启动", "to_socket_type": "Event" },
+          { "from_node": "idx", "from_socket": "协议弹出", "from_socket_identifier": "协议弹出", "from_socket_type": "Event", "to_node": "dlg", "to_socket": "协议弹出", "to_socket_identifier": "协议弹出", "to_socket_type": "Event" },
+          { "from_node": "dlg", "from_socket": "用户同意", "from_socket_identifier": "用户同意", "from_socket_type": "Event", "to_node": "reschk", "to_socket": "用户同意", "to_socket_identifier": "用户同意", "to_socket_type": "Event" },
+          { "from_node": "reschk", "from_socket": "UI 资源就绪", "from_socket_identifier": "UI 资源就绪", "from_socket_type": "Event", "to_node": "nav", "to_socket": "UI 资源就绪", "to_socket_identifier": "UI 资源就绪", "to_socket_type": "Event" },
+          { "from_node": "nav", "from_socket": "主菜单就绪", "from_socket_identifier": "主菜单就绪", "from_socket_type": "Event", "to_node": "__group_out__", "to_socket": "主菜单就绪", "to_socket_identifier": "主菜单就绪", "to_socket_type": "Event" }
+        ]
+      }
+    },
+    "home": {
+      "location": [-60, -90],
+      "width": 230,
+      "name": "home",
+      "label": "主菜单",
+      "type": "Group",
+      "desc": "主菜单壳：玩法入口分发。当前入口即羽毛球选局；预留社交与更多小游戏入口。",
+      "inputs": [
+        { "name": "主菜单就绪", "type": "Event", "default": "" },
+        { "name": "比赛结果", "type": "Event", "default": "" }
+      ],
+      "outputs": [{ "name": "游戏选择", "type": "Event" }],
+      "node_tree": {
+        "name": "主菜单 子树",
+        "nodes": {
+          "mpg": {
+            "location": [200, 0],
+            "width": 240,
+            "name": "mpg",
+            "label": "主菜单壳",
+            "type": "Page",
+            "desc": "menu 预制体：当前版本直接承载羽毛球选局入口；后续接入社交、其他游戏入口。比赛结束回此。",
+            "inputs": [
+              { "name": "主菜单就绪", "type": "Event", "default": "" },
+              { "name": "比赛结果", "type": "Event", "default": "" }
+            ],
+            "outputs": [{ "name": "游戏选择", "type": "Event" }]
+          }
+        },
+        "links": [
+          { "from_node": "__group_in__", "from_socket": "主菜单就绪", "from_socket_identifier": "主菜单就绪", "from_socket_type": "Event", "to_node": "mpg", "to_socket": "主菜单就绪", "to_socket_identifier": "主菜单就绪", "to_socket_type": "Event" },
+          { "from_node": "__group_in__", "from_socket": "比赛结果", "from_socket_identifier": "比赛结果", "from_socket_type": "Event", "to_node": "mpg", "to_socket": "比赛结果", "to_socket_identifier": "比赛结果", "to_socket_type": "Event" },
+          { "from_node": "mpg", "from_socket": "游戏选择", "from_socket_identifier": "游戏选择", "from_socket_type": "Event", "to_node": "__group_out__", "to_socket": "游戏选择", "to_socket_identifier": "游戏选择", "to_socket_type": "Event" }
+        ]
+      }
+    },
+    "bm": {
+      "location": [290, -90],
+      "width": 260,
+      "name": "bm",
+      "label": "羽毛球游戏",
+      "type": "Group",
+      "desc": "当前唯一已开发玩法：select 选局（单机/联机）→ 匹配 → 比赛核心。内含实时联网与比赛核心两个二级组。",
+      "inputs": [
+        { "name": "游戏选择", "type": "Event", "default": "" },
+        { "name": "用户身份", "type": "Event", "default": "" },
+        { "name": "GOBE token", "type": "Event", "default": "" },
+        { "name": "资源就绪", "type": "Event", "default": "" }
+      ],
+      "outputs": [{ "name": "比赛结果", "type": "Event" }],
+      "node_tree": {
+        "name": "羽毛球游戏 子树",
+        "nodes": {
+          "slc": {
+            "location": [180, 0],
+            "width": 250,
+            "name": "slc",
+            "label": "slecet.ts 选局页",
+            "type": "Page",
+            "desc": "select 选择界面：选局/选角（单机或联机）；拿到用户身份即调 netboot.ensure() 预热联机。",
+            "inputs": [
+              { "name": "游戏选择", "type": "Event", "default": "" },
+              { "name": "用户身份", "type": "Event", "default": "" }
+            ],
+            "outputs": [{ "name": "比赛配置", "type": "Event" }]
+          },
+          "nb": {
+            "location": [580, 140],
+            "width": 230,
+            "name": "nb",
+            "label": "netboot GOBE 会话",
+            "type": "Class",
+            "desc": "登录响应自带 accessToken，正常路径零请求直接建 client；到期/失败才带 force 重试。",
+            "inputs": [{ "name": "用户身份", "type": "Event", "default": "" }],
+            "outputs": [{ "name": "联机通道就绪", "type": "Event" }]
+          },
+          "mph": {
+            "location": [580, 340],
+            "width": 240,
+            "name": "mph",
+            "label": "load.ts 匹配页",
+            "type": "Page",
+            "desc": "match.ls：Cloud 用户 → Gnet 匹配 → 满员后角色分配 → 进比赛场景。",
+            "inputs": [{ "name": "联机通道就绪", "type": "Event", "default": "" }],
+            "outputs": [{ "name": "比赛配置", "type": "Event" }]
+          },
+          "net": {
+            "location": [920, 320],
+            "width": 240,
+            "name": "net",
+            "label": "实时联网",
+            "type": "Group",
+            "desc": "华为 GOBE 联机：房间 / 匹配 / 帧同步；迟到与回退统一由 Phy 恢复入口处理。",
+            "inputs": [
+              { "name": "比赛配置", "type": "Event", "default": "" },
+              { "name": "本机操作", "type": "Event", "default": "" },
+              { "name": "GOBE token", "type": "Event", "default": "" }
+            ],
+            "outputs": [{ "name": "对端同步", "type": "Event" }],
+            "node_tree": {
+              "name": "实时联网 子树",
+              "nodes": {
+                "gnet": {
+                  "location": [200, 0],
+                  "width": 260,
+                  "name": "gnet",
+                  "label": "Gnet 华为 GOBE",
+                  "type": "Class",
+                  "desc": "Game Open Boost Engine 封装：init / 房间管理 / 匹配 / 房主判定 / 帧同步（libs/gobe/net.ts）。",
+                  "inputs": [
+                    { "name": "比赛配置", "type": "Event", "default": "" },
+                    { "name": "本机操作", "type": "Event", "default": "" },
+                    { "name": "GOBE token", "type": "Event", "default": "" }
+                  ],
+                  "outputs": [{ "name": "帧数据", "type": "Event" }]
+                },
+                "proto": {
+                  "location": [200, 240],
+                  "width": 220,
+                  "name": "proto",
+                  "label": "pvpProto 协议",
+                  "type": "Protocol",
+                  "desc": "PVP 消息结构与协议定义（libs/pvpProto.ts）。",
+                  "inputs": [],
+                  "outputs": [{ "name": "协议定义", "type": "Any" }]
+                },
+                "sync": {
+                  "location": [580, 100],
+                  "width": 230,
+                  "name": "sync",
+                  "label": "同步与补算",
+                  "type": "Class",
+                  "desc": "对端帧驱动本机；迟到事件 / 时间回退统一交给 Phy.strike 恢复入口补算。",
+                  "inputs": [{ "name": "帧数据", "type": "Event", "default": "" }],
+                  "outputs": [{ "name": "对端同步", "type": "Event" }]
+                }
+              },
+              "links": [
+                { "from_node": "__group_in__", "from_socket": "比赛配置", "from_socket_identifier": "比赛配置", "from_socket_type": "Event", "to_node": "gnet", "to_socket": "比赛配置", "to_socket_identifier": "比赛配置", "to_socket_type": "Event" },
+                { "from_node": "__group_in__", "from_socket": "本机操作", "from_socket_identifier": "本机操作", "from_socket_type": "Event", "to_node": "gnet", "to_socket": "本机操作", "to_socket_identifier": "本机操作", "to_socket_type": "Event" },
+                { "from_node": "__group_in__", "from_socket": "GOBE token", "from_socket_identifier": "GOBE token", "from_socket_type": "Event", "to_node": "gnet", "to_socket": "GOBE token", "to_socket_identifier": "GOBE token", "to_socket_type": "Event" },
+                { "from_node": "proto", "from_socket": "协议定义", "from_socket_identifier": "协议定义", "from_socket_type": "Any", "to_node": "gnet", "to_socket": "本机操作", "to_socket_identifier": "本机操作", "to_socket_type": "Event" },
+                { "from_node": "gnet", "from_socket": "帧数据", "from_socket_identifier": "帧数据", "from_socket_type": "Event", "to_node": "sync", "to_socket": "帧数据", "to_socket_identifier": "帧数据", "to_socket_type": "Event" },
+                { "from_node": "sync", "from_socket": "对端同步", "from_socket_identifier": "对端同步", "from_socket_type": "Event", "to_node": "__group_out__", "to_socket": "对端同步", "to_socket_identifier": "对端同步", "to_socket_type": "Event" }
+              ]
+            }
+          },
+          "core": {
+            "location": [920, 0],
+            "width": 260,
+            "name": "core",
+            "label": "比赛核心",
+            "type": "Group",
+            "desc": "badm.ls 主场景：输入 → 比赛管理 → 物理引擎 → 场上对象 → 渲染。内含 mag / engine / obj 三个二级组。",
+            "inputs": [
+              { "name": "比赛配置", "type": "Event", "default": "" },
+              { "name": "对端同步", "type": "Event", "default": "" },
+              { "name": "资源就绪", "type": "Event", "default": "" }
+            ],
+            "outputs": [
+              { "name": "比赛结果", "type": "Event" },
+              { "name": "画面表现", "type": "Event" },
+              { "name": "本机操作", "type": "Event" }
+            ],
+            "node_tree": {
+              "name": "比赛核心 子树",
+              "nodes": {
+                "badm": {
+                  "location": [140, 0],
+                  "width": 250,
+                  "name": "badm",
+                  "label": "badm.ts 主场景脚本",
+                  "type": "Script",
+                  "desc": "安装 QA、关闭 WebGL2、创建 UI 与 Control；监听 Res.net 事件；court/ball 就绪后创建球与角色；按模式 new PVP/PVE。",
+                  "inputs": [
+                    { "name": "比赛配置", "type": "Event", "default": "" },
+                    { "name": "资源就绪", "type": "Event", "default": "" }
+                  ],
+                  "outputs": [{ "name": "画面表现", "type": "Event" }]
+                },
+                "at1": {
+                  "location": [-160, -140],
+                  "width": 170,
+                  "name": "at1",
+                  "label": "Res.net 事件",
+                  "type": "Note",
+                  "attr": true,
+                  "desc": "DP 下载进度 / DE 失败 / DC 完成，由 badm 监听驱动加载 UI。导出时并入 badm 节点。",
+                  "inputs": [],
+                  "outputs": [{ "name": "备注", "type": "String" }]
+                },
+                "ctl": {
+                  "location": [140, 200],
+                  "width": 230,
+                  "name": "ctl",
+                  "label": "Control 输入控制",
+                  "type": "Class",
+                  "desc": "双击 hit、移动摇杆、击球参数计算（sys/control.ts）。",
+                  "inputs": [{ "name": "玩家触控", "type": "Event", "default": "" }],
+                  "outputs": [{ "name": "击球事件", "type": "Event" }]
+                },
+                "uic": {
+                  "location": [140, 380],
+                  "width": 210,
+                  "name": "uic",
+                  "label": "UI 界面",
+                  "type": "UI",
+                  "desc": "比分 / 倒计时 HUD（ui/ui.ts + cui.ts）。",
+                  "inputs": [{ "name": "比分/倒计时", "type": "Event", "default": "" }],
+                  "outputs": [{ "name": "画面表现", "type": "Event" }]
+                },
+                "mag": {
+                  "location": [540, 0],
+                  "width": 240,
+                  "name": "mag",
+                  "label": "比赛管理",
+                  "type": "Group",
+                  "desc": "Mag 抽象基类 + PVP/PVE 两种实现 + 规则判定 + NPC。",
+                  "inputs": [
+                    { "name": "比赛配置", "type": "Event", "default": "" },
+                    { "name": "击球事件", "type": "Event", "default": "" },
+                    { "name": "对端同步", "type": "Event", "default": "" }
+                  ],
+                  "outputs": [
+                    { "name": "球令", "type": "Event" },
+                    { "name": "比分结果", "type": "Event" }
+                  ],
+                  "node_tree": {
+                    "name": "比赛管理 子树",
+                    "nodes": {
+                      "magc": {
+                        "location": [180, 0],
+                        "width": 250,
+                        "name": "magc",
+                        "label": "Mag 基类",
+                        "type": "Class",
+                        "desc": "比分、发球权、当前击球方、PVP 模式、权威状态；构造初始化玩家/场地/规则/相机挂载（mag/mag.ts）。",
+                        "inputs": [
+                          { "name": "比赛配置", "type": "Event", "default": "" },
+                          { "name": "击球事件", "type": "Event", "default": "" },
+                          { "name": "对端同步", "type": "Event", "default": "" }
+                        ],
+                        "outputs": [{ "name": "球令", "type": "Event" }]
+                      },
+                      "pvp": {
+                        "location": [560, 0],
+                        "width": 220,
+                        "name": "pvp",
+                        "label": "PVP 联机比赛",
+                        "type": "Class",
+                        "desc": "extends Mag；绑定倒计时、比分、对端离场回调（mag/pvp.ts）。",
+                        "inputs": [{ "name": "比赛配置", "type": "Event", "default": "" }],
+                        "outputs": [{ "name": "球令", "type": "Event" }]
+                      },
+                      "pve": {
+                        "location": [560, 180],
+                        "width": 220,
+                        "name": "pve",
+                        "label": "PVE 单机比赛",
+                        "type": "Class",
+                        "desc": "extends Mag；本地权威，NPC 对手（mag/pve.ts）。",
+                        "inputs": [{ "name": "比赛配置", "type": "Event", "default": "" }],
+                        "outputs": [{ "name": "球令", "type": "Event" }]
+                      },
+                      "rule": {
+                        "location": [560, 360],
+                        "width": 220,
+                        "name": "rule",
+                        "label": "Rule 规则判定",
+                        "type": "Class",
+                        "desc": "得分 / 发球权 / 界内界外判定（mag/rule.ts）。",
+                        "inputs": [{ "name": "击球事件", "type": "Event", "default": "" }],
+                        "outputs": [{ "name": "比分结果", "type": "Event" }]
+                      },
+                      "ai": {
+                        "location": [560, 540],
+                        "width": 220,
+                        "name": "ai",
+                        "label": "AIControl NPC",
+                        "type": "Class",
+                        "desc": "PVE 对手 AI：预判来球并生成虚拟击球（NPC/ai.ts）。",
+                        "inputs": [{ "name": "击球指令", "type": "Event", "default": "" }],
+                        "outputs": [{ "name": "虚拟击球", "type": "Event" }]
+                      }
+                    },
+                    "links": [
+                      { "from_node": "__group_in__", "from_socket": "比赛配置", "from_socket_identifier": "比赛配置", "from_socket_type": "Event", "to_node": "magc", "to_socket": "比赛配置", "to_socket_identifier": "比赛配置", "to_socket_type": "Event" },
+                      { "from_node": "__group_in__", "from_socket": "击球事件", "from_socket_identifier": "击球事件", "from_socket_type": "Event", "to_node": "magc", "to_socket": "击球事件", "to_socket_identifier": "击球事件", "to_socket_type": "Event" },
+                      { "from_node": "__group_in__", "from_socket": "对端同步", "from_socket_identifier": "对端同步", "from_socket_type": "Event", "to_node": "magc", "to_socket": "对端同步", "to_socket_identifier": "对端同步", "to_socket_type": "Event" },
+                      { "from_node": "magc", "from_socket": "球令", "from_socket_identifier": "球令", "from_socket_type": "Event", "to_node": "pvp", "to_socket": "比赛配置", "to_socket_identifier": "比赛配置", "to_socket_type": "Event" },
+                      { "from_node": "magc", "from_socket": "球令", "from_socket_identifier": "球令", "from_socket_type": "Event", "to_node": "pve", "to_socket": "比赛配置", "to_socket_identifier": "比赛配置", "to_socket_type": "Event" },
+                      { "from_node": "magc", "from_socket": "球令", "from_socket_identifier": "球令", "from_socket_type": "Event", "to_node": "ai", "to_socket": "击球指令", "to_socket_identifier": "击球指令", "to_socket_type": "Event" },
+                      { "from_node": "ai", "from_socket": "虚拟击球", "from_socket_identifier": "虚拟击球", "from_socket_type": "Event", "to_node": "magc", "to_socket": "击球事件", "to_socket_identifier": "击球事件", "to_socket_type": "Event" },
+                      { "from_node": "magc", "from_socket": "球令", "from_socket_identifier": "球令", "from_socket_type": "Event", "to_node": "rule", "to_socket": "击球事件", "to_socket_identifier": "击球事件", "to_socket_type": "Event" },
+                      { "from_node": "pvp", "from_socket": "球令", "from_socket_identifier": "球令", "from_socket_type": "Event", "to_node": "__group_out__", "to_socket": "球令", "to_socket_identifier": "球令", "to_socket_type": "Event" },
+                      { "from_node": "pve", "from_socket": "球令", "from_socket_identifier": "球令", "from_socket_type": "Event", "to_node": "__group_out__", "to_socket": "球令", "to_socket_identifier": "球令", "to_socket_type": "Event" },
+                      { "from_node": "rule", "from_socket": "比分结果", "from_socket_identifier": "比分结果", "from_socket_type": "Event", "to_node": "__group_out__", "to_socket": "比分结果", "to_socket_identifier": "比分结果", "to_socket_type": "Event" }
+                    ]
+                  }
+                },
+                "eng": {
+                  "location": [540, 260],
+                  "width": 240,
+                  "name": "eng",
+                  "label": "物理引擎",
+                  "type": "Group",
+                  "desc": "自研弹道内核：rk4 积分 + 碰撞，写入面收敛。",
+                  "inputs": [{ "name": "击球事件", "type": "Event", "default": "" }],
+                  "outputs": [{ "name": "球况", "type": "Event" }],
+                  "node_tree": {
+                    "name": "物理引擎 子树",
+                    "nodes": {
+                      "phy": {
+                        "location": [200, 0],
+                        "width": 260,
+                        "name": "phy",
+                        "label": "Phy 弹道内核",
+                        "type": "Class",
+                        "desc": "rk4 数值积分（性能关键路径）；strike() 是击球弹道唯一写入面：时间回退 / 击球参数 / 补算 / 迟到事件；静止与网络状态恢复各有唯一入口（engine/phy.ts）。",
+                        "inputs": [
+                          { "name": "击球事件", "type": "Event", "default": "" },
+                          { "name": "物理参数", "type": "Any", "default": 0 }
+                        ],
+                        "outputs": [{ "name": "球况", "type": "Event" }]
+                      },
+                      "pcfg": {
+                        "location": [200, 220],
+                        "width": 230,
+                        "name": "pcfg",
+                        "label": "PhyCfg 参数与状态",
+                        "type": "Class",
+                        "desc": "V3 向量 / Fx 力场 / State 状态机 / NetHitInfo 触网信息（engine/phyCfg.ts）。",
+                        "inputs": [],
+                        "outputs": [{ "name": "物理参数", "type": "Any" }]
+                      },
+                      "col": {
+                        "location": [560, 100],
+                        "width": 230,
+                        "name": "col",
+                        "label": "CollisionManager",
+                        "type": "Class",
+                        "desc": "碰撞检测：球网 / 地面 / 拍面（collision.ts）。",
+                        "inputs": [{ "name": "球况", "type": "Event", "default": "" }],
+                        "outputs": [{ "name": "碰撞事件", "type": "Event" }]
+                      }
+                    },
+                    "links": [
+                      { "from_node": "__group_in__", "from_socket": "击球事件", "from_socket_identifier": "击球事件", "from_socket_type": "Event", "to_node": "phy", "to_socket": "击球事件", "to_socket_identifier": "击球事件", "to_socket_type": "Event" },
+                      { "from_node": "pcfg", "from_socket": "物理参数", "from_socket_identifier": "物理参数", "from_socket_type": "Any", "to_node": "phy", "to_socket": "物理参数", "to_socket_identifier": "物理参数", "to_socket_type": "Any" },
+                      { "from_node": "phy", "from_socket": "球况", "from_socket_identifier": "球况", "from_socket_type": "Event", "to_node": "col", "to_socket": "球况", "to_socket_identifier": "球况", "to_socket_type": "Event" },
+                      { "from_node": "phy", "from_socket": "球况", "from_socket_identifier": "球况", "from_socket_type": "Event", "to_node": "__group_out__", "to_socket": "球况", "to_socket_identifier": "球况", "to_socket_type": "Event" },
+                      { "from_node": "col", "from_socket": "碰撞事件", "from_socket_identifier": "碰撞事件", "from_socket_type": "Event", "to_node": "__group_out__", "to_socket": "球况", "to_socket_identifier": "球况", "to_socket_type": "Event" }
+                    ]
+                  }
+                },
+                "obj": {
+                  "location": [540, 520],
+                  "width": 240,
+                  "name": "obj",
+                  "label": "场上对象",
+                  "type": "Group",
+                  "desc": "Obj 基类 + 球 / 角色 / 动画，消费球况驱动表现。",
+                  "inputs": [
+                    { "name": "球况", "type": "Event", "default": "" },
+                    { "name": "资源就绪", "type": "Event", "default": "" }
+                  ],
+                  "outputs": [{ "name": "画面表现", "type": "Event" }],
+                  "node_tree": {
+                    "name": "场上对象 子树",
+                    "nodes": {
+                      "objc": {
+                        "location": [180, 60],
+                        "width": 210,
+                        "name": "objc",
+                        "label": "Obj 基类",
+                        "type": "Class",
+                        "desc": "场上对象基类：生命周期 / 场景节点挂载（obj/obj.ts）。",
+                        "inputs": [],
+                        "outputs": [{ "name": "对象实例", "type": "Any" }]
+                      },
+                      "ball": {
+                        "location": [520, 0],
+                        "width": 210,
+                        "name": "ball",
+                        "label": "Ball 球体",
+                        "type": "Class",
+                        "desc": "消费球况做插值 / 状态切换（obj/ball.ts）。",
+                        "inputs": [
+                          { "name": "球况", "type": "Event", "default": "" },
+                          { "name": "对象实例", "type": "Any", "default": 0 }
+                        ],
+                        "outputs": [{ "name": "画面表现", "type": "Event" }]
+                      },
+                      "cha": {
+                        "location": [520, 200],
+                        "width": 210,
+                        "name": "cha",
+                        "label": "Cha 角色",
+                        "type": "Class",
+                        "desc": "角色移动 / 挥拍表现（obj/cha.ts）。",
+                        "inputs": [
+                          { "name": "球况", "type": "Event", "default": "" },
+                          { "name": "对象实例", "type": "Any", "default": 0 }
+                        ],
+                        "outputs": [{ "name": "画面表现", "type": "Event" }]
+                      },
+                      "ani": {
+                        "location": [520, 400],
+                        "width": 210,
+                        "name": "ani",
+                        "label": "Ani 动画",
+                        "type": "Class",
+                        "desc": "Spine / 帧动画驱动，依赖资源就绪（obj/ani.ts）。",
+                        "inputs": [{ "name": "资源就绪", "type": "Event", "default": "" }],
+                        "outputs": [{ "name": "动画播放", "type": "Event" }]
+                      }
+                    },
+                    "links": [
+                      { "from_node": "__group_in__", "from_socket": "球况", "from_socket_identifier": "球况", "from_socket_type": "Event", "to_node": "ball", "to_socket": "球况", "to_socket_identifier": "球况", "to_socket_type": "Event" },
+                      { "from_node": "__group_in__", "from_socket": "球况", "from_socket_identifier": "球况", "from_socket_type": "Event", "to_node": "cha", "to_socket": "球况", "to_socket_identifier": "球况", "to_socket_type": "Event" },
+                      { "from_node": "__group_in__", "from_socket": "资源就绪", "from_socket_identifier": "资源就绪", "from_socket_type": "Event", "to_node": "ani", "to_socket": "资源就绪", "to_socket_identifier": "资源就绪", "to_socket_type": "Event" },
+                      { "from_node": "objc", "from_socket": "对象实例", "from_socket_identifier": "对象实例", "from_socket_type": "Any", "to_node": "ball", "to_socket": "对象实例", "to_socket_identifier": "对象实例", "to_socket_type": "Any" },
+                      { "from_node": "objc", "from_socket": "对象实例", "from_socket_identifier": "对象实例", "from_socket_type": "Any", "to_node": "cha", "to_socket": "对象实例", "to_socket_identifier": "对象实例", "to_socket_type": "Any" },
+                      { "from_node": "ani", "from_socket": "动画播放", "from_socket_identifier": "动画播放", "from_socket_type": "Event", "to_node": "cha", "to_socket": "球况", "to_socket_identifier": "球况", "to_socket_type": "Event" },
+                      { "from_node": "ball", "from_socket": "画面表现", "from_socket_identifier": "画面表现", "from_socket_type": "Event", "to_node": "__group_out__", "to_socket": "画面表现", "to_socket_identifier": "画面表现", "to_socket_type": "Event" },
+                      { "from_node": "cha", "from_socket": "画面表现", "from_socket_identifier": "画面表现", "from_socket_type": "Event", "to_node": "__group_out__", "to_socket": "画面表现", "to_socket_identifier": "画面表现", "to_socket_type": "Event" }
+                    ]
+                  }
+                }
+              },
+              "links": [
+                { "from_node": "__group_in__", "from_socket": "比赛配置", "from_socket_identifier": "比赛配置", "from_socket_type": "Event", "to_node": "badm", "to_socket": "比赛配置", "to_socket_identifier": "比赛配置", "to_socket_type": "Event" },
+                { "from_node": "__group_in__", "from_socket": "资源就绪", "from_socket_identifier": "资源就绪", "from_socket_type": "Event", "to_node": "badm", "to_socket": "资源就绪", "to_socket_identifier": "资源就绪", "to_socket_type": "Event" },
+                { "from_node": "__group_in__", "from_socket": "对端同步", "from_socket_identifier": "对端同步", "from_socket_type": "Event", "to_node": "mag", "to_socket": "对端同步", "to_socket_identifier": "对端同步", "to_socket_type": "Event" },
+                { "from_node": "at1", "from_socket": "备注", "from_socket_identifier": "备注", "from_socket_type": "String", "to_node": "badm", "to_socket": "比赛配置", "to_socket_identifier": "比赛配置", "to_socket_type": "Event" },
+                { "from_node": "badm", "from_socket": "画面表现", "from_socket_identifier": "画面表现", "from_socket_type": "Event", "to_node": "mag", "to_socket": "比赛配置", "to_socket_identifier": "比赛配置", "to_socket_type": "Event" },
+                { "from_node": "ctl", "from_socket": "击球事件", "from_socket_identifier": "击球事件", "from_socket_type": "Event", "to_node": "mag", "to_socket": "击球事件", "to_socket_identifier": "击球事件", "to_socket_type": "Event" },
+                { "from_node": "ctl", "from_socket": "击球事件", "from_socket_identifier": "击球事件", "from_socket_type": "Event", "to_node": "__group_out__", "to_socket": "本机操作", "to_socket_identifier": "本机操作", "to_socket_type": "Event" },
+                { "from_node": "mag", "from_socket": "球令", "from_socket_identifier": "球令", "from_socket_type": "Event", "to_node": "eng", "to_socket": "击球事件", "to_socket_identifier": "击球事件", "to_socket_type": "Event" },
+                { "from_node": "eng", "from_socket": "球况", "from_socket_identifier": "球况", "from_socket_type": "Event", "to_node": "obj", "to_socket": "球况", "to_socket_identifier": "球况", "to_socket_type": "Event" },
+                { "from_node": "mag", "from_socket": "比分结果", "from_socket_identifier": "比分结果", "from_socket_type": "Event", "to_node": "uic", "to_socket": "比分/倒计时", "to_socket_identifier": "比分/倒计时", "to_socket_type": "Event" },
+                { "from_node": "mag", "from_socket": "比分结果", "from_socket_identifier": "比分结果", "from_socket_type": "Event", "to_node": "__group_out__", "to_socket": "比赛结果", "to_socket_identifier": "比赛结果", "to_socket_type": "Event" },
+                { "from_node": "badm", "from_socket": "画面表现", "from_socket_identifier": "画面表现", "from_socket_type": "Event", "to_node": "__group_out__", "to_socket": "画面表现", "to_socket_identifier": "画面表现", "to_socket_type": "Event" },
+                { "from_node": "uic", "from_socket": "画面表现", "from_socket_identifier": "画面表现", "from_socket_type": "Event", "to_node": "__group_out__", "to_socket": "画面表现", "to_socket_identifier": "画面表现", "to_socket_type": "Event" },
+                { "from_node": "obj", "from_socket": "画面表现", "from_socket_identifier": "画面表现", "from_socket_type": "Event", "to_node": "__group_out__", "to_socket": "画面表现", "to_socket_identifier": "画面表现", "to_socket_type": "Event" }
+              ]
+            }
+          }
+        },
+        "links": [
+          { "from_node": "__group_in__", "from_socket": "游戏选择", "from_socket_identifier": "游戏选择", "from_socket_type": "Event", "to_node": "slc", "to_socket": "游戏选择", "to_socket_identifier": "游戏选择", "to_socket_type": "Event" },
+          { "from_node": "__group_in__", "from_socket": "用户身份", "from_socket_identifier": "用户身份", "from_socket_type": "Event", "to_node": "slc", "to_socket": "用户身份", "to_socket_identifier": "用户身份", "to_socket_type": "Event" },
+          { "from_node": "__group_in__", "from_socket": "用户身份", "from_socket_identifier": "用户身份", "from_socket_type": "Event", "to_node": "nb", "to_socket": "用户身份", "to_socket_identifier": "用户身份", "to_socket_type": "Event" },
+          { "from_node": "__group_in__", "from_socket": "GOBE token", "from_socket_identifier": "GOBE token", "from_socket_type": "Event", "to_node": "net", "to_socket": "GOBE token", "to_socket_identifier": "GOBE token", "to_socket_type": "Event" },
+          { "from_node": "__group_in__", "from_socket": "资源就绪", "from_socket_identifier": "资源就绪", "from_socket_type": "Event", "to_node": "core", "to_socket": "资源就绪", "to_socket_identifier": "资源就绪", "to_socket_type": "Event" },
+          { "from_node": "nb", "from_socket": "联机通道就绪", "from_socket_identifier": "联机通道就绪", "from_socket_type": "Event", "to_node": "mph", "to_socket": "联机通道就绪", "to_socket_identifier": "联机通道就绪", "to_socket_type": "Event" },
+          { "from_node": "slc", "from_socket": "比赛配置", "from_socket_identifier": "比赛配置", "from_socket_type": "Event", "to_node": "core", "to_socket": "比赛配置", "to_socket_identifier": "比赛配置", "to_socket_type": "Event" },
+          { "from_node": "mph", "from_socket": "比赛配置", "from_socket_identifier": "比赛配置", "from_socket_type": "Event", "to_node": "core", "to_socket": "比赛配置", "to_socket_identifier": "比赛配置", "to_socket_type": "Event" },
+          { "from_node": "mph", "from_socket": "比赛配置", "from_socket_identifier": "比赛配置", "from_socket_type": "Event", "to_node": "net", "to_socket": "比赛配置", "to_socket_identifier": "比赛配置", "to_socket_type": "Event" },
+          { "from_node": "net", "from_socket": "对端同步", "from_socket_identifier": "对端同步", "from_socket_type": "Event", "to_node": "core", "to_socket": "对端同步", "to_socket_identifier": "对端同步", "to_socket_type": "Event" },
+          { "from_node": "core", "from_socket": "本机操作", "from_socket_identifier": "本机操作", "from_socket_type": "Event", "to_node": "net", "to_socket": "本机操作", "to_socket_identifier": "本机操作", "to_socket_type": "Event" },
+          { "from_node": "core", "from_socket": "比赛结果", "from_socket_identifier": "比赛结果", "from_socket_type": "Event", "to_node": "__group_out__", "to_socket": "比赛结果", "to_socket_identifier": "比赛结果", "to_socket_type": "Event" }
+        ]
+      }
+    },
+    "social": {
+      "location": [-700, 250],
+      "width": 220,
+      "name": "social",
+      "label": "社交模块",
+      "type": "Group",
+      "desc": "未开发。规划：好友 / 聊天 / 排行榜。",
+      "use_custom_color": true,
+      "color": [0.42, 0.45, 0.5],
+      "inputs": [{ "name": "入口预留", "type": "Event", "default": "" }],
+      "outputs": [],
+      "node_tree": {
+        "name": "社交模块 子树",
+        "nodes": {
+          "frd": {
+            "location": [180, 0],
+            "width": 220,
+            "name": "frd",
+            "label": "好友系统",
+            "type": "Planned",
+            "desc": "未开发：好友列表 / 添加 / 删除。",
+            "use_custom_color": true,
+            "color": [0.42, 0.45, 0.5],
+            "inputs": [],
+            "outputs": []
+          },
+          "chat": {
+            "location": [180, 180],
+            "width": 220,
+            "name": "chat",
+            "label": "聊天",
+            "type": "Planned",
+            "desc": "未开发：私聊 / 群聊。",
+            "use_custom_color": true,
+            "color": [0.42, 0.45, 0.5],
+            "inputs": [],
+            "outputs": []
+          },
+          "rank": {
+            "location": [180, 360],
+            "width": 220,
+            "name": "rank",
+            "label": "排行榜",
+            "type": "Planned",
+            "desc": "未开发：段位榜 / 好友榜。",
+            "use_custom_color": true,
+            "color": [0.42, 0.45, 0.5],
+            "inputs": [],
+            "outputs": []
+          }
+        },
+        "links": []
+      }
+    },
+    "others": {
+      "location": [-350, 250],
+      "width": 220,
+      "name": "others",
+      "label": "其他游戏模块",
+      "type": "Group",
+      "desc": "未开发。预留更多小游戏的接入位。",
+      "use_custom_color": true,
+      "color": [0.42, 0.45, 0.5],
+      "inputs": [{ "name": "入口预留", "type": "Event", "default": "" }],
+      "outputs": [],
+      "node_tree": {
+        "name": "其他游戏模块 子树",
+        "nodes": {
+          "g2": {
+            "location": [180, 0],
+            "width": 220,
+            "name": "g2",
+            "label": "游戏 B（占位）",
+            "type": "Planned",
+            "desc": "未开发：预留小游戏位。",
+            "use_custom_color": true,
+            "color": [0.42, 0.45, 0.5],
+            "inputs": [],
+            "outputs": []
+          },
+          "g3": {
+            "location": [180, 180],
+            "width": 220,
+            "name": "g3",
+            "label": "游戏 C（占位）",
+            "type": "Planned",
+            "desc": "未开发：预留小游戏位。",
+            "use_custom_color": true,
+            "color": [0.42, 0.45, 0.5],
+            "inputs": [],
+            "outputs": []
+          }
+        },
+        "links": []
+      }
+    },
+    "cloud": {
+      "location": [290, 250],
+      "width": 220,
+      "name": "cloud",
+      "label": "云服务与账号",
+      "type": "Group",
+      "desc": "AGC 云函数：注册 / 登录 / 背包 / 商店；直连优先 + Worker 代理回退。",
+      "inputs": [{ "name": "登录请求", "type": "Event", "default": "" }],
+      "outputs": [
+        { "name": "用户/背包", "type": "Event" },
+        { "name": "GOBE token", "type": "Event" }
+      ],
+      "node_tree": {
+        "name": "云服务与账号 子树",
+        "nodes": {
+          "clf": {
+            "location": [220, 0],
+            "width": 260,
+            "name": "clf",
+            "label": "Cloud 云函数",
+            "type": "Class",
+            "desc": "直连优先 + Worker 回退；te 函数分发：reg/agt/gt/gprobe/user/bag/set/buy/del；错误码 0-6（libs/cloud.ts）。",
+            "inputs": [{ "name": "登录请求", "type": "Event", "default": "" }],
+            "outputs": [
+              { "name": "用户/背包", "type": "Event" },
+              { "name": "GOBE token", "type": "Event" }
+            ]
+          },
+          "agc": {
+            "location": [220, 240],
+            "width": 250,
+            "name": "agc",
+            "label": "AGC 通道",
+            "type": "Class",
+            "desc": "agcCore/agcWeb/agcWx：微信端直连 AGC 网关（无 CORS），web 端恒走 Worker 代理（华为网关不回 CORS 头）。",
+            "inputs": [{ "name": "登录请求", "type": "Event", "default": "" }],
+            "outputs": [{ "name": "网关响应", "type": "Event" }]
+          },
+          "wrk": {
+            "location": [580, 240],
+            "width": 230,
+            "name": "wrk",
+            "label": "Worker 凭据代理",
+            "type": "Service",
+            "desc": "/token：限流 + 注册 + 下发直连 token；client_secret 不出 Worker。",
+            "inputs": [{ "name": "网关响应", "type": "Event", "default": "" }],
+            "outputs": [{ "name": "access_token", "type": "Event" }]
+          },
+          "idb": {
+            "location": [220, 440],
+            "width": 220,
+            "name": "idb",
+            "label": "IDBStorage 用户本地",
+            "type": "Class",
+            "desc": "IndexedDB 本地用户态（注册信息 / 背包缓存）。",
+            "inputs": [{ "name": "用户/背包", "type": "Event", "default": "" }],
+            "outputs": []
+          }
+        },
+        "links": [
+          { "from_node": "__group_in__", "from_socket": "登录请求", "from_socket_identifier": "登录请求", "from_socket_type": "Event", "to_node": "clf", "to_socket": "登录请求", "to_socket_identifier": "登录请求", "to_socket_type": "Event" },
+          { "from_node": "clf", "from_socket": "用户/背包", "from_socket_identifier": "用户/背包", "from_socket_type": "Event", "to_node": "agc", "to_socket": "登录请求", "to_socket_identifier": "登录请求", "to_socket_type": "Event" },
+          { "from_node": "agc", "from_socket": "网关响应", "from_socket_identifier": "网关响应", "from_socket_type": "Event", "to_node": "wrk", "to_socket": "网关响应", "to_socket_identifier": "网关响应", "to_socket_type": "Event" },
+          { "from_node": "wrk", "from_socket": "access_token", "from_socket_identifier": "access_token", "from_socket_type": "Event", "to_node": "clf", "to_socket": "登录请求", "to_socket_identifier": "登录请求", "to_socket_type": "Event" },
+          { "from_node": "clf", "from_socket": "用户/背包", "from_socket_identifier": "用户/背包", "from_socket_type": "Event", "to_node": "idb", "to_socket": "用户/背包", "to_socket_identifier": "用户/背包", "to_socket_type": "Event" },
+          { "from_node": "clf", "from_socket": "用户/背包", "from_socket_identifier": "用户/背包", "from_socket_type": "Event", "to_node": "__group_out__", "to_socket": "用户/背包", "to_socket_identifier": "用户/背包", "to_socket_type": "Event" },
+          { "from_node": "clf", "from_socket": "GOBE token", "from_socket_identifier": "GOBE token", "from_socket_type": "Event", "to_node": "__group_out__", "to_socket": "GOBE token", "to_socket_identifier": "GOBE token", "to_socket_type": "Event" }
+        ]
+      }
+    },
+    "res": {
+      "location": [640, 250],
+      "width": 220,
+      "name": "res",
+      "label": "资源管线",
+      "type": "Group",
+      "desc": "多包加载 + Brotli 解压 + 本地缓存；同时服务启动页与各玩法。",
+      "inputs": [{ "name": "版本清单", "type": "Event", "default": "" }],
+      "outputs": [{ "name": "资源就绪", "type": "Event" }],
+      "node_tree": {
+        "name": "资源管线 子树",
+        "nodes": {
+          "resc": {
+            "location": [200, 0],
+            "width": 250,
+            "name": "resc",
+            "label": "Res 多包加载",
+            "type": "Class",
+            "desc": "包索引解析 / Spine·Atlas 资源组 / 活动包 setAct 显式控制 / 同 URL 60s 探测复用（libs/res.ts）。",
+            "inputs": [{ "name": "版本清单", "type": "Event", "default": "" }],
+            "outputs": [{ "name": "资源就绪", "type": "Event" }]
+          },
+          "code": {
+            "location": [200, 220],
+            "width": 230,
+            "name": "code",
+            "label": "Code 包编解码",
+            "type": "Class",
+            "desc": "PackInfo 包头 + 文件偏移表；hex / dump 工具（libs/code.ts）。",
+            "inputs": [{ "name": "版本清单", "type": "Event", "default": "" }],
+            "outputs": [{ "name": "文件流", "type": "Any" }]
+          },
+          "br": {
+            "location": [200, 420],
+            "width": 230,
+            "name": "br",
+            "label": "brdec Brotli 解压",
+            "type": "Class",
+            "desc": "Brotli js + wasm 双实现解码（libs/brdec/）。",
+            "inputs": [{ "name": "文件流", "type": "Any", "default": "" }],
+            "outputs": [{ "name": "明文资源", "type": "Any" }]
+          },
+          "cache": {
+            "location": [560, 300],
+            "width": 220,
+            "name": "cache",
+            "label": "本地缓存",
+            "type": "Class",
+            "desc": "FileManager + IDBStorage：wx storage KV / fs 文件降级，Web 走原生。",
+            "inputs": [{ "name": "明文资源", "type": "Any", "default": "" }],
+            "outputs": [{ "name": "缓存命中", "type": "Event" }]
+          }
+        },
+        "links": [
+          { "from_node": "__group_in__", "from_socket": "版本清单", "from_socket_identifier": "版本清单", "from_socket_type": "Event", "to_node": "resc", "to_socket": "版本清单", "to_socket_identifier": "版本清单", "to_socket_type": "Event" },
+          { "from_node": "resc", "from_socket": "资源就绪", "from_socket_identifier": "资源就绪", "from_socket_type": "Event", "to_node": "code", "to_socket": "版本清单", "to_socket_identifier": "版本清单", "to_socket_type": "Event" },
+          { "from_node": "code", "from_socket": "文件流", "from_socket_identifier": "文件流", "from_socket_type": "Any", "to_node": "br", "to_socket": "文件流", "to_socket_identifier": "文件流", "to_socket_type": "Any" },
+          { "from_node": "br", "from_socket": "明文资源", "from_socket_identifier": "明文资源", "from_socket_type": "Any", "to_node": "cache", "to_socket": "明文资源", "to_socket_identifier": "明文资源", "to_socket_type": "Any" },
+          { "from_node": "resc", "from_socket": "资源就绪", "from_socket_identifier": "资源就绪", "from_socket_type": "Event", "to_node": "__group_out__", "to_socket": "资源就绪", "to_socket_identifier": "资源就绪", "to_socket_type": "Event" }
+        ]
+      }
+    },
+    "libs": {
+      "location": [990, 250],
+      "width": 220,
+      "name": "libs",
+      "label": "公共支撑库",
+      "type": "Group",
+      "desc": "被各层依赖的横切能力：平台适配 / 数学 / 空间索引 / 音频。",
+      "inputs": [],
+      "outputs": [
+        { "name": "算法能力", "type": "Any" },
+        { "name": "平台能力", "type": "Any" },
+        { "name": "媒体能力", "type": "Any" }
+      ],
+      "node_tree": {
+        "name": "公共支撑库 子树",
+        "nodes": {
+          "wxp": {
+            "location": [180, 0],
+            "width": 240,
+            "name": "wxp",
+            "label": "wx 平台适配",
+            "type": "Class",
+            "desc": "平台探测 / wx.request 封装 Response-like / AbortController / Blob shim / 存储降级；Web 直通原生（libs/wx.ts）。",
+            "inputs": [],
+            "outputs": [{ "name": "平台 API", "type": "Any" }]
+          },
+          "mtl": {
+            "location": [560, 0],
+            "width": 250,
+            "name": "mtl",
+            "label": "MT 数学库",
+            "type": "Class",
+            "desc": "平台自适应运算（hypot/expm1/cbrt/fma 降级）/ Simpson 积分 / 微分 / 振荡 / PID / ProgModel 进度预测（libs/MT.ts）。",
+            "inputs": [],
+            "outputs": [{ "name": "算法能力", "type": "Any" }]
+          },
+          "mpm": {
+            "location": [560, 200],
+            "width": 230,
+            "name": "mpm",
+            "label": "MPM 空间索引",
+            "type": "Class",
+            "desc": "网格 MapManager：layout + cellKey 层级查询 / 全局对象存储 / 性能统计（libs/mpm.ts）。",
+            "inputs": [],
+            "outputs": [{ "name": "算法能力", "type": "Any" }]
+          },
+          "aud": {
+            "location": [560, 400],
+            "width": 230,
+            "name": "aud",
+            "label": "音频与音效",
+            "type": "Class",
+            "desc": "Au 音频播放 + Syn/ToneEng 程序化合成音效（libs/au.ts、libs/tone.ts）。",
+            "inputs": [],
+            "outputs": [{ "name": "媒体能力", "type": "Any" }]
+          },
+          "base": {
+            "location": [560, 600],
+            "width": 230,
+            "name": "base",
+            "label": "系统·输入·计时",
+            "type": "Class",
+            "desc": "Sys 系统信息 / Inp 输入抽象 / Timer 计时（libs/sys.ts、libs/inp.ts、libs/time.ts）。",
+            "inputs": [],
+            "outputs": [{ "name": "平台能力", "type": "Any" }]
+          }
+        },
+        "links": [
+          { "from_node": "mtl", "from_socket": "算法能力", "from_socket_identifier": "算法能力", "from_socket_type": "Any", "to_node": "__group_out__", "to_socket": "算法能力", "to_socket_identifier": "算法能力", "to_socket_type": "Any" },
+          { "from_node": "mpm", "from_socket": "算法能力", "from_socket_identifier": "算法能力", "from_socket_type": "Any", "to_node": "__group_out__", "to_socket": "算法能力", "to_socket_identifier": "算法能力", "to_socket_type": "Any" },
+          { "from_node": "wxp", "from_socket": "平台 API", "from_socket_identifier": "平台 API", "from_socket_type": "Any", "to_node": "__group_out__", "to_socket": "平台能力", "to_socket_identifier": "平台能力", "to_socket_type": "Any" },
+          { "from_node": "base", "from_socket": "平台能力", "from_socket_identifier": "平台能力", "from_socket_type": "Any", "to_node": "__group_out__", "to_socket": "平台能力", "to_socket_identifier": "平台能力", "to_socket_type": "Any" },
+          { "from_node": "aud", "from_socket": "媒体能力", "from_socket_identifier": "媒体能力", "from_socket_type": "Any", "to_node": "__group_out__", "to_socket": "媒体能力", "to_socket_identifier": "媒体能力", "to_socket_type": "Any" }
+        ]
+      }
+    }
+  },
+  "links": [
+    { "from_node": "ov", "from_socket": "导读", "from_socket_identifier": "导读", "from_socket_type": "String", "to_node": "boot", "to_socket": "平台启动", "to_socket_identifier": "平台启动", "to_socket_type": "Event" },
+    { "from_node": "boot", "from_socket": "主菜单就绪", "from_socket_identifier": "主菜单就绪", "from_socket_type": "Event", "to_node": "home", "to_socket": "主菜单就绪", "to_socket_identifier": "主菜单就绪", "to_socket_type": "Event" },
+    { "from_node": "home", "from_socket": "游戏选择", "from_socket_identifier": "游戏选择", "from_socket_type": "Event", "to_node": "bm", "to_socket": "游戏选择", "to_socket_identifier": "游戏选择", "to_socket_type": "Event" },
+    { "from_node": "home", "from_socket": "游戏选择", "from_socket_identifier": "游戏选择", "from_socket_type": "Event", "to_node": "social", "to_socket": "入口预留", "to_socket_identifier": "入口预留", "to_socket_type": "Event" },
+    { "from_node": "home", "from_socket": "游戏选择", "from_socket_identifier": "游戏选择", "from_socket_type": "Event", "to_node": "others", "to_socket": "入口预留", "to_socket_identifier": "入口预留", "to_socket_type": "Event" },
+    { "from_node": "bm", "from_socket": "比赛结果", "from_socket_identifier": "比赛结果", "from_socket_type": "Event", "to_node": "home", "to_socket": "比赛结果", "to_socket_identifier": "比赛结果", "to_socket_type": "Event" },
+    { "from_node": "cloud", "from_socket": "用户/背包", "from_socket_identifier": "用户/背包", "from_socket_type": "Event", "to_node": "bm", "to_socket": "用户身份", "to_socket_identifier": "用户身份", "to_socket_type": "Event" },
+    { "from_node": "cloud", "from_socket": "GOBE token", "from_socket_identifier": "GOBE token", "from_socket_type": "Event", "to_node": "bm", "to_socket": "GOBE token", "to_socket_identifier": "GOBE token", "to_socket_type": "Event" },
+    { "from_node": "res", "from_socket": "资源就绪", "from_socket_identifier": "资源就绪", "from_socket_type": "Event", "to_node": "bm", "to_socket": "资源就绪", "to_socket_identifier": "资源就绪", "to_socket_type": "Event" },
+    { "from_node": "libs", "from_socket": "平台能力", "from_socket_identifier": "平台能力", "from_socket_type": "Any", "to_node": "cloud", "to_socket": "登录请求", "to_socket_identifier": "登录请求", "to_socket_type": "Event" }
+  ]
+}
