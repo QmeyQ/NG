@@ -4,16 +4,10 @@ LayaAir 羽毛球游戏（微信小游戏 + Web 双端），单机 PVE 与华为
 
 ## 项目规划文档（在线可交互）
 
-项目拆成**两份独立的规划文档**：平台侧（账号/选局/社交/多玩法聚合）与羽毛球游戏（进入比赛之后的全部逻辑）。
-两份文档共用同一个编辑器，所有节点都是分组，双击即可进入查看细分内容。
+整个项目是一份节点文档：平台侧的启动、选局、账号、社交规划，以及羽毛球比赛的完整实现，全部在同一棵树里，逐层双击下钻。
 
-| 文档 | 在线查看 |
-| --- | --- |
-| 平台规划 | [qmeyq.github.io/NG/node-workflow.html](https://qmeyq.github.io/NG/node-workflow.html) |
-| 羽毛球游戏规划 | [qmeyq.github.io/NG/node-workflow.html?doc=badminton.json](https://qmeyq.github.io/NG/node-workflow.html?doc=badminton.json) |
-
-离线查看：在仓库根目录执行 `python -m http.server`，再打开
-`http://localhost:8000/docs/node-workflow.html`（加 `?doc=badminton.json` 看游戏侧）。
+- 在线查看：<https://qmeyq.github.io/NG/node-workflow.html>
+- 离线查看：在仓库根目录执行 `python -m http.server`，再打开 `http://localhost:8000/docs/node-workflow.html`
 
 操作方式：
 
@@ -22,9 +16,9 @@ LayaAir 羽毛球游戏（微信小游戏 + Web 双端），单机 PVE 与华为
 - 单击节点查看属性、描述与端口定义；拖动节点底边可拉高
 - 「导出」可下载整包 ZIP：全工程 JSON + 每个节点的独立 JSON
 
-## 平台规划
+## 文档结构
 
-覆盖从启动到进入比赛的完整平台链路，社交与其他小游戏为占位。
+根层 10 个分组，其中「羽毛球游戏」是一个完整子文档，进入后还有 13 个分组。
 
 | 分组 | 内容 |
 | --- | --- |
@@ -37,9 +31,9 @@ LayaAir 羽毛球游戏（微信小游戏 + Web 双端），单机 PVE 与华为
 | 其他小游戏（规划） | 仅列表占位项，含新增玩法的接入清单 |
 | 资源与存储 | nor / ui / game 分包、版本比对、下载解压、进度预测、IndexedDB / 微信缓存 |
 | 平台适配 | 微信 vs Web、音频解锁、SceneNav 导航、本地设置与隐私标记 |
-| 进入羽毛球游戏 | 打开 badm.ls、PVP/PVE 分支、对局结果回流（当前缺失） |
+| 羽毛球游戏 | 比赛侧全部内容，见下表 |
 
-## 羽毛球游戏规划
+### 羽毛球游戏（子文档）
 
 从「匹配成功进入 `game/badm.ls`」开始，与选局/平台无关。
 
@@ -59,7 +53,7 @@ LayaAir 羽毛球游戏（微信小游戏 + Web 双端），单机 PVE 与华为
 | 界面与表现 | CUI 摇杆箭头、比赛 HUD、弹窗、音频、相机、结算缺失 |
 | 已知问题与待办 | 按 P0 / P1 / P2 归集的同步与判定缺口，可直接当迭代清单 |
 
-### 当前 PVP 待完善项（摘自规划文档）
+### 当前 PVP 待完善项（摘自文档）
 
 - **P0** `gamesWon` 按边统计，换边不翻转，可能判错冠军
 - **P0** 权威切换后击球序号回绕，落后端 Action 被静默丢弃
@@ -75,6 +69,5 @@ LayaAir 羽毛球游戏（微信小游戏 + Web 双端），单机 PVE 与华为
 src/            TypeScript 源码
 docs/
   ├─ node-workflow.html   节点文档编辑器（单文件，零依赖）
-  ├─ index.json           平台规划数据（默认加载）
-  └─ badminton.json       羽毛球游戏规划数据（?doc=badminton.json）
+  └─ index.json           项目规划数据（页面默认加载）
 ```
