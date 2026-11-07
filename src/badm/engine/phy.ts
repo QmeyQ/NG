@@ -1,30 +1,65 @@
 /**
- * Phy - 羽毛球物理模拟引擎，继承 PhyCfg
- * 处理击球发力、空气阻力、网碰撞、地面反弹、睡眠唤醒等物理计算，使用 MapManager 进行空间索引
+ * Phy — 球的状态与时间内核(唯一写入者)
+ *
+ * 写入纪律(联机一致性的前提, 违反任何一条都会让"同一参数+同一时刻=同一状态"失效):
+ * - 起一段弹道只走 `strike(stroke, at, entry)`;
+ * - 静止/钉住只走 `attachAt(pos, at)`;
+ * - 外部(网络)灌状态只走 `restore(快照)`;
+ * - 其余一切地方只读: `sampleAt/sampleRange/flying/resting/poseOut`。
+ * 表现(Ball/节点)由 `poseOut()` 单向取用, 内核永不被表现层回写。
  */
 import { Timer } from "../../libs/time";
 import { MPMD } from "../../libs/mpm";
 import { PhyCfg, State, V3, Fx, Params, NetConfig, BallRegionConfig, NetCollisionParams, NetHitInfo } from "./phyCfg";
-import { Ball } from "../obj/ball";
-import { Obj } from "../obj/obj";
+
+/** 击球入参(与 Ball/StrokeParams 同形, 这里不 import 以免内核反向依赖表现层) */
+export interface StrokeIn {
+    power: number;
+    angH: number;
+    angV: number;
+    spi?: Laya.Vector3 | null;
+}
+
+/** 起点位姿(构造时从表现层取一次, 之后不再回读) */
+export interface PoseIn {
+    pos: { x: number, y: number, z: number };
+    rot: { x: number, y: number, z: number, w: number };
+}
+
+/** 状态快照: 定点整数字段 + 时刻, 与线上格式同构(编码/解码在 libs/pvpProto) */
+export interface StateSnapshot {
+    px: number, py: number, pz: number,
+    vx: number, vy: number, vz: number,
+    sx: number, sy: number, sz: number,
+    sai: number,
+    qx: number, qy: number, qz: number, qw: number,
+    time: number
+}
+
+/** 表现层落点: 只要求能被写入 position/rotation, 不 import LayaAir 类型链 */
+export interface PoseSink {
+    root: { transform: { position: Laya.Vector3, rotation: Laya.Quaternion } };
+}
 
 export class Phy extends PhyCfg {
     private vEff = new Laya.Vector3();
     private algQ = new Laya.Quaternion(); // 球头稳定对齐目标旋转
     private _predMode = false; // 影子预测中: 屏蔽碰撞命中记录副作用
 
-    constructor(ball: Ball, params: Partial<Params> = {}) {
+    constructor(pose: PoseIn, params: Partial<Params> = {}) {
         super();
         this.p = { ...this.DFLT, ...params };
         this.state = new State();
 
         // 边界入(Laya 浮点坐标) → Q10 整数: 球心 = 球位置 + cmOff 旋转偏移
         const cmW = new Laya.Vector3();
-        Laya.Vector3.transformQuat(this.p.cmOff, ball.rot, cmW);
-        const cmx = ball.pos.x + cmW.x; const cmy = ball.pos.y + cmW.y; const cmz = ball.pos.z + cmW.z;
-        this.state.px = Fx.f2i(cmx); this.state.py = Fx.f2i(cmy); this.state.pz = Fx.f2i(cmz);
-        this.state.qx = Fx.f2i(ball.rot.x); this.state.qy = Fx.f2i(ball.rot.y);
-        this.state.qz = Fx.f2i(ball.rot.z); this.state.qw = Fx.f2i(ball.rot.w);
+        Laya.Vector3.transformQuat(this.p.cmOff,
+            new Laya.Quaternion(pose.rot.x, pose.rot.y, pose.rot.z, pose.rot.w), cmW);
+        this.state.px = Fx.f2i(pose.pos.x + cmW.x);
+        this.state.py = Fx.f2i(pose.pos.y + cmW.y);
+        this.state.pz = Fx.f2i(pose.pos.z + cmW.z);
+        this.state.qx = Fx.f2i(pose.rot.x); this.state.qy = Fx.f2i(pose.rot.y);
+        this.state.qz = Fx.f2i(pose.rot.z); this.state.qw = Fx.f2i(pose.rot.w);
         this.state.iSync();
         this.state.time = Timer.now();
         this.startT = this.state.time;
@@ -35,6 +70,175 @@ export class Phy extends PhyCfg {
         this.map = new MPMD(this.GRID);
         this.map.addByTime(this.state.time, this.state.clone());
     }
+
+    // ==================== 唯一写入面(见文件头写入纪律) ====================
+
+    /**
+     * 起一段弹道: 把状态回退到 at 时刻(at 在过去时用内核历史, 历史缺则用 entryPos),
+     * 再施加击球参数, 最后补算到现在。这就是"时间驱动同步"的全部动作, 外部不需要(也不许)
+     * 自己翻 map、改 state、清命中记录。
+     * @param at 击球时刻; 省略=现在(本地击球)
+     */
+    public strike(stroke: StrokeIn, at?: number, entryPos?: { x: number, y: number, z: number }): void {
+        // 入口时刻【不许】跑到本机现在之后: 两端 Timer.now() 差一点(不同设备时钟不可能严格对齐)时,
+        // 一个"未来的"入口会让 state.time 走在墙钟前面, 于是之后每一次 advanceTo(now) 都是空转
+        // ——球就冻在原地不动了。宁可少算那几十毫秒(球位差 = 时钟差 × 球速, 由下一次击球重锚修正),
+        // 也不能让弹道停摆。
+        const wallNow = Timer.now();
+        const t = Math.min(at != null ? at : wallNow, wallNow);
+        if (t < this.state.time) {
+            const hist = this._rollbackTarget(t);
+            if (hist) this.state.copyFrom(hist);
+            else if (entryPos) this._placeCentroidAt(entryPos);
+            this.isSleeping = false;
+            this.lastGndHit = null;
+            this.lastNetHit = null;
+        }
+        this.hit(stroke.power, stroke.angH, stroke.angV, stroke.spi || null, t);
+        // 迟到事件只补 CATCHUP_MAX_MS(见 pvpProto), 超出部分【真的丢掉】并把时钟顶到补算终点
+        if (t < Timer.now()) this.advanceTo(this.catchUpDeadline(t));
+    }
+
+    /**
+     * 附件(不是弹道): 球静止在 pos(钉在持球者手上/停在落点), 零速度, 时钟=at。
+     * 双端各自本地调用, 只要 at/pos 一致结果就一致——这是"发球前球在谁手上"的正确做法。
+     */
+    public attachAt(pos: { x: number, y: number, z: number }, at?: number): void {
+        const t = at != null ? at : Timer.now();
+        this._placeCentroidAt(pos);
+        this.state.vx = 0; this.state.vy = 0; this.state.vz = 0;
+        this.state.sx = 0; this.state.sy = 0; this.state.sz = 0; this.state.sai = 0;
+        this.state.time = t;
+        this.startT = t;
+        this.t = t;
+        this.isCalc = false;
+        this.isSleeping = true;
+        this.lastGndHit = null;
+        this.lastNetHit = null;
+        this.map.clear();
+        this.map.addByTime(t, this.state.clone());
+    }
+
+    /** 网络灌状态的唯一通道: 直接落一份定点整数快照(量纲与内核一致, 不再让外面写散落字段) */
+    public restore(s: StateSnapshot): boolean {
+        if (!s) return false;
+        const nums = [s.px, s.py, s.pz, s.vx, s.vy, s.vz];
+        if (!nums.every((n: any) => typeof n === 'number' && Number.isFinite(n))) return false;
+        this.state.px = s.px | 0; this.state.py = s.py | 0; this.state.pz = s.pz | 0;
+        this.state.vx = s.vx | 0; this.state.vy = s.vy | 0; this.state.vz = s.vz | 0;
+        this.state.sx = (s.sx || 0) | 0; this.state.sy = (s.sy || 0) | 0; this.state.sz = (s.sz || 0) | 0;
+        this.state.sai = (s.sai || 0) | 0;
+        this.state.qx = (s.qx || 0) | 0; this.state.qy = (s.qy || 0) | 0;
+        this.state.qz = (s.qz || 0) | 0; this.state.qw = (s.qw != null ? s.qw : 1024) | 0;
+        // 同 strike: 权威快照的时刻若走在本机墙钟之前没事, 之后就要压回现在, 否则弹道会冻住不算
+        this.state.time = Math.min(Number.isFinite(s.time) ? s.time : Timer.now(), Timer.now());
+        this.state.iSync();
+        this.startT = this.state.time;
+        this.t = this.state.time;
+        this.isSleeping = false;
+        return true;
+    }
+
+    /** 读出定点整数快照(权威端发入口/停止点时给对端的就是这一份) */
+    public snapshot(): StateSnapshot {
+        const st = this.state;
+        return {
+            px: st.px, py: st.py, pz: st.pz,
+            vx: st.vx, vy: st.vy, vz: st.vz,
+            sx: st.sx, sy: st.sy, sz: st.sz, sai: st.sai,
+            qx: st.qx, qy: st.qy, qz: st.qz, qw: st.qw,
+            time: st.time
+        };
+    }
+
+    /**
+     * 把内核推进到时刻 t(允许过去→用历史, 未来→积分)。
+     * 补算上限由 strike() 用 catchUpDeadline 表达; 这里保持"给多少算多少"以便 recovery 复用。
+     */
+    public advanceTo(t: number): void {
+        if (!Number.isFinite(t)) return;
+        // 只推进, 不回抄: simTo 内部已经把【格点】状态提交进权威 state 与历史,
+        // 它返回的是含"不足一格的尾巴"的显示态——抄回来就等于让权威状态离开格点, 两端又开始分叉
+        this.simTo(t);
+    }
+
+    /** 迟到击球的补算终点: now 与 (击球时刻+CATCHUP_MAX_MS) 取小 */
+    public catchUpDeadline(hitTime: number): number {
+        const cap = hitTime + Phy.CATCHUP_MAX_MS;
+        return Timer.now() > cap ? cap : Timer.now();
+    }
+
+    /** 单次只读采样(不推进内核) */
+    public sampleAt(t: number): State { return this.get(t) as State; }
+
+    /** 区间只读采样(鹰眼记录/回放轨迹的唯一取数口) */
+    public sampleRange(from: number, to: number): State[] { return this.get(from, to) as State[]; }
+
+    /** 有没有弹道在飞(外部再也不该读 isCalc/isSleeping) */
+    public flying(): boolean { return this.isCalc && !this.isSleeping; }
+    public resting(): boolean { return !this.isCalc || this.isSleeping; }
+
+    /**
+     * 停算但【不改位姿、不清历史】: 判罚后/回合重置的窗口期用。
+     * 历史要留着给鹰眼记录与回退, 所以这里只熄火, 不碰别的。
+     */
+    public halt(): void {
+        this.isCalc = false;
+        this.isSleeping = false;
+        this.lastNetHit = null;
+        this.lastGndHit = null;
+    }
+
+    /** ≤t 的最近内核状态(只读口, 供需要"那一刻在哪"的外部使用; 别自己翻 map) */
+    public stateUpTo(t: number): State | null { return this._rollbackTarget(t); }
+
+    /** 状态 → 表现(单向): 返回球节点应有的位姿, 由 Ball 写入节点。
+     *  表现层读 disp(含不足一格的尾巴), 权威状态仍停在格点上 */
+    public poseOut(): { pos: Laya.Vector3, rot: Laya.Quaternion } {
+        const st = (this.disp && this.disp.time > this.state.time) ? this.disp : this.state;
+        const off = new Laya.Vector3();
+        Laya.Vector3.transformQuat(this.p.cmOff, st.rot, off);
+        return {
+            pos: new Laya.Vector3(st.pos.x - off.x, st.pos.y - off.y, st.pos.z - off.z),
+            rot: st.rot.clone()
+        };
+    }
+
+    /** @deprecated 用 poseOut()+由 Ball 落节点; 保留是为了不破坏旧调用点, 只是不再被内核依赖 */
+    public applyToNode(node: PoseSink): void {
+        const p = this.poseOut();
+        node.root.transform.position = p.pos;
+        node.root.transform.rotation = p.rot;
+    }
+
+    /** 内核历史的回退目标: ≤t 的最近一条(取不到返回 null, 由调用方走 entryPos) */
+    private _rollbackTarget(t: number): State | null {
+        if (!this.map) return null;
+        const layout = this.map.timeTo(t);
+        const lookback = this.MAX_LOOKBACK || 10;
+        let best: State | null = null;
+        for (let i = 0; i <= lookback; i++) {
+            const set = this.map.get(layout - i);
+            if (!set || !set.size) continue;
+            for (const s of set) {
+                if (s.time <= t && (!best || s.time > best.time)) best = s;
+            }
+        }
+        return best ? best.clone() as State : null;
+    }
+
+    /** 把"节点位置"换算成"球心定点整数"放好(球心=位置+cmOff 旋转偏移, 与构造时同一套边界换算) */
+    private _placeCentroidAt(pos: { x: number, y: number, z: number }): void {
+        const cmW = new Laya.Vector3();
+        Laya.Vector3.transformQuat(this.p.cmOff, this.state.rot, cmW);
+        this.state.px = Fx.f2i(pos.x + cmW.x);
+        this.state.py = Fx.f2i(pos.y + cmW.y);
+        this.state.pz = Fx.f2i(pos.z + cmW.z);
+        this.state.iSync();
+    }
+
+    /** 补算时长上限(ms): 一条迟到的击球按"现在-击球时刻"整段积分能把球打出几十米 */
+    public static readonly CATCHUP_MAX_MS = 600;
 
     /**
      * 击球重置轨迹。
@@ -94,26 +298,6 @@ ns.sy = Fx.f2i(latAmp * Math.sin(rh));
         this.lastGndHit = null;
     }
 
-    /** 外部节点浮点位姿 → 内部 Q10 整数(边界入) */
-    sync(node: Obj) {
-        this.state.px = Fx.f2i(node.pos.x); this.state.py = Fx.f2i(node.pos.y); this.state.pz = Fx.f2i(node.pos.z);
-        this.state.qx = Fx.f2i(node.rot.x); this.state.qy = Fx.f2i(node.rot.y);
-        this.state.qz = Fx.f2i(node.rot.z); this.state.qw = Fx.f2i(node.rot.w);
-        this.state.iSync();
-        this.state.rot = node.rot;
-        this.state.fToI(); this.state.iSync();
-    }
-
-    public applyToNode(node: Obj) {
-        // 边界出: Q10 整数 → Laya 浮点坐标(球位置 = 质心 - cmOff 旋转偏移)
-        const off = new Laya.Vector3();
-        Laya.Vector3.transformQuat(this.p.cmOff, this.state.rot, off);
-        node.root.transform.position = new Laya.Vector3(
-            this.state.pos.x - off.x, this.state.pos.y - off.y, this.state.pos.z - off.z
-        );
-        node.root.transform.rotation = this.state.rot.clone();
-    }
-
     /**
      * 按时间查询球状态(用户规格: 允许输入两个参数 st/et):
      * - get() / get(t): 单时刻模式, 返回该时间(省略=当前时刻)的单个 State
@@ -124,14 +308,15 @@ ns.sy = Fx.f2i(latAmp * Math.sin(rh));
         if (t === undefined || et === undefined) {
             if (!this.isCalc || this.isSleeping) return this.state.clone();
             const tt = t === undefined ? Timer.now() : t;
-            this.state.copyFrom(this.simTo(tt));
-            return this.state;
+            // 返回 target 时刻的状态(尾巴只进 disp); 不回抄进 this.state——那会让权威状态离开格点
+            return this.simTo(tt);
         }
         // 区间模式(用户规格 [st, et]):
         // - 历史段(≤state.time)从 map 缓存提取——物理停算(isCalc=false, 结算后回持球)时
         //   simTo 短路返回同一点, map 是唯一数据源("鹰眼回放球不动"根因);
-        // - 未来段(>state.time 且活球)simTo 前推预测, 快照防污染(查完恢复 state/time/t,
-        //   严禁把内核推进到未来——否则下一帧 simTo(now) 负时长球冻结);
+        // - 未来段(>state.time 且活球)在【影子状态】上积分: 权威 state、历史 map、判罚事件
+        //   一个都不动(旧写法直接拿 simTo 往前推再把 state 抄回来, 可 map 里那些"未来态"留下来了;
+        //   而两端取记录的时刻不同 → 后来 simTo 的缓存起点两头不一致 = 同参数算出两条球路);
         // - st>et 自动交换; 全空兜底当前 state
         let st = t, end = et;
         if (st > end) { const tmp = st; st = end; end = tmp; }
@@ -145,18 +330,25 @@ ns.sy = Fx.f2i(latAmp * Math.sin(rh));
             for (const s of states) out.push(s.clone() as State);
         }
         if (this.isCalc && !this.isSleeping && end > nowT) {
-            const real = this.state.clone();
-            const realTime = this.state.time;
-            const realT = this.t;
-            let cur = Math.max(st, nowT);
-            out.push(this.simTo(cur).clone());
-            while (cur < end) {
-                cur = Math.min(cur + 40, end);
-                out.push(this.simTo(cur).clone());
+            const savedT = this.t, savedSleep = this.isSleeping, pred = this._predMode;
+            this._predMode = true;
+            try {
+                const shadow = this.state.clone();
+                let tFrom = nowT;
+                for (let g = 0; tFrom < end && g < 400; g++) {
+                    const tTo = Math.min(tFrom + 40, end);
+                    this._simSeg(shadow, tFrom, tTo);
+                    tFrom = this.t;
+                    shadow.time = tTo;
+                    out.push(shadow.clone());
+                    // 休眠/发散: _simSeg 停在断点, 再往前推没有意义
+                    if (this.isSleeping || tFrom < tTo) break;
+                }
+            } finally {
+                this._predMode = pred;
+                this.isSleeping = savedSleep;
+                this.t = savedT;
             }
-            this.state.copyFrom(real);
-            this.state.time = realTime;
-            this.t = realT;
         }
         if (out.length === 0) out.push(this.state.clone());
         return out;
@@ -296,6 +488,14 @@ ns.sy = Fx.f2i(latAmp * Math.sin(rh));
                 return;
             }
             if (s.pos.y > gndY + 20) return; // 远离地面直接跳过(省 axes 计算)
+            // 贴地滑行兜底: 球心贴地 + 垂直速度已经很小 = 这是一颗已经落地的死球。薄地面盒给不出
+            // 穿透量(见上), 于是只剩气动阻力在减它的水平速度——实测能沿地面滑出十几米, 两端各自
+            // 入口上的一点点差都被这段滑行放大成"完全不同的位置"。按时间常数把水平速度吃掉。
+            if (s.pos.y < gndY + 0.03 && Math.abs(s.vel.y) < 1.0) {
+                const k = Math.max(0, 1 - dt / 0.05);
+                s.vel.x *= k;
+                s.vel.z *= k;
+            }
         }
 
         const ext = Math.max(reg.headDist + reg.headR, reg.featherDist + reg.featherR);
@@ -717,126 +917,132 @@ ns.sy = Fx.f2i(latAmp * Math.sin(rh));
     }
 
     t: number;
-    simTo(target: number): State {
-        if (!this.isCalc || this.isSleeping) return this.state.clone();
-        let start = this.state;
 
-        // 查找缓存最近状态
-        for (let i = 0; i <= this.MAX_LOOKBACK; i++) {
-            const c = this.map.get(this.map.timeTo(target) - i);
-            if (c && c.size) {
-                let best: State | null = null;
-                for (const s of c) {
-                    if (s.time <= target && (!best || s.time > best.time)) best = s;
-                }
-                if (best) { start = best; this.state.time = best.time; break; }
+    /** 表现层专用状态: 目标时刻落在两个时间格之间时, 尾巴只算到这里, 绝不写回权威 state。
+     *  (权威 state 永远停在 起点+k*GRID 的格点上, 这是"两端逐位一致"的前提) */
+    private disp: State | null = null;
+
+    /** 单段积分的子步上限: 防高速时 1cm 位移上限把一段切成近乎无穷多小步 */
+    private static readonly SEG_MAX_SUBSTEPS = 4000;
+
+    /**
+     * 积一段(段端点恒为时间格的整数倍)。
+     * 子步长只由【当前状态 + 段端点】决定, 和调用方什么时候来问无关——这一条就是联机两端的
+     * 分水岭: 旧写法把 dt 夹到"target - 现在", 于是 60fps 与 30fps 的两端用不同的步长序列
+     * 积同一段弹道, RK4 + 定点舍入必然越飞越分(= 同样参数, 两端球路不一样)。
+     * @returns ok=false 表示途中休眠或发散, 调用方应停止继续推进
+     */
+    private _simSeg(cur: State, tFrom: number, tTo: number): { ok: boolean, slept: boolean } {
+        const baseDt = this.GRID / 1000;
+        let t = tFrom;
+        for (let step = 0; t < tTo; step++) {
+            if (step > Phy.SEG_MAX_SUBSTEPS) {
+                console.warn('[phy] 单段子步超限, 停在 t=', t);
+                this.t = t;
+                return { ok: false, slept: false };
             }
-        }
-
-        let cur = start.clone();
-        const baseDt = 0.001;
-        const maxSteps = 2000;
-
-        this.t = this.state.time;
-
-        // 计算总仿真时长（毫秒）
-        let totalDt = target - this.state.time;
-        let isLongSim = totalDt > 100;  // 大于100ms视为预测轨迹
-
-        // 记录起始侧别（用于短时仿真后的单次检测）
-        let startSide = this._netSide;
-
-        for (let step = 0; step < maxSteps && this.t < target; step++) {
             const v = V3.len(cur.vel);
-            let remainSec = (target - this.t) / 1000;
             let dt = baseDt;
-            if (dt > remainSec) dt = remainSec;
-
-            // 防高速隧穿
-            if (v * dt > 0.01 && this.net) {
-                dt = 0.01 / v;
-            }
+            const left = (tTo - t) / 1000;
+            if (dt > left) dt = left;
+            // 防高速隧穿: 单个子步位移不超过 1cm(只依赖速度这个状态量, 不依赖调用时刻)
+            if (this.net && v * dt > 0.01) dt = 0.01 / v;
             if (dt < 1e-7) break;
 
-            // RK4 积分
             this.rk4(cur, dt);
-
-            // 碰撞处理
             if (this.net) this.procCol(cur, this.net, this.ncol, false, dt);
             if (this.gndNet) this.procCol(cur, this.gndNet, this.gndNcol, true, dt);
             // 碰撞(imp/procCol 浮点写路径)出口量化——状态对齐 1/1024 网格
             cur.quant();
+            this._crossNet(cur);
 
-            // ---- 过网检测：长时仿真时每步检测 ----
-            if (isLongSim && this.net) {
-                let prevSide = this._netSide;
-                let curSide = cur.pos.x >= 0 ? 1 : 0;
-                if (prevSide !== curSide) {
-                    if (cur.pos.y > this._netTopY) {
-                        let direction = curSide === 1 ? 1 : -1;
-                        this._netSide = curSide;
-                        if (this._netCrossCallback) {
-                            this._netCrossCallback(direction);
-                        }
-                        if (!this.lastNetHit) this.lastNetHit = new NetHitInfo();
-                        this.lastNetHit.time = cur.time;
-                        this.lastNetHit.normal.set(0, 0, direction > 0 ? 1 : -1);
-                        this.lastNetHit.headPastNet = true;
-                        this.lastNetHit.featherPastNet = true;
-                    } else {
-                        // 网下穿过，仅更新侧别
-                        this._netSide = curSide;
-                    }
-                }
-            }
-
-            // 更新时间
-            this.t += dt * 1000;
-            cur.time = this.t;
+            t += dt * 1000;
+            cur.time = t;
 
             // 休眠检测
             if (V3.lenSq(cur.vel) < 0.04 && cur.pos.y <= this.gndNet!.cy + 0.01) {
                 cur.vel.setValue(0, 0, 0);
                 cur.sn.setValue(0, 0, 0);
                 cur.sa = 0;
+                cur.time = tTo;
                 this.isSleeping = true;
-                break;
+                this.t = tTo;
+                return { ok: false, slept: true };
             }
-
             if (this.inv(cur)) {
-                console.warn("Phys diverged at t=", this.t);
-                return start.clone();
-            }
-
-            // 缓存状态
-            if (this.t - this.state.time >= 16 && this.map.getTC() < this.maxCache) {
-                this.map.addByTime(this.t, cur.clone());
-                this.state.time = this.t
+                console.warn("Phys diverged at t=", t);
+                this.t = t;
+                return { ok: false, slept: false };
             }
         }
+        this.t = tTo;
+        return { ok: true, slept: false };
+    }
 
-        // ---- 短时仿真：只在循环结束后检测一次 ----
-        if (!isLongSim && this.net) {
-            let curSide = cur.pos.x >= 0 ? 1 : 0;
-            if (startSide !== curSide) {
-                if (cur.pos.y > this._netTopY) {
-                    let direction = curSide === 1 ? 1 : -1;
-                    this._netSide = curSide;
-                    if (this._netCrossCallback) {
-                        this._netCrossCallback(direction);
-                    }
-                    if (!this.lastNetHit) this.lastNetHit = new NetHitInfo();
-                    this.lastNetHit.time = cur.time;
-                    this.lastNetHit.normal.set(0, 0, direction > 0 ? 1 : -1);
-                    this.lastNetHit.headPastNet = true;
-                    this.lastNetHit.featherPastNet = true;
-                } else {
-                    this._netSide = curSide;
-                }
+    /** 过网检测(每个子步一次): 格点固定后两端经历同一序列, 不再分"长/短仿真"两套口径。
+     *  影子/尾巴积分(_predMode)不触发, 免得为表现层多算的一小段把判罚事件提前放出去 */
+    private _crossNet(cur: State): void {
+        if (!this.net || this._predMode) return;
+        const curSide = cur.pos.x >= 0 ? 1 : 0;
+        if (curSide === this._netSide) return;
+        if (cur.pos.y <= this._netTopY) { this._netSide = curSide; return; }
+        const direction = curSide === 1 ? 1 : -1;
+        this._netSide = curSide;
+        if (this._netCrossCallback) this._netCrossCallback(direction);
+        if (!this.lastNetHit) this.lastNetHit = new NetHitInfo();
+        this.lastNetHit.time = cur.time;
+        this.lastNetHit.normal.set(0, 0, direction > 0 ? 1 : -1);
+        this.lastNetHit.headPastNet = true;
+        this.lastNetHit.featherPastNet = true;
+    }
+
+    /**
+     * 时间查询的唯一入口: 先把权威状态沿【时间格】推到 ≤target 的最近格点并逐格提交历史,
+     * 再把不足一格的尾巴算给表现层(disp, 不写权威状态、不进历史)。返回 target 时刻的球状态。
+     */
+    simTo(target: number): State {
+        if (!this.isCalc || this.isSleeping) { this.disp = null; return this.state.clone(); }
+        const GRID = this.GRID;
+
+        // 起点: 内核历史里 ≤target 的最近一份(命中就省掉重积分), 否则用当前 state
+        let start = this.state;
+        for (let i = 0; i <= this.MAX_LOOKBACK; i++) {
+            const c = this.map.get(this.map.timeTo(target) - i);
+            if (!c || !c.size) continue;
+            let best: State | null = null;
+            for (const s of c) {
+                if (s.time <= target && (!best || s.time > best.time)) best = s;
             }
+            if (best) { start = best; break; }
         }
 
-        return cur;
+        const cur = start.clone();
+        this.state.copyFrom(start);
+        this.state.time = start.time;
+        this.t = start.time;
+
+        // 逐格推进 + 提交: 历史里的时刻全是格点, 两端天然对齐
+        while (this.state.time + GRID <= target) {
+            const tFrom = this.state.time;
+            const r = this._simSeg(cur, tFrom, tFrom + GRID);
+            this.state.copyFrom(cur);
+            this.state.time = this.t;
+            if (this.map.getTC() < this.maxCache) this.map.addByTime(this.t, this.state.clone());
+            if (!r.ok) { this.disp = null; return this.state.clone(); }
+        }
+
+        // 尾巴(不足一格): 只给表现层看, 既不进权威状态也不进历史
+        if (this.t < target) {
+            const tail = this.state.clone();
+            const pred = this._predMode, gridT = this.t;
+            this._predMode = true;
+            try { this._simSeg(tail, this.t, target); } finally { this._predMode = pred; this.t = gridT; }
+            tail.time = target;
+            this.disp = tail;
+            return tail.clone();
+        }
+        this.disp = null;
+        return this.state.clone();
     }
 
     /**

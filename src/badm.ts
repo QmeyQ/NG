@@ -90,7 +90,7 @@ export class NewScript extends Laya.Script {
         // 间隔常超 320ms → isDouble 恒 false = "从未正确进入"根因)
         this.ctrl.inp.on('dobclick', () => {
             // 回放中双击任意区域 = 提前退出鹰眼
-            if (this._eaglePlaying) { this._stopEagleEye(); return; }
+            if (this.ballO.playing) { this._stopEagleEye(); return; }
             // 挑战窗口内双击任意区域 = 确认进入 5s 鹰眼挑战阶段(用户规格: 确认了就要增加
             // 这个阶段, 且对端一起进)——PVP 走 confirmEagle(转段+广播, 对端同进回放);
             // PVE 直接本地转段
@@ -164,7 +164,8 @@ export class NewScript extends Laya.Script {
                             for (const pf in headFiles) if (pf.indexOf("head/") === 0 && /\.(png|jpe?g|webp|bmp)$/i.test(pf)) heads.push(pf);
                             heads.sort();
                             const cu = Cloud.getUser();
-                            const head = (cu && cu.head) || "head/0.png";
+                            // 归一再取序号: 旧账号的 head 可能不在当前包里(→ indexOf=-1, 永远落到同一个角色)
+                            const head = Res.headKey(cu && cu.head);
                             const hIdx = heads.indexOf(head);
                             // index 偶数 → girl1, 奇数 → boy; clone 出干净实例(引擎 Animator.cloneTo
                             // 深拷 layers → 每实例独立状态机, 不共享污染; 模板保持干净)
@@ -228,17 +229,17 @@ export class NewScript extends Laya.Script {
                                     this._stopEagleTip();
                                 }
                             };
-                            // 鹰眼记录就绪判定(用户规格: 无存储记录不开挑战窗)——
-                            // 采样中即可用(落地 1s 结算开窗时 2.5s 采样常未完, 判 Done 会错失窗口);
-                            // 播放取快照隔离, 采样继续不污染回放
-
-                            // 鹰眼记录系统接线: 落地→记录前后 2.5s 轨迹; 击球(开球)→清记录
-                            this._setupEagleRec();
+                            // 鹰眼记录与回放都在 Ball 内部(轨迹本来就是球自己的历史), 场景只留三件事:
+                            // 1) 什么时候算"正式回合"——球不认识比赛阶段, 由这里给门控;
+                            // 2) 新回合发球阶段清记录; 3) 回放每帧把相机对准球。
+                            this.ballO.trackGate = () => !!this.mag && this.mag.phase === MatchPhase.RALLYING;
+                            this.ballO.on('playbackEnd', () => this._stopEagleEye());
+                            this.mag.onServeStart = () => this.ballO.clearTrack();
                             // 鹰眼远端确认(PVP): 对端确认进入挑战阶段 → 本地同进回放
                             // (用户规格: 一个玩家确认了另一个玩家一起进)
                             if (this.isPvp) {
                                 (this.mag as any).onEagleRemoteConfirm = () => {
-                                    if (!this._eaglePlaying) this._startEagleEye();
+                                    if (!this.ballO.playing) this._startEagleEye();
                                 };
                             }
 
@@ -318,7 +319,7 @@ export class NewScript extends Laya.Script {
                                     (this.mag as PVP).syncAction({ type: 'hit', params });
                                 }
                                 // 新回合: 鹰眼挑战窗口关(若在回放中先退出)
-                                if (this._eaglePlaying) this._stopEagleEye();
+                                if (this.ballO.playing) this._stopEagleEye();
                                 this.mag.hit(params, this.localCha);
                             };
 
@@ -334,7 +335,7 @@ export class NewScript extends Laya.Script {
                                     return;
                                 }
                                 // 鹰眼窗口/回放中: hit 双击让位 stage 级监听(进鹰眼/退出), 不走特殊接球
-                                if (this._eaglePlaying) {
+                                if (this.ballO.playing) {
                                     this.ctrl.setSpecialHit(false);
                                     return;
                                 }
@@ -461,8 +462,8 @@ export class NewScript extends Laya.Script {
     }
 
     // ============================================================
-    // 鹰眼挑战(落地结算后 3s 窗口内双击触发, 回放最长 3s): 球视角回放落地前后 1 秒
-    // 次数不限(用户设定 0=无限制); 期间仅接管球与相机, 玩家行为不受控
+    // 鹰眼挑战(落地结算后 3s 窗口内双击触发, 回放最长 5s)
+    // 记录与回放都在 Ball 里(轨迹本来就是球自己的历史), 这里只剩"换相机 + 写文案 + 通知规则收尾"
     // ============================================================
 
     /** 挑战窗口开(rule 结算后 3s; 双击直进回放) */
@@ -471,11 +472,9 @@ export class NewScript extends Laya.Script {
     private _peerGone = false;
     /** 窗口提示刷新定时器(每秒 3→2→1) */
     private _eagleTipTid: string | null = null;
-    /** 回放 3s 硬限时定时器(到时无论回放进度强制切回相机) */
-    private _eagleMaxTid: string | null = null;
-    /** 回放倒计时最近秒数(防每帧重复写文本) */
-    private _eagleTipSec = 0;
-
+    /** 鹰眼临时相机 + 被让位的原相机(退出时按原样恢复) */
+    private _eagleCam: Laya.Camera | null = null;
+    private _eagleCamsOff: Laya.Camera[] = [];
 
     /** 窗口期提示: "双击进入鹰眼挑战 N" 每秒递减(3→2→1), 窗口关闭时清
      *  (倒计时音只在发球阶段末 3 秒响, 此处不播——用户规格) */
@@ -490,231 +489,79 @@ export class NewScript extends Laya.Script {
         });
     }
 
-    /** 清窗口提示(窗口关/进入回放时; 回放提示由 _onEagleTick 接管) */
+    /** 清窗口提示(窗口关/进入回放时; 回放期文案由 _startEagleEye 写一次"鹰眼挑战中") */
     private _stopEagleTip(): void {
         if (this._eagleTipTid != null) { Timer.clear(this._eagleTipTid); this._eagleTipTid = null; }
-        this._eagleTipSec = 0;   // 让下一次进回放重新写"鹰眼挑战中"
         this.ui.setEagleTip(null);
     }
 
-    /** 回放进行中 */
-    private _eaglePlaying = false;
-    private _eagleTid: string | null = null;
-    private _eagleCam: Laya.Camera | null = null;
-    private _eagleCamsOff: Laya.Camera[] = [];
-    private _eaglePts: Laya.Vector3[] = [];
-    private _eagleT0 = 0;
-    private _eagleDur = 5000;
-    private _eagleOrigPos: Laya.Vector3 | null = null;
-
-    // ============================================================
-    // 鹰眼回放记录(用户规格): 开球后球第一次落地立即记录本次模拟前后 2.5s;
-    // 开球时清除记录; 鹰眼挑战时找存储记录播放(不再 predict 重演——提前结束/时长不稳根治);
-    // 无存储记录则跳过鹰眼确认阶段(rule 开窗前 hasEagleRec 判定)
-    // ============================================================
-
-    /** 前后各 2.5s */
-    private static readonly EAGLE_REC_HALF = 2000;
-
     /**
-     * 鹰眼记录接线(用户规格 v2):
-     * - 球落地(RALLYING 对打期首落)→ 立即从 phy.map 提取落地前 2.5s 轨迹 + 落地后采样;
-     *   没清不覆盖(已有记录时新落地不重记——旧记录保留到发球阶段才清, 结算后的鹰眼
-     *   窗口期双击回放的正是上回合正式记录; 死球期乱飞的落地也进不来)
-     * - 清记录 = 每次发球阶段开始(mag.onServeStart, rule COUNTDOWN→SERVING 转换时调)
-     * - 死球期(COUNTDOWN/SERVING)落地不记录不判罚(击球允许, 球乱飞无害——SERVING
-     *   开始 _assignBall 掐灭残球钉回发球员手)
-     * - PVE/PVP 两端都记录(各自本地 phy.map 历史一致)
-     */
-    private _setupEagleRec(): void {
-        this.ballO.on('groundHit', (pos: any) => { if (this.mag.eagleRecT0 <= 0) this._eagleRecOnGround(pos); });
-        // RALLYING 期击球(合法救球)清记录: 旧落地结算已被 hit cancel 作废, 轨迹同步作废,
-        // 新轨迹重新累积→下次落地重记——同回合"落地→救起→再落地"时鹰眼记录跟着最新
-        // 判分落地走(修"回放显示对面出球而得分是己方": L1 旧记录未清挡了 L2 新记录)。
-        // 死球期(COUNTDOWN/SERVING)击球不清(规格 v2: 窗口期先击球再双击回放不丢记录)
-        this.ballO.on('hit', () => {
-            if (this.mag && this.mag.phase === MatchPhase.RALLYING) this._eagleRecClear();
-        });
-        // 清记录: 发球阶段开始(用户规格: 每次发球阶段才清)——最终兜底
-        if (this.mag) this.mag.onServeStart = () => { this._eagleRecClear(); };
-    }
-
-    /** RALLYING 对打期首落地: 提取 [tLand-2.5s, tLand] 历史轨迹 + 启动落地后追加采样 */
-    private _eagleRecOnGround(pos: any): void {
-        // 仅 RALLYING 对打期落地才记录(用户规格: 死球期不记录)——COUNTDOWN 死球期/
-        // SERVING 发球期(球钉手上, 落地只能是死球残留球)的落地一概不记
-        // 【魔数修正】MatchPhase 实际值 WAITING=0/COUNTDOWN=1/SERVING=2/RALLYING=3——
-        // 旧 `phase < 2` 实际拦的是 WAITING+COUNTDOWN, SERVING 落地被当活球放行(记录错乱源)
-        if (!this.mag || this.mag.phase !== MatchPhase.RALLYING) return;
-        const phy: any = this.ballO && this.ballO.phy;
-        if (!phy || !phy.map) return;
-        const tLand = phy.state.time;
-        const tBack = tLand - NewScript.EAGLE_REC_HALF;
-        // 从 map 提取时间窗内历史 state(按时间升序)
-        const states: any[] = Array.from(phy.map.get() as any)
-            .sort((a: any, b: any) => a.time - b.time)
-            .filter((s: any) => s.time >= tBack && s.time <= tLand);
-        if (states.length < 2) return;  // 几乎无飞行历史(发球未击出等)不记
-        const pts: Laya.Vector3[] = states.map((s: any) =>
-            new Laya.Vector3(s.pos.x, s.pos.y, s.pos.z));
-        // 首点对齐 tBack(历史首点可能晚于 tBack——时长以实际点列为准, 播放 dur 动态)
-        pts.push(new Laya.Vector3(pos.x, pos.y, pos.z));  // 落地点收尾
-        this.mag.eagleRecT0 = Timer.now();
-        // 落地后追加采样: 40ms 采球实际位置(ballO), 直到满 2.5s 或物理停止(isCalc=false 球被钉手)
-        this.mag.eagleRecPts = this.ballO.phy.get(this.mag.eagleRecT0 - NewScript.EAGLE_REC_HALF, this.mag.eagleRecT0 + NewScript.EAGLE_REC_HALF) as State[];
-
-        
-    }
-
-    /** 清除记录(发球阶段开始=新回合, 用户规格: 每次发球阶段才清) */
-    private _eagleRecClear(): void {
-        if (this.mag.eagleRecTid != null) { Timer.clear(this.mag.eagleRecTid); this.mag.eagleRecTid = null; }
-        this.mag.eagleRecPts = null;
-        this.mag.eagleRecDone = false;
-        this.mag.eagleRecT0 = -1
-    }
-
-    /**
-     * 进入鹰眼回放(用户规格 v2: 播存储记录, 不再 predict 重演):
-     * - 记录 = 落地时存的轨迹点(落地前 2.5s 取自 phy.map 历史 + 落地后采样)
-     * - 播放时长 = 记录实际时长(点数×40ms 语义由采样密度自然决定, 插值按 dur 均摊)
-     *   ——提前结束根治: predict 重演时长不稳, 存储记录时长精确
-     * - 无存储记录直接 return(窗口本来就不开, 兜底)
+     * 进入鹰眼回放: 球位/轨迹线由 Ball 播记录(Ball 不再 predict 重演——重演时长不稳,
+     * 存储记录时长精确), 这里只负责机位与文案。
+     * 本机没记录时 pvp 已把对端记录灌进 ball; 两端都没有记录就只挂文案, 阶段照旧走完——
+     * 旧版这里直接 return 且不写字, 表现就是"一个人进了鹰眼, 另一端什么都没发生"。
      */
     private _startEagleEye(): void {
-        if (!this.ballO || !this.ballO.phy) return;
-        const phy = this.ballO.phy;
+        if (!this.ballO) return;
         // 一确认进挑战, "双击进入鹰眼挑战 N"这类确认期文字就必须立刻消失(用户规格: 只显示鹰眼挑战中)
         this._stopEagleTip();
-
-        // 播存储记录(用户规格: 鹰眼挑战时找存储记录来播放)——
-        // 采样中即可播: 取 slice 快照隔离(落地后采样可能未完, 继续采样不影响回放插值)
-        if (!this.mag.eagleRecPts || this.mag.eagleRecPts.length < 2) {
-            // 本机没记录就用对端传来的记录(pvp._onEagleMsg 已经写进 eagleRecPts);
-            // 两边都没有就不播画面, 阶段由 rule 自己的挑战计时走完(权威端)/由状态帧带走(对端)——
-            // 旧版这里直接 return 且不写字, 表现就是"一个人进了鹰眼, 另一端什么都没发生"。
-            console.warn('[badm] 鹰眼无可用轨迹(本机与对端记录都缺), 跳过回放');
+        if (!this.ballO.hasTrack() || !this._setupEagleCamera() || !this.ballO.startPlayback()) {
+            if (!this.ballO.hasTrack()) console.warn('[badm] 鹰眼无可用轨迹(本机与对端记录都缺), 跳过回放');
+            this._restoreEagleCamera();
             this.ui.setEagleTip("鹰眼挑战中");
             return;
         }
+        this.ballO.onPlaybackPose = (x: number, y: number, z: number) => this._eagleLookAt(x, y, z);
+        this.ui.setEagleTip("鹰眼挑战中");
+    }
 
-        // 球接管: 暂停正常模拟驱动, 存原位置(结束还原)
-        this.ballO.suspend = true;
-        this.mag.eaglePlaying = true;  // PVP 非权威端 applyState 防回放中重开窗提示
-        this._eagleOrigPos = new Laya.Vector3(this.ballO.x, this.ballO.y, this.ballO.z);
-        this._eaglePlaying = true;
-        // 播放时长 = 记录点数×采样间隔(前段历史帧率密度不均, 按总时长均摊插值即可)
-        this._eagleDur = Math.max(2000, Math.min(this.mag.eagleRecPts.length * 40, 5000));
-
-        // 画鹰眼轨迹(前后1s始终显示): 用 phy 轨迹渲染器覆盖为 pts 黄色线段
-        phy.drawTrack();  // 触发 _ensureTrk 建渲染器
-        if (phy.trkLines) {
-            phy.trkLines.clear();
-            const c = new Laya.Color(1, 1, 0, 1);
-            for (let i = 0; i < this.mag.eagleRecPts.length - 1; i++)
-                phy.trkLines.addLine(this.mag.eagleRecPts[i].pos, this.mag.eagleRecPts[i + 1].pos, c, c);
-        }
-
-        // 鹰眼相机: 挂 Scene3D; 原相机(左右分屏)全关, 结束恢复
+    /** 换鹰眼机位: 原相机(左右分屏)全关, 按轨迹整体形态定一个固定机位。成功返回 true */
+    private _setupEagleCamera(): boolean {
+        const pts = this.ballO.trackPts;
         const scene3d: any = UI.findNode(this.owner, "Scene3D");
-
-        console.log("进入鹰眼", scene3d)
-
-        if (!scene3d) { this._stopEagleEye(); return; }
+        if (!pts || !pts.length || !scene3d) return false;
         this._eagleCamsOff = [];
         for (const c of scene3d._children || []) {
             if (c instanceof Laya.Camera && c.active) { c.active = false; this._eagleCamsOff.push(c); }
         }
-        this._eagleCam = new Laya.Camera();
-        this._eagleCam.clearFlag = Laya.CameraClearFlags.Sky;
-        // 固定机位(用户规格"视角不要乱晃"): 按轨迹整体形态一次定位——
-        // 首尾中点 + 垂直于轨迹水平走向的侧向偏移 + 抬高(电视转播机位),
-        // 回放期间位置不动(旧版每帧沿速度反向偏移, 弹跳/转折方向突变 = 相机乱晃根因),
-        // 只 lookAt 转动跟随球
-        {
-            const a = this.mag.eagleRecPts[0].pos, b = this.mag.eagleRecPts[this.mag.eagleRecPts.length - 1].pos;
-            if (a.x && b.x) {
-                const mx = (a.x + b.x) / 2, mz = (a.z + b.z) / 2;
-                let dx = b.x - a.x, dz = b.z - a.z;
-                const dl = Math.hypot(dx, dz);
-                if (dl < 1e-4) { dx = 0; dz = 1; } else { dx /= dl; dz /= dl; }
-                // 侧向(轨迹走向右手侧)偏移 3.5m + 抬高 2.2m, 全程覆盖轨迹视野
-                const sx = -dz * 3.5, sz = dx * 1;
-                this._eagleCam.transform.position = new Laya.Vector3(mx + sx, 2.2, mz + sz);
-                this._eagleCam.transform.lookAt(new Laya.Vector3(mx, 0.5, mz), new Laya.Vector3(0, 1, 0));
-            }
-        }
-        scene3d.addChild(this._eagleCam);
-
-        this._eagleT0 = Timer.now();
-        this._eagleTid = Timer.frameLoop(this._onEagleTick);
-        this._eagleTipSec = 0; // 下一帧 _onEagleTick 写一次"鹰眼挑战中"(不再刷倒数秒数)
-        // 3s 硬限时: 到时无论回放进度强制切回(帧循环插值异常也兜底)
-        this._eagleMaxTid = Timer.setTimeout(this._eagleDur, () => {
-            this._eagleMaxTid = null;
-            if (this._eaglePlaying) this._stopEagleEye();
-        });
+        const cam = new Laya.Camera();
+        cam.clearFlag = Laya.CameraClearFlags.Sky;
+        // 固定机位(用户规格"视角不要乱晃"): 首尾中点 + 垂直于轨迹走向的侧向偏移 3.5m + 抬高 2.2m
+        // (电视转播机位)。回放期间位置不动, 只 lookAt 转动跟随球——旧版每帧沿速度反向偏移,
+        // 球一弹跳/转折相机就跟着甩, 那才是"乱晃"根因。
+        const a = pts[0].pos, b = pts[pts.length - 1].pos;
+        const mx = (a.x + b.x) / 2, mz = (a.z + b.z) / 2;
+        let dx = b.x - a.x, dz = b.z - a.z;
+        const dl = Math.hypot(dx, dz);
+        if (dl < 1e-4) { dx = 0; dz = 1; } else { dx /= dl; dz /= dl; }
+        cam.transform.position = new Laya.Vector3(mx - dz * 3.5, 2.2, mz + dx);
+        cam.transform.lookAt(new Laya.Vector3(mx, 0.5, mz), new Laya.Vector3(0, 1, 0));
+        scene3d.addChild(cam);
+        this._eagleCam = cam;
+        return true;
     }
 
-    /** 鹰眼回放四元数插值缓存（避免每帧 new） */
-private _eagleQ = new Laya.Quaternion();
+    /** 回放每帧(Ball 给的球位): 机位不动, 只让镜头转向球 */
+    private _eagleLookAt(x: number, y: number, z: number): void {
+        if (!this._eagleCam) return;
+        this._eagleCam.transform.lookAt(new Laya.Vector3(x, y, z), new Laya.Vector3(0, 1, 0));
+    }
 
-    /** 回放帧: 采样点线性插值驱动球位置 + 相机固定机位只 lookAt 转动跟随(不乱晃) */
-    private _onEagleTick = (): void => {
-        if (!this._eaglePlaying || !this.ballO || !this._eagleCam || !this.mag.eagleRecPts) return;
-        const el = Timer.now() - this._eagleT0;
-        // 已经进入回放: 只说明"正在鹰眼挑战", 不再显示确认窗口那套倒计时文字(用户规格)
-        if (this._eagleTipSec !== -1) {
-            this._eagleTipSec = -1;
-            this.ui.setEagleTip("鹰眼挑战中");
-        }
-   const f = Math.min(el / this._eagleDur, 1) * (this.mag.eagleRecPts.length - 1);
-    const i = Math.min(Math.floor(f), this.mag.eagleRecPts.length - 2);
-    if (i < 0) return;
-    const t = Math.min(f - i, 1);
-
-    const s1 = this.mag.eagleRecPts[i];
-    const s2 = this.mag.eagleRecPts[i + 1];
-
-    // ---- 位置: 线性插值 ----
-    const p1 = s1.pos;
-    const p2 = s2.pos;
-    const px = p1.x + (p2.x - p1.x) * t;
-    const py = p1.y + (p2.y - p1.y) * t;
-    const pz = p1.z + (p2.z - p1.z) * t;
-    this.ballO.x = px;
-    this.ballO.y = py;
-    this.ballO.z = pz;
-
-          // ---- 旋转: 四元数 slerp 插值两帧姿态(State.rot 已由 iSync 重建为单位四元数) ----
-    Laya.Quaternion.slerp(s1.rot, s2.rot, t, this._eagleQ);
-
-    this.ballO.rot = this._eagleQ//this.mag.eagleRecPts[i].rot;
-
-        // 固定机位只转动跟随球(位置不动, 防乱晃)
-        this._eagleCam.transform.lookAt(new Laya.Vector3(px, py, pz), new Laya.Vector3(0, 1, 0));
-
-        if (el >= this._eagleDur) this._stopEagleEye();
-    };
-
-    /** 退出鹰眼: 恢复球位置/正常驱动/原相机, 销毁临时相机; 清全部定时器与挑战窗口;
-     *  结束鹰眼确认阶段(rule 正式计时阶段: 转下一回合 COUNTDOWN) */
-    private _stopEagleEye(): void {
-        if (this._eagleTid != null) { Timer.clear(this._eagleTid); this._eagleTid = null; }
-        if (this._eagleMaxTid != null) { Timer.clear(this._eagleMaxTid); this._eagleMaxTid = null; }
-        if (this.ballO) {
-            this.ballO.suspend = false;
-            if (this._eagleOrigPos) this.ballO.root.transform.position = this._eagleOrigPos;
-            if (this.ballO.phy) this.ballO.phy.resetTrk();  // 清鹰眼轨迹, 恢复正常 drawTrack
-        }
+    /** 恢复原相机、销毁鹰眼临时相机(幂等) */
+    private _restoreEagleCamera(): void {
         for (const c of this._eagleCamsOff) c.active = true;
         this._eagleCamsOff = [];
         if (this._eagleCam) { this._eagleCam.removeSelf(); this._eagleCam.destroy(); this._eagleCam = null; }
-        this._eaglePts = [];
-        this._eagleOrigPos = null;
-        this._eaglePlaying = false;
+    }
+
+    /** 退出鹰眼: 停回放(球自己还原位置与轨迹线)+ 恢复相机 + 结束确认阶段。幂等 */
+    private _stopEagleEye(): void {
+        if (this.ballO) {
+            this.ballO.onPlaybackPose = null;
+            this.ballO.stopPlayback();
+        }
+        this._restoreEagleCamera();
         if (this.mag) {
-            this.mag.eaglePlaying = false;
             // 回放结束 → 结束鹰眼确认阶段(用户规格: 阶段化计时; 超时路径由 rule._updateEagleConfirm 自转)
             try { this.mag.rule.endEagleConfirm(); } catch (e) { }
         }
@@ -878,11 +725,16 @@ private _eagleQ = new Laya.Quaternion();
 
             const img: any = UI.findNode(item, "img");
             if (!img) return;
-            img.color = info.team === "蓝方" ? "#3388FF" : "#FF4444";
-            img.alpha = 0.2;
-            const head: string = info.head || "head/0.png";
-            if (img.__head === head) return;
+            // 头像就是头像: 队色已经由 id_1 文字给出, 再给贴图乘一层红/蓝(旧值)会把脸染成色块
+            img.color = "#FFFFFF";
+            img.alpha = 1;
+            // 键归一走 Res.headKey: 旧账号/空值在包里不存在时静默空白 = "头像没显示"
+            const head: string = Res.headKey(info.head);
+            // 守卫要看纹理还在不在: 池化节点同键但纹理已丢(缓存通道断)时, 只比 __head 会永久黑图
+            const texLost = !img.texture;
+            if (img.__head === head && !texLost) return;
             img.__head = head;
+            if (!head) return;
             Res.get("ui/" + head, (tex: Laya.Texture) => {
                 if (tex && !img.destroyed && img.__head === head) UI.setTex(img, tex);
             });
@@ -940,10 +792,14 @@ private _eagleQ = new Laya.Quaternion();
     }
 
     onDestroy(): void {
-        // 鹰眼回放资源清理(帧循环/硬限时/临时相机/球驱动恢复) + 窗口定时器
-        if (this._eaglePlaying) this._stopEagleEye();
-        // 鹰眼记录采样定时器清理
-        this._eagleRecClear();
+        // 鹰眼资源清理: 回放接管(球驱动/轨迹线)、临时相机、本回合记录。
+        // 这里不走 _stopEagleEye——那还会推 rule 转段, 场景正在销毁, 不该再动比赛状态机
+        if (this.ballO) {
+            this.ballO.onPlaybackPose = null;
+            this.ballO.stopPlayback();
+            this.ballO.clearTrack();
+        }
+        this._restoreEagleCamera();
         // Control/Inp 销毁: dobclick 队列与 stage 触摸监听随之解除(防跨场景残留引用死实例)
         if (this.ctrl) this.ctrl.destroy();
         // mag 销毁(崩坑根因): PVP 心跳线程/帧回调/提案定时器必须随场景销毁停——

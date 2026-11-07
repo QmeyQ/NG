@@ -237,7 +237,7 @@ export class Rule {
         if (this._pendingSettle) return;
         const m = this._mag;
         // 落地时刻(物理时轴): 与击球消息 time 同系, 救起判定 tHit < tLand 用
-        const tLand = m.ball && m.ball.phy ? m.ball.phy.state.time : Timer.now();
+        const tLand = m.ball ? m.ball.snapshot().time : Timer.now();
         const delay = m.isPvpMode ? Rule.SETTLE_DELAY : 0;
         const tid = Timer.setTimeout(delay, () => {
             this._pendingSettle = null;
@@ -274,7 +274,7 @@ export class Rule {
         if (!m.isAuthoritative || !m.onEagleChallengeWindow) return;
         if (m.phase === MatchPhase.ENDED) return; // 比赛结束不开(挡结束流程)
         // 无回放记录不开窗(用户规格: 没有存储记录则跳过鹰眼确认阶段)
-        if (m.eagleRecPts && m.eagleRecPts.length < 2) return;
+        if (m.ball && !m.ball.hasTrack()) return;
         this.closeEagleWindow(); // 防重: 先关旧窗再开新窗
         this._eagleWinOpen = true;
         m.onEagleChallengeWindow?.(true);
@@ -390,6 +390,9 @@ export class Rule {
         this._updateServerAndReceiver();
         this._forceTeleportAll();
         this._resetBallForServe();
+        // 开局把球停在发球员身前: 不这么做, 准备阶段那颗球就杵在场景原点 (0,0,0)
+        // (钉球只在发球阶段做, 见 Mag._updateBallHolding, 所以准备期要有人给它一个位置)
+        m.parkBallAt(m.currentServer);
         this.closeEagleWindow();
         Timer.start(Rule.COUNTDOWN_KEY);
         m.onCountdown?.(5, 3);
@@ -422,13 +425,13 @@ export class Rule {
 
     /**
      * 鹰眼确认阶段推进(用户规格: 正式计时阶段只设 3 秒):
-     * - 回放中(eaglePlaying)计时挂起——回放最长 5s > 3s, 不挂起会把阶段切走
+     * - 回放中(ball.playing)计时挂起——回放最长 5s > 3s, 不挂起会把阶段切走
      * - 每秒变化广播 onCountdown(sec, 3)(全程红)——badm 显示"双击进入鹰眼挑战 N"+倒计时音
      * - 超时 → 清窗 + 转下一回合(换边传送消费暂存标志)
      */
     private _updateEagleConfirm(): void {
         const m = this._mag;
-        if (m.eaglePlaying) return;
+        if (m.ball && m.ball.playing) return;
         const remain = Math.max(0, Rule.EAGLE_CONFIRM_MS - this._elapsed(Rule.EAGLE_KEY));
         if (remain <= 0) {
             this.endEagleConfirm();
@@ -608,14 +611,10 @@ export class Rule {
             
         }
         this._offerEagleChallenge()
-console.log(m.eagleRecPts?.map((s: any) => {
-    const p = s.pos, q = s.rot;
-    return `(${p.x.toFixed(3)},${p.y.toFixed(3)},${p.z.toFixed(3)}/${q.x.toFixed(3)},${q.y.toFixed(3)},${q.z.toFixed(3)},${q.w.toFixed(3)})`;
-}).join('||'));
         // 鹰眼确认阶段(用户规格: 结算后正式计时阶段, 只设 3 秒)——有回放记录才进,
-        // 期间双击进回放(eaglePlaying 时计时挂起), 超时/回放结束 → _beginNextRound 转回合;
+        // 期间双击进回放(ball.playing 时计时挂起), 超时/回放结束 → _beginNextRound 转回合;
         // 无记录跳过确认阶段直接转回合(旧 _offerEagleChallenge 窗口机制废除, 阶段化取代)
-        if (m.eagleRecPts && (m.eagleRecPts as any[]).length >= 2 && !m.matchEnded) {
+        if (m.ball && m.ball.hasTrack() && !m.matchEnded) {
             m.phase = MatchPhase.EAGLE_CONFIRM;
             this._eagleTeleport = needTeleport;  // 换边传送暂存(确认期结束转段时消费)
             Timer.start(Rule.EAGLE_KEY);
@@ -664,17 +663,11 @@ console.log(m.eagleRecPts?.map((s: any) => {
     private _resetBallForServe(): void {
         const m = this._mag;
         if (!m.ball) return;
-        m.ball.phy.isCalc = false;
-        m.ball.phy.isSleeping = false;
-        const phy = (m.ball as any).phy;
-        if (phy) {
-            // 鹰眼回放记录已迁 badm.ts EagleRec(落地时存前后 2.5s 轨迹, 击球时清)——
-            // 旧 predict 快照(_eagleReplayState)链路已废; map 历史保留供记录提取
-            phy.clearNetHit?.();
-            phy.clearGroundHit?.();
-            // 缓存策略(用户规格): 停止模拟不立即清缓存——map 历史保留(鹰眼记录/回放查询),
-            // 缓存手动清理(clearCache 显式调用), 每次模拟开始前先清缓存(phy.hit 入口已清)
-        }
+        m.authBallHolderId = -1;
+        m.ball.halt();
+        // 熄火只走 Ball 的公开面: 内核开关与命中记录只有它自己能动。
+        // (这里原来直接写 phy.isCalc/isSleeping 再 clearNetHit/clearGroundHit——
+        //  "谁都能改物理"正是联机两端各改各的的入口)
     }
 
     /**
@@ -687,13 +680,10 @@ console.log(m.eagleRecPts?.map((s: any) => {
         if (server && m.ball) {
             for (const p of m.players) p.isP = false;
             server.isP = true;
-            m.ball.phy.isCalc = false;
-            const phy = (m.ball as any).phy;
-            if (phy) {
-                phy.clearNetHit?.();
-                phy.clearGroundHit?.();
-                // 缓存策略(用户规格): 停止模拟不清缓存, 手动清理
-            }
+            // 权威端自己也要记这份持球口径: 非权威端是从状态帧里读的, 权威端不写就一直是 -1,
+            // 于是「谁持球」这个判定在两端不等价 → 发球阶段一端钉回手上、另一端还躺在地上
+            m.authBallHolderId = server.id;
+            m.ball.halt();
         }
     }
 

@@ -12,11 +12,28 @@
  * 以往所有"各打各的 / 球瞬移 / 无限远击球"类问题, 根因都是这条没成立: 要么击球参数根本没同步,
  * 要么用连续球位覆盖代替了参数同步。
  *
+ * ── 行为规则(用户规格; 改同步逻辑前先照这几条对, 别从故障现象反推) ─────────
+ * R1 击球入口四件套一条不落: 击球参数 + 击球时刻 + 入口球状态 + 击球者坐标。
+ *    自己这一拍也要按权威入口重锚——本地先出手用的是【本端当时】的球状态, 权威端用的是【它当时】
+ *    的球状态, 两份入口差一点, 同参数同时刻也会飞成两条线(run38 稳态 median 2.6m 的来源)。
+ * R2 兜底只有这一条: 球停止后同步一次权威端的球位置(ball_stop), 用于对齐, 不当常规纠偏。
+ * R3 任何状态都要能被同步立即带走, 不允许"本地某个字段卡住状态推进"——
+ *    典型反例: 钉球等本端自己判"球停下了", 而两端各自积分的休眠/贴地判定不会同时成立,
+ *    于是一端钉回手上、另一端还躺在地上(run38 连续 36 个超差样本)。持球者只认权威 id。
+ * R4 比分结算【不】停止球的模拟: 落地后自己滚完; 只有下一回合分配球权才钉回手上。
+ * R5 鹰眼: 双击确认后只显示"鹰眼挑战中"(确认期倒计时文字立刻消失), 且两端必须一起进
+ *    (轨迹记录一起同步; 本机没记录也照样进阶段, 不能一个人进鹰眼另一个人没进)。
+ *
  * ── 通道 ─────────────────────────────────────────────────────────────
  * A. 帧通道  Gnet.sendFrame(压缩 JSON)             心跳级, 只有【角色画面】走这里(可丢, 下一帧自愈)
  *      权威帧  { players:[{id,x,y,z,isP,state,isMoving,moveState,anim}] }
  *      非权威帧 { nonAuthFrame:true, playerId, authId, time, cha:{...} }
- * B. 消息通道 Gnet.sendToClient(1, json[, target])  可靠: 事件与协商, 以及【击球事件】
+ * B. 消息通道 Gnet.sendToClient(1, json[, target])  事件与协商, 以及【击球事件】
+ *      注意: GOBE 的 sendToClient 实测会丢包(限流/中继丢弃, 信封序号缺口为证), 并非真可靠。
+ *      "必须可靠送达"的种类(hit_event/ball_stop)由 msg.ts 加【应用层 ACK+重传】兜底:
+ *      发送方挂起待 ack, 300ms 未收到 event_ack 就重发同一载荷(接收方按 eventId/stopId 去重,
+ *      重发幂等), 收到 ack 才销账, ~5s 仍无 ack 放弃并告警(交给击球序号缺口 recovery 兜底)。
+ *      其余种类(action/anim/帧)丢了自愈, 不挂起重传。
  * C. 服务器通道 本项目未启用: room.sendToServer 全仓无调用, realtimeserver/index.ts 按
  *      data.type 分发而客户端发的是 data.kind → 那条链路是死的。要上服务器权威,
  *      第一步就是让服务端与本表对齐(kind + v + authTerm), 而不是再加一套字段名。
@@ -25,6 +42,11 @@
  * 收发信封与逐 kinds 的通道/去重/过期规则在 libs/gobe/msg.ts, 本文件只定字段语义与校验。
  * action                  本地操作回放(move/hit), 权威端负责把它转成带 seq 的击球事件
  * hit_event               一条弹道的全部入口(参数 + 时刻 + 入口状态锚点), 【必须可靠送达】
+ * ball_stop               {stopId, bt, ball, hs} 球停止后权威端报一次自己的球位(R2 兜底);
+ *                         hs=发送方此刻的权威击球序号, 接收端已应用更晚击球时整条丢弃
+ *                         (上一回合的停球不能钉住新回合正在飞的球)
+ * event_ack               {ackKind, ackId} 可靠种类的签收: 接收端接受/去重命中都会回一份,
+ *                         发送方收到才销账; ack 自己丢了无所谓, 重传会再换一份(幂等)
  * state_propose / state_confirm / state_final   比分与阶段状态机三步确认
  * auth_declare            权威端声明(任期 authTerm 单调递增, 小的一律降级)
  * sync_recover / ball_recovery                  请求一次权威快照 / 回一份权威快照(链断重锚)
@@ -71,6 +93,8 @@ export const Kind = {
     HitEvent: 'hit_event',
     /** 球停止(落地/死球)后权威端报一次自己的球位 —— 参数同步的兜底对齐点 */
     BallStop: 'ball_stop',
+    /** 可靠种类(hit_event/ball_stop)的签收: 发送方凭它销账, 见 msg.ts 的 ACK+重传层 */
+    EventAck: 'event_ack',
     /** 非权威端上报的本地角色帧 */
     NonAuthFrame: 'non_auth_frame',
     /** 选举候选通告 */
@@ -81,14 +105,6 @@ export const Kind = {
 
 /** 单次重放最多补算的飞行时长: 迟到的击球只补这么多, 剩下的差由 ball_stop 兜底对齐 */
 export const CATCHUP_MAX_MS = 600;
-/** 与权威球快照误差超过此值 → 直接落位 */
-export const BALL_SNAP_ERR = 0.9;
-/** 误差在此值与 SNAP 之间 → 按比例轻拉, 小于此值不动(本端模拟本就一致) */
-export const BALL_SOFT_ERR = 0.12;
-/** 软拉系数: 每帧补掉误差的比例 */
-export const BALL_SOFT_RATE = 0.35;
-/** 击球事件声称的球位与本端同一时刻历史的容差: 超出说明两端早已分叉, 要走快照恢复 */
-export const BALL_HIT_TOL = 1.5;
 
 /** 定点网格, 与物理内核 Fx.SC 一致 */
 export const Q = 1024;
@@ -135,12 +151,6 @@ export function isVec3(p: any): boolean {
     return !!p && isNum(p.x) && isNum(p.y) && isNum(p.z);
 }
 
-/** 球/角色坐标是否在场地范围内(超出必定是坏包: 一帧不可能飞这么远) */
-export function inBounds(p: any): boolean {
-    return isVec3(p)
-        && Math.abs(p.x) <= BOUNDS.x && Math.abs(p.z) <= BOUNDS.z && p.y >= -0.5 && p.y <= BOUNDS.y;
-}
-
 // ==================== 球快照编解码 ====================
 
 /** 线上形态: [px,py,pz, vx,vy,vz, sx,sy,sz, sai, time] —— 全整数(定点) + 仿真时钟 */
@@ -181,41 +191,6 @@ export function decodeBall(a: any): BallSnap | null {
     };
 }
 
-/**
- * 把快照写回物理状态: 定点整数 + iSync 一起走, 只写浮点影子会被下一步的 iSync 抹掉
- * (旧版 _applyHitEvents 就是这么把球"复原"失败的)。
- * @returns 是否写入成功
- */
-export function applyBall(phy: any, snap: BallSnap): boolean {
-    const st = phy && phy.state;
-    if (!st || !snap) return false;
-    st.px = Math.round(snap.pos.x * Q); st.py = Math.round(snap.pos.y * Q); st.pz = Math.round(snap.pos.z * Q);
-    st.vx = Math.round(snap.vel.x * Q); st.vy = Math.round(snap.vel.y * Q); st.vz = Math.round(snap.vel.z * Q);
-    st.sx = Math.round(snap.sn.x * Q); st.sy = Math.round(snap.sn.y * Q); st.sz = Math.round(snap.sn.z * Q);
-    st.sai = Math.round(snap.sai * Q);
-    if (typeof st.iSync === 'function') st.iSync();
-    return true;
-}
-
-/** 快照与本端球位置的距离(m) */
-export function ballDistance(snap: BallSnap, st: any): number {
-    const p = snap.pos;
-    const x = isNum(st.px) ? st.px / Q : (st.pos ? st.pos.x : NaN);
-    const y = isNum(st.py) ? st.py / Q : (st.pos ? st.pos.y : NaN);
-    const z = isNum(st.pz) ? st.pz / Q : (st.pos ? st.pos.z : NaN);
-    if (!isNum(x) || !isNum(y) || !isNum(z)) return Infinity;
-    return Math.hypot(p.x - x, p.y - y, p.z - z);
-}
-
-/** 按比例把本端球位向权威快照拉近(仅软校正, 速度留给物理自己演算) */
-export function blendBallToSnap(phy: any, snap: BallSnap, rate: number): void {
-    const st = phy && phy.state;
-    if (!st) return;
-    const mix = (i: string, t: number): number => Math.round((st[i] / Q + (t - st[i] / Q) * rate) * Q);
-    st.px = mix('px', snap.pos.x); st.py = mix('py', snap.pos.y); st.pz = mix('pz', snap.pos.z);
-    if (typeof st.iSync === 'function') st.iSync();
-}
-
 // ==================== 击球事件校验 ====================
 
 export type HitCtx = {
@@ -237,8 +212,8 @@ export type HitCtx = {
  * 所以除了"这封信本身就是坏的"以外一律放行, 绝不能用参数把同步挡在门外——
  * 挡下的每一条都是一段无法收敛的弹道, 而偏差只会越滚越大。
  *  - 结构坏(没有 eventId/时刻/入口状态、坐标非有限数值) → 拒(收了只会写进 NaN)
- *  - 迟到很久 / 球已飞到场外 → 【不再拒】: 补算时长由 catchUpBall 封顶,
- *    剩下的差由"球停止后报一次权威球位"(ball_stop)兜底对齐, 这两层才是本模型的纠偏手段
+ *  - 迟到很久 / 球已飞到场外 → 【不再拒】: 补算时长由内核 strike 的 catchUpDeadline 封顶,
+ *    剩下的差由"球停止后报一次权威球位"(ball_stop)兜底对齐 —— 这两层才是本模型的纠偏手段
  *  - 任期比本机认定的旧 → 仍拒(这是身份围栏, 不是参数限制: 旧权威的弹道入口必须作废)
  */
 export function checkHit(ev: any, ctx: HitCtx): string | null {
@@ -301,36 +276,6 @@ export function decodeTrack(buf: any): { pos: { x: number, y: number, z: number 
         pts.push({ pos: { x: x / Q, y: y / Q, z: z / Q } });
     }
     return pts.length >= 2 ? pts : null;
-}
-
-/**
- * 补算时长封顶: 返回 hitAt 应当积分到的目标时刻。
- * 陈旧事件只补 CATCHUP_MAX_MS, 剩下的差由权威球快照下一帧校正——
- * 这一条就是"无限远击球"的硬闸。
- */
-export function catchUpTarget(time: number, now: number): number {
-    if (!isNum(time)) return now;
-    const cap = time + CATCHUP_MAX_MS;
-    return now > cap ? cap : now;
-}
-
-/**
- * 把"从 from 起算的球"补算到 now, 超出 CATCHUP_MAX_MS 的部分【真的丢掉】。
- * 关键在于补算完要把仿真时钟顶到现在: 只 simTo(catchUpTarget(...)) 会把 state.time 留在
- * from+封顶值 上, 下一帧 Ball.onUpdate 的 phy.get(现在) 会把丢下的那段照样补完——
- * "封顶"就成了延迟执行, 实测权威端一次发球补算把球甩到 17m 外(双端球位差 18m)。
- * @returns 是否执行了写入(状态不可用时 false, 调用方不必特判)
- */
-export function catchUpBall(phy: any, from: number, now: number): boolean {
-    const st = phy && phy.state;
-    if (!st || !isNum(from) || !isNum(now) || !isNum(st.time)) return false;
-    // 刚写进状态的位/速属于 from 这一刻, 时钟必须跟着回到 from, 否则本端会拿"现在"的时钟
-    // 去套一段过去的状态, 补算长度就乱了
-    st.time = from;
-    const target = catchUpTarget(from, now);
-    if (target > st.time) { try { phy.simTo(target); } catch (e) { } }
-    st.time = now;
-    return true;
 }
 
 // ==================== 角色指派(单一权威源) ====================
