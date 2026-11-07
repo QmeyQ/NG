@@ -1,33 +1,9 @@
 {
-  "name": "羽毛球游戏工作流",
+  "name": "羽毛球游戏",
   "nodes": {
-    "bov": {
-      "location": [
-        0,
-        0
-      ],
-      "width": 240,
-      "name": "bov",
-      "label": "羽毛球游戏总览",
-      "type": "Doc",
-      "desc": "本工作流从「匹配成功进入 game/badm.ls」开始，不含平台菜单与选局（那是另一份平台工作流）。覆盖：入口装配、比赛管理、规则判定、PVP 同步、物理、碰撞、对象、输入、AI、UI，以及已确认的问题清单。",
-      "inputs": [],
-      "outputs": [
-        {
-          "name": "导读",
-          "type": "Event"
-        }
-      ],
-      "use_custom_color": true,
-      "color": [
-        0.25,
-        0.51,
-        0.96
-      ]
-    },
     "bentry": {
       "location": [
-        320,
+        0,
         0
       ],
       "width": 240,
@@ -373,7 +349,7 @@
     },
     "bmag": {
       "location": [
-        640,
+        320,
         0
       ],
       "width": 240,
@@ -650,7 +626,7 @@
     },
     "brule": {
       "location": [
-        960,
+        640,
         0
       ],
       "width": 240,
@@ -1070,8 +1046,8 @@
     },
     "bpvp": {
       "location": [
-        0,
-        195
+        960,
+        0
       ],
       "width": 240,
       "name": "bpvp",
@@ -1529,7 +1505,7 @@
     },
     "bpve": {
       "location": [
-        320,
+        0,
         195
       ],
       "width": 240,
@@ -1715,7 +1691,7 @@
     },
     "bnet": {
       "location": [
-        640,
+        320,
         195
       ],
       "width": 240,
@@ -1977,7 +1953,7 @@
     },
     "bphy": {
       "location": [
-        960,
+        640,
         195
       ],
       "width": 240,
@@ -2325,8 +2301,8 @@
     },
     "bcoll": {
       "location": [
-        0,
-        390
+        960,
+        195
       ],
       "width": 240,
       "name": "bcoll",
@@ -2493,7 +2469,7 @@
     },
     "bobj": {
       "location": [
-        320,
+        0,
         390
       ],
       "width": 240,
@@ -2626,7 +2602,7 @@
     },
     "binput": {
       "location": [
-        640,
+        320,
         390
       ],
       "width": 240,
@@ -2888,7 +2864,7 @@
     },
     "bai": {
       "location": [
-        960,
+        640,
         390
       ],
       "width": 240,
@@ -3188,8 +3164,8 @@
     },
     "bui": {
       "location": [
-        0,
-        585
+        960,
+        390
       ],
       "width": 240,
       "name": "bui",
@@ -3411,7 +3387,7 @@
     },
     "brisk": {
       "location": [
-        320,
+        0,
         585
       ],
       "width": 240,
@@ -3812,16 +3788,6 @@
   },
   "links": [
     {
-      "from_node": "bov",
-      "from_socket": "导读",
-      "from_socket_identifier": "导读",
-      "from_socket_type": "Event",
-      "to_node": "bentry",
-      "to_socket": "进入比赛",
-      "to_socket_identifier": "进入比赛",
-      "to_socket_type": "Event"
-    },
-    {
       "from_node": "bentry",
       "from_socket": "PVP",
       "from_socket_identifier": "PVP",
@@ -3993,5 +3959,5 @@
     }
   ],
   "tree_type": "ProjectTree",
-  "export_name": "Badminton-游戏工作流"
+  "export_name": "羽毛球-项目规划"
 }

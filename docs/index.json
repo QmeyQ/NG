@@ -1,33 +1,9 @@
 {
-  "name": "平台工作流",
+  "name": "平台规划",
   "nodes": {
-    "pov": {
-      "location": [
-        0,
-        0
-      ],
-      "width": 240,
-      "name": "pov",
-      "label": "平台总览",
-      "type": "Doc",
-      "desc": "社交小游戏平台（LayaAir，微信小游戏 + Web）。平台层负责账号、选局、社交与多玩法聚合；羽毛球是首个已上线玩法，且拥有独立工作流（见 badminton.json）。当前社交与其他小游戏均为占位。",
-      "inputs": [],
-      "outputs": [
-        {
-          "name": "导读",
-          "type": "Event"
-        }
-      ],
-      "use_custom_color": true,
-      "color": [
-        0.25,
-        0.51,
-        0.96
-      ]
-    },
     "pstart": {
       "location": [
-        430,
+        0,
         0
       ],
       "width": 240,
@@ -252,7 +228,7 @@
     },
     "pmenu": {
       "location": [
-        860,
+        430,
         0
       ],
       "width": 240,
@@ -513,7 +489,7 @@
     },
     "pselect": {
       "location": [
-        1290,
+        860,
         0
       ],
       "width": 240,
@@ -792,8 +768,8 @@
     },
     "pmatch": {
       "location": [
-        0,
-        400
+        1290,
+        0
       ],
       "width": 240,
       "name": "pmatch",
@@ -1160,7 +1136,7 @@
     },
     "pcloud": {
       "location": [
-        430,
+        0,
         400
       ],
       "width": 240,
@@ -1491,7 +1467,7 @@
     },
     "psocial": {
       "location": [
-        860,
+        430,
         400
       ],
       "width": 240,
@@ -1586,7 +1562,7 @@
     },
     "pgame": {
       "location": [
-        1290,
+        860,
         400
       ],
       "width": 240,
@@ -1665,8 +1641,8 @@
     },
     "pres": {
       "location": [
-        0,
-        800
+        1290,
+        400
       ],
       "width": 240,
       "name": "pres",
@@ -1899,7 +1875,7 @@
     },
     "pplat": {
       "location": [
-        430,
+        0,
         800
       ],
       "width": 240,
@@ -2014,14 +1990,14 @@
     },
     "bmb": {
       "location": [
-        860,
+        430,
         800
       ],
       "width": 240,
       "name": "bmb",
-      "label": "羽毛球游戏（独立工作流）",
-      "type": "Doc",
-      "desc": "进入比赛场景后与平台／选局无关。本节点只做跳转说明：其内部流程见 badminton.json（另一份工作流文档）。",
+      "label": "进入羽毛球游戏",
+      "type": "Group",
+      "desc": "点击羽毛球后进入 game/badm.ls，此后与选局/平台无关；比赛内部的全部细节见另一份文档 badminton.json。",
       "inputs": [
         {
           "name": "进入比赛",
@@ -2039,7 +2015,123 @@
         0.25,
         0.51,
         0.96
-      ]
+      ],
+      "node_tree": {
+        "name": "进入羽毛球游戏 子树",
+        "nodes": {
+          "k1": {
+            "location": [
+              70,
+              70
+            ],
+            "width": 240,
+            "name": "k1",
+            "label": "打开比赛场景",
+            "type": "流程",
+            "desc": "SceneNav.open('game/badm.ls')；文件头注释提示 uuid 通道断链，需本地 fileconfig 兜底。",
+            "inputs": [
+              {
+                "name": "进入比赛",
+                "type": "Event"
+              }
+            ],
+            "outputs": [
+              {
+                "name": "场景就绪",
+                "type": "Event"
+              }
+            ]
+          },
+          "k2": {
+            "location": [
+              390,
+              70
+            ],
+            "width": 240,
+            "name": "k2",
+            "label": "PVP / PVE 分支",
+            "type": "流程",
+            "desc": "场景内按 gameMode 与 gamePlayerCount 创建 PVP 或 PVE，平台侧不再参与。",
+            "inputs": [
+              {
+                "name": "场景就绪",
+                "type": "Event"
+              }
+            ],
+            "outputs": [
+              {
+                "name": "对局开始",
+                "type": "Event"
+              }
+            ]
+          },
+          "k3": {
+            "location": [
+              710,
+              70
+            ],
+            "width": 240,
+            "name": "k3",
+            "label": "对局结果回流",
+            "type": "流程",
+            "desc": "ENDED 后目前没有结算面板与结果回写，返回平台入口缺失（见 badminton.json 的 P0 清单）。",
+            "inputs": [
+              {
+                "name": "对局开始",
+                "type": "Event"
+              }
+            ],
+            "outputs": [
+              {
+                "name": "对局结果",
+                "type": "Event"
+              }
+            ]
+          }
+        },
+        "links": [
+          {
+            "from_node": "__group_in__",
+            "from_socket": "进入比赛",
+            "from_socket_identifier": "进入比赛",
+            "from_socket_type": "Event",
+            "to_node": "k1",
+            "to_socket": "进入比赛",
+            "to_socket_identifier": "进入比赛",
+            "to_socket_type": "Event"
+          },
+          {
+            "from_node": "k1",
+            "from_socket": "场景就绪",
+            "from_socket_identifier": "场景就绪",
+            "from_socket_type": "Event",
+            "to_node": "k2",
+            "to_socket": "场景就绪",
+            "to_socket_identifier": "场景就绪",
+            "to_socket_type": "Event"
+          },
+          {
+            "from_node": "k2",
+            "from_socket": "对局开始",
+            "from_socket_identifier": "对局开始",
+            "from_socket_type": "Event",
+            "to_node": "k3",
+            "to_socket": "对局开始",
+            "to_socket_identifier": "对局开始",
+            "to_socket_type": "Event"
+          },
+          {
+            "from_node": "k3",
+            "from_socket": "对局结果",
+            "from_socket_identifier": "对局结果",
+            "from_socket_type": "Event",
+            "to_node": "__group_out__",
+            "to_socket": "对局结果",
+            "to_socket_identifier": "对局结果",
+            "to_socket_type": "Event"
+          }
+        ]
+      }
     }
   },
   "links": [
@@ -2142,8 +2234,18 @@
       "to_socket": "进入比赛",
       "to_socket_identifier": "进入比赛",
       "to_socket_type": "Event"
+    },
+    {
+      "from_node": "bmb",
+      "from_socket": "对局结果",
+      "from_socket_identifier": "对局结果",
+      "from_socket_type": "Event",
+      "to_node": "pmatch",
+      "to_socket": "对局结果",
+      "to_socket_identifier": "对局结果",
+      "to_socket_type": "Event"
     }
   ],
   "tree_type": "ProjectTree",
-  "export_name": "平台-项目工作流"
+  "export_name": "平台-项目规划"
 }
