@@ -6,3 +6,9 @@ release
 node_modules
 bin/js/bundles
 web-api+tool
+LayaAir3.4
+Python
+__pycache__
+*.pyc
+tool/web
+server/te/te.zip

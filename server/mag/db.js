@@ -72,6 +72,19 @@ async function dbDel(id) {
     }
 }
 
+/** 按 id 前缀查行(遗留 __shield__ 审计行一次性清理用) */
+async function dbListPrefix(prefix, limit) {
+    try {
+        const rows = await w().executeQueryByIdPrefix(String(prefix), limit);
+        dbOk = true;
+        return rows;
+    } catch (e) {
+        dbOk = false;
+        w().noteOpError(e);
+        return null;
+    }
+}
+
 /** 全部行 */
 async function dbList() {
     try {
@@ -85,4 +98,4 @@ async function dbList() {
     }
 }
 
-module.exports = { dbGet, dbPut, dbDel, dbList, dbErr, get dbOk() { return dbOk; } };
+module.exports = { dbGet, dbPut, dbDel, dbList, dbListPrefix, dbErr, get dbOk() { return dbOk; } };

@@ -14,11 +14,15 @@
  */
 import { Cha, ChaState, StrokeParams } from "../obj/cha";
 import { Ball } from "../obj/ball";
-import { Rule, MatchMode, MatchPhase, TeamSide, CourtCfg, MatchCfg } from "./rule";
+import { Rule } from "./rule";
+import type { RuleHost } from "./rule";
+import { MatchMode, MatchPhase, TeamSide, MatchState } from "./matchState";
+import type { CourtCfg, MatchCfg } from "./matchState";
 import { Timer } from "../../libs/time";
 import { State } from "../engine/phyCfg";
 
-export { MatchMode, MatchPhase, TeamSide, CourtCfg, MatchCfg };
+export { MatchMode, MatchPhase, TeamSide } from "./matchState";
+export type { CourtCfg, MatchCfg } from "./matchState";
 
 type ReceiveAction = "none" | "jumphit" | "diving";
 
@@ -59,18 +63,39 @@ interface HitState {
     pendExecId: string | null;
 }
 
-export abstract class Mag {
+export abstract class Mag implements RuleHost {
     public ball: Ball;
     public players: Cha[] = [];
+    /** 本局创建并拥有的场景角色实例；模型模板由 Res 缓存管理，不在这里销毁。 */
+    private _characterNodes: Laya.Sprite3D[] = [];
     public rule: Rule;
 
-    public phase: MatchPhase = MatchPhase.WAITING_START;
-    public scores: Record<TeamSide, number> = { [TeamSide.LEFT]: 0, [TeamSide.RIGHT]: 0 };
-    public servingTeam: TeamSide = TeamSide.LEFT;
-    public currentHitTeam: TeamSide = TeamSide.RIGHT;
-    public gamesWon: Record<TeamSide, number> = { [TeamSide.LEFT]: 0, [TeamSide.RIGHT]: 0 };
-    public gameEnded = false;
-    public matchEnded = false;
+    /**
+     * 比赛共享状态: Rule 是唯一状态机推进者, PVP.applyState 是远端权威覆盖的唯一入口,
+     * 其余模块只读。下面的 get/set 保留既有字段访问面(调用方无需感知 MatchState)。
+     */
+    public readonly state = new MatchState();
+
+    get phase(): MatchPhase { return this.state.phase; }
+    set phase(v: MatchPhase) { this.state.phase = v; }
+    get scores(): Record<TeamSide, number> { return this.state.scores; }
+    set scores(v: Record<TeamSide, number>) { this.state.scores = v; }
+    get servingTeam(): TeamSide { return this.state.servingTeam; }
+    set servingTeam(v: TeamSide) { this.state.servingTeam = v; }
+    get currentHitTeam(): TeamSide { return this.state.currentHitTeam; }
+    set currentHitTeam(v: TeamSide) { this.state.currentHitTeam = v; }
+    get gamesWon(): Record<TeamSide, number> { return this.state.gamesWon; }
+    set gamesWon(v: Record<TeamSide, number>) { this.state.gamesWon = v; }
+    get gameEnded(): boolean { return this.state.gameEnded; }
+    set gameEnded(v: boolean) { this.state.gameEnded = v; }
+    get matchEnded(): boolean { return this.state.matchEnded; }
+    set matchEnded(v: boolean) { this.state.matchEnded = v; }
+    get isBallAssigned(): boolean { return this.state.isBallAssigned; }
+    set isBallAssigned(v: boolean) { this.state.isBallAssigned = v; }
+    get isServeShot(): boolean { return this.state.isServeShot; }
+    set isServeShot(v: boolean) { this.state.isServeShot = v; }
+    get lastScoreReason(): string { return this.state.lastScoreReason; }
+    set lastScoreReason(v: string) { this.state.lastScoreReason = v; }
 
     public teamMap: Map<Cha, TeamSide> = new Map();
     public court: CourtCfg;
@@ -80,16 +105,29 @@ export abstract class Mag {
     public mode: MatchMode;
     public isSingle = false;
 
-    public isBallAssigned = false;
     /**
      * 权威状态声明的持球角色 id(-1 = 当前无人持球)。
      * 非权威端本地 isP 会被普通角色帧跳过本地控制角色, 单靠 isP 判断"球该不该钉在手上"
      * 在两端不等价; 这个值只来自权威状态, 是唯一可信的持球口径。
      */
     public authBallHolderId = -1;
-    public isServeShot = false;
+    /**
+     * 权威端最近一次"球静止"位姿(随状态帧下发)。两端各自的蒙皮手节点姿态差一拍
+     * (挥拍动画/插值), 各钉各的手会稳定差 0.3~0.6m; 球静止时照抄权威球位是无损的。
+     */
+    public authBallPose: { x: number, y: number, z: number, at: number } | null = null;
+
+    /** 最近一次出手是否还在传播窗口内(击球事件/阶段帧可能还在路上): 此窗口内不许把球钉回去。
+     *  以【本机落弹道的墙钟时刻】为准, 不能用弹道锚点时间: 远端重放带的是过去的击球时刻,
+     *  事件迟到超过 800ms 时按锚点算会误判成"没刚击球", 把球钉回击球前的手位。 */
+    public ballJustHit(): boolean {
+        const li = this.ball && this.ball.lastHitInfo;
+        if (!li) return false;
+        const at = li.appliedAt != null ? li.appliedAt : li.time;
+        return at != null && Timer.now() - at < 800;
+    }
+
     public lastHitCha: Cha | null = null;
-    public lastScoreReason = "";
     public isAuthoritative = true;
     /** PVP 联机模式标志(非权威端 rule 不本地推进, 状态由权威端 state 帧驱动) */
     public isPvpMode = false;
@@ -153,7 +191,9 @@ export abstract class Mag {
     public onCountdown?: (count: number, redAt?: number) => void;
     public onStateChange?: () => void;
     public onTeleport?: () => void;
-    public onHit?: () => void;
+    /** 真正出手(前摇结束、弹道已起算)通知: 权威端据此在【出手时刻】广播击球事件。
+     *  不能在按下时发——出手比按下晚一个前摇(~180ms), 提前发的锚点会让两端的弹道差 0.18s。 */
+    public onHit?: (info?: { chaId: number; stroke: StrokeParams; time: number }) => void;
     /** 联机对端离场(离开房间/房间解散/本机已不在房间): badm 接线提示玩家, 空串=房间已没了 */
     public onPeerLeft?: (playerId: string) => void;
     /** 鹰眼挑战窗口开关通知(rule 结算后 3s 窗口): true=开(badm 显示"双击进入"倒计时提示), false=关 */
@@ -167,10 +207,17 @@ export abstract class Mag {
         this.rule.closeEagleWindow();
     }
 
-    constructor(p1: Laya.Sprite3D, ball: Ball, isSingle: boolean = false, p2?: Laya.Sprite3D, racket?: Laya.Sprite3D) {
+    constructor(
+        scene3D: Laya.Scene3D,
+        ball: Ball,
+        isSingle: boolean,
+        modelTemplates: { [modelId: number]: Laya.Sprite3D },
+        racket: Laya.Sprite3D,
+        roleModels: number[]
+    ) {
         this.ball = ball;
         this.isSingle = isSingle;
-        this._initPlayers(p1, p2, racket);
+        this._initPlayers(scene3D, modelTemplates, racket, roleModels);
 
         this.mode = this.players.length === 2 ? MatchMode.SINGLE : MatchMode.DOUBLE;
         this.court = this.mode === MatchMode.SINGLE
@@ -215,55 +262,102 @@ export abstract class Mag {
             this._camera = null;
             this._cameraTarget = null;
         }
+        // 只销毁本局 clone 出来的场景实例；modelTemplates 是 Res 缓存资源，绝不销毁。
+        for (const node of this._characterNodes) {
+            if (node && !(node as any).destroyed) {
+                node.removeSelf();
+                node.destroy();
+            }
+        }
+        this._characterNodes.length = 0;
+        this.players.length = 0;
     }
 
-    private _initPlayers(p1: Laya.Sprite3D, p2?: Laya.Sprite3D, racket?: Laya.Sprite3D): void {
-        const scene3D = p1.parent as Laya.Sprite3D;
-        const charNodes: Laya.Sprite3D[] = [p1];
+    private _initPlayers(
+        scene3D: Laya.Scene3D,
+        modelTemplates: { [modelId: number]: Laya.Sprite3D },
+        racket: Laya.Sprite3D,
+        roleModels: number[]
+    ): void {
+        if (!scene3D) throw new Error('[Mag] Scene3D 未提供，不能创建角色实例');
+        if (!modelTemplates || !roleModels) throw new Error('[Mag] modelTemplates / roleModels 缺失');
 
-        const total = this.isSingle ? 2 : 4;
-        for (let i = 1; i < total; i++) {
-            // 角色按 id 轮换 prefab: 偶数 id 用 p1, 奇数 id 用 p2(若提供)否则 p1
-            const src = (p2 && i % 2 === 1) ? p2 : p1;
-            const clone = src.clone() as Laya.Sprite3D;
-            clone.active = true;  // p2 作 clone 源可能 active=false, clone 后恢复参与渲染
-            scene3D.addChild(clone);
-            charNodes.push(clone);
+        // roleModels 使用参赛槽位索引：单打槽位为 [0,1]，双打为 [0,1,2,3]。
+        // 单打第二个 Cha 的 cha.id 虽然是 2，但它对应 roleModels[1] / allCha[1]。
+        const roleSlots = this.isSingle ? [0, 1] : [0, 1, 2, 3];
+        const charNodes: Laya.Sprite3D[] = [];
+        try {
+            for (const roleSlot of roleSlots) {
+                const modelId = Number(roleModels[roleSlot]);
+                if (modelId !== 0 && modelId !== 1) {
+                    throw new Error(`[Mag] roleModels[${roleSlot}] 无效: ${roleModels[roleSlot]}`);
+                }
+                const template = modelTemplates[modelId];
+                if (!template) throw new Error(`[Mag] 缺少模型模板 modelId=${modelId}, roleSlot=${roleSlot}`);
+
+                // 每个参赛位置只 clone 一次。模板永不进场景，所有 Cha.root 都是独立实例。
+                const instance = template.clone() as Laya.Sprite3D;
+                if (!instance) throw new Error(`[Mag] 角色 clone 失败: roleSlot=${roleSlot}, modelId=${modelId}`);
+                instance.active = true;
+                scene3D.addChild(instance);
+                charNodes.push(instance);
+                this._characterNodes.push(instance);
+            }
+        } catch (error) {
+            // 初始化失败时回滚已创建实例，避免半场角色残留。
+            for (const node of charNodes) {
+                if (node && !(node as any).destroyed) {
+                    node.removeSelf();
+                    node.destroy();
+                }
+            }
+            this._characterNodes.length = 0;
+            throw error;
         }
-        // p2 仅作 clone 源, 隐藏不参与渲染(若提供且非 p1)
-        if (p2 && p2 !== p1) p2.active = false;
 
-        const cha1 = new Cha(p1, undefined);
-        cha1.id = 0;
-        cha1.odd = false;
-        this.players.push(cha1);
+        try {
+            const cha1 = new Cha(charNodes[0], undefined);
+            cha1.id = 0;
+            cha1.odd = false;
+            this.players.push(cha1);
 
-        if (this.isSingle) {
-            const cha3 = new Cha(charNodes[1], undefined);
-            cha3.id = 2;
-            cha3.odd = false;
-            this.players.push(cha3);
-        } else {
-            const cha2 = new Cha(charNodes[1], undefined);
-            cha2.id = 1;
-            cha2.odd = true;
+            if (this.isSingle) {
+                const cha3 = new Cha(charNodes[1], undefined);
+                cha3.id = 2;
+                cha3.odd = false;
+                this.players.push(cha3);
+            } else {
+                const cha2 = new Cha(charNodes[1], undefined);
+                cha2.id = 1;
+                cha2.odd = true;
 
-            const cha3 = new Cha(charNodes[2], undefined);
-            cha3.id = 2;
-            cha3.odd = false;
+                const cha3 = new Cha(charNodes[2], undefined);
+                cha3.id = 2;
+                cha3.odd = false;
 
-            const cha4 = new Cha(charNodes[3], undefined);
-            cha4.id = 3;
-            cha4.odd = true;
+                const cha4 = new Cha(charNodes[3], undefined);
+                cha4.id = 3;
+                cha4.odd = true;
 
-            this.players.push(cha2, cha3, cha4);
+                this.players.push(cha2, cha3, cha4);
+            }
+
+            // 球拍挂载(用户规格): 角色与拍分离, 每个角色挂 racket 到 RP 骨骼节点, 对齐坐标系
+            if (racket) for (const node of charNodes) this._attachRacket(node, racket);
+
+            // girl1/boy 角色均自带 mesh/动画(lh 占位符链), 跳过 girl 专用 setDress
+            console.log('[mag] 角色自带 mesh/动画, 跳过 setDress');
+        } catch (error) {
+            this.players.length = 0;
+            for (const node of this._characterNodes) {
+                if (node && !(node as any).destroyed) {
+                    node.removeSelf();
+                    node.destroy();
+                }
+            }
+            this._characterNodes.length = 0;
+            throw error;
         }
-
-        // 球拍挂载(用户规格): 角色与拍分离, 每个角色挂 racket 到 RP 骨骼节点, 对齐坐标系
-        if (racket) for (const node of charNodes) this._attachRacket(node, racket);
-
-        // girl1/boy 角色均自带 mesh/动画(lh 占位符链), 跳过 girl 专用 setDress
-        console.log('[mag] 角色自带 mesh/动画, 跳过 setDress');
     }
 
     /** 球拍挂载(用户规格): clone racket 挂到角色 RP 骨骼节点, 对齐坐标系(位置/旋转/缩放归零);
@@ -367,6 +461,13 @@ export abstract class Mag {
         // (用户规格: 比分结算不该停止球的模拟状态)
         if (this.phase !== MatchPhase.SERVING) return;
 
+        // 刚出手 / 弹道在飞: 一律不钉, 【权威静止位姿也照此】。击球事件走可靠通道, 比 10Hz
+        // 阶段帧快——本端可能还停在 SERVING 就已把球打出去, 此时状态帧里"球还在发球员手上"
+        // 是击球前的旧事实, 照抄会把刚起飞的弹道整个抹掉(球冻回手上 calc=false, 对端已在飞;
+        // 实测最长 877ms 不收敛)。也不能只看"在飞": 发球直接下网/砸地时球 200ms 就停了,
+        // 这一拍仍然算数, 按飞行判会把落地的发球钉回手上 → 本地反复重发、对端已飞出去。
+        if (this.ballJustHit() || this.ball.flying()) return;
+
         // 持球者口径: 权威认定的 id 优先。联机时"球到底停了没有"两端不会同时成立(各自积分的
         // 休眠/贴地判定的差一拍), 于是一端钉回手上、另一端还躺在地上 = 发球阶段两端差 9m
         // (run38 实测连续 36 个样本超差的主因)。权威说有人持球, 本端就照办。
@@ -379,17 +480,30 @@ export abstract class Mag {
                 if (cha.isP) { holder = cha; break; }
             }
         }
-        // 正在飞的弹道一律不钉, 与"谁被认定持球"无关: 发球事件走可靠消息通道, 比阶段帧(10Hz)快——
-        // 球已被击球事件打出去、本端阶段还停在 SERVING/holderId 未清的那几帧, 照钉不误就会把
-        // 刚应用的发球整个抹掉(球冻在手上 calc=false, 对端已在飞 = run d 每回合开局差 7m 的根因)。
-        if (this.ball && this.ball.flying()) return;
         if (!holder) {
             // 空窗兜底: 钉回当前发球员(发球权转移/回合重置的过渡帧)
             holder = this.currentServer || null;
             if (holder) holder.isP = true;
         }
+        // 状态包缺 serverId(接管/旧权威残留)时按发球队伍兜底: 单打一队恰一人, 钉在对面
+        // 发球者的手上才和权威端一致; 钉成本机(上一回合的发球员)会差出一个半场。
+        if (!holder) {
+            holder = this.players.find(p => this.getTeam(p) === this.state.servingTeam) || null;
+            if (holder) holder.isP = true;
+        }
         if (!holder) return;
         if (authHolds) holder.isP = true;
+
+        // 权威端"球静止"时的位姿随状态帧下发: 两端各自的蒙皮手节点姿态差一拍(挥拍/插值),
+        // 各钉各的手会稳定差 0.3~0.6m。球静止时照抄权威球位是无损的, 也是"两端看到同一颗球"的前提。
+        // 但前提是这份位姿【就是这名持球者的球】: 上一回合的落点也可能在 500ms 内,
+        // 照抄会把球钉在几米外的地上, 另一端正按手位钉 → 发球阶段差 9m(run15 @23.7s 现场)。
+        const ap = this.authBallPose;
+        if (ap && Timer.now() - ap.at < 500
+            && Math.hypot(ap.x - holder.x, ap.z - holder.z) < 1.5) {
+            this.ball.attachTo({ x: ap.x, y: ap.y, z: ap.z });
+            return;
+        }
 
         const holderNode = holder.ballHolderNode;
         const wm = holderNode ? holderNode.transform.worldMatrix.elements : null;
@@ -401,11 +515,8 @@ export abstract class Mag {
             && [wm[12], wm[13], wm[14]].every((n: any) => Number.isFinite(n))
             && Math.hypot(wm[12] - holder.x, wm[14] - holder.z) < 2.0
             && wm[13] > 0.2 && wm[13] < 2.8;
-        if (handSane) {
-            this.ball.attachTo({ x: wm[12], y: wm[13], z: wm[14] });
-        } else {
-            this.parkBallAt(holder);
-        }
+        if (handSane) { this.ball.attachTo({ x: wm[12], y: wm[13], z: wm[14] }); }
+        else { this.parkBallAt(holder); }
     }
 
     /**
@@ -815,7 +926,7 @@ export abstract class Mag {
     }
 
 
-    private _executeHit(cha: Cha): void {
+    private _executeHit(cha: Cha, replay = false): void {
         const state = this._hitStates.get(cha);
         if (!state) return;
 
@@ -838,7 +949,9 @@ export abstract class Mag {
 
         // 球此刻就钉在这名角色手上(发球/接发球起手)→ 必然出手: 用"接球够不够得到"的距离/朝向/
         // 高度层去判一只在手里的球, 得到的是"发球站位稍偏/抬手动画高一点 → 打不出去 → 球卡在原地不模拟"
-        const hitOK = state.startedWithBall || this._canHitBall(cha, bp, state);
+        // 远端重放不入此判: 权威端已经裁定这一拍合法(不合法的击球不会广播 hit_event),
+        // 本端角色/球位置的几十毫秒级差异不该让这拍消失。
+        const hitOK = replay || state.startedWithBall || this._canHitBall(cha, bp, state);
 
         // 弹道由【击球参数 + 击球时刻】唯一决定, 与"本机是不是权威端"无关: 每个端都照同一组参数
         // 起算, 之后各自 simTo(现在) 必然得到同一个位置(时间驱动物理的意义)。
@@ -846,6 +959,8 @@ export abstract class Mag {
         // 靠每帧被权威快照拽, 才是"发球阶段两端差 60m"这类现象的根源。
         const simBall = hitOK;
 
+        // 击球锚点: 本地出手=现在; 远端重放=消息内击球时刻(弹道从过去起算再 simTo 现在)
+        const hitAnchor = state.hitTime != null ? state.hitTime : Timer.now();
         // 死球期(结算后分球前)允许击球(用户规格 v2): 出手照常(物理球可飞), 只是不判罚
         // 不记录——hit 事件被 rule COUNTDOWN 守卫拦(判罚字段不更新), 落地不结算(settle 仅
         // RALLYING), 不进鹰眼记录(仅 RALLYING 落地记录且没清不覆盖); SERVING 开始
@@ -855,7 +970,7 @@ export abstract class Mag {
         // 前置拦截: 不出手不判罚, 球保持队友击球的合法轨迹 → 落地按真实击球方结算 ✓
         {
             const myTeam = this.teamMap.get(cha);
-            if (hitOK && myTeam != null && this.phase === MatchPhase.RALLYING) {
+            if (!replay && hitOK && myTeam != null && this.phase === MatchPhase.RALLYING) {
                 const sameTeamJustHit = this.mode === MatchMode.DOUBLE &&
                     this.currentHitTeam === myTeam && this.lastHitCha !== cha;
                 const doubleHit = this.lastHitCha === cha;
@@ -877,7 +992,7 @@ export abstract class Mag {
                         state.hitTime,
                         state.hitTime != null ? { x: bp.x, y: bp.y, z: bp.z } : undefined
                     );
-                    this.onHit?.();
+                    this.onHit?.({ chaId: cha.id, stroke: state.stroke, time: hitAnchor });
                 }
             } else if (simBall) {
                 (this.ball as any).hitAt(
@@ -889,7 +1004,7 @@ export abstract class Mag {
                     state.hitTime,
                     state.hitTime != null ? { x: bp.x, y: bp.y, z: bp.z } : undefined
                 );
-                this.onHit?.();
+                this.onHit?.({ chaId: cha.id, stroke: state.stroke, time: hitAnchor });
             }
         }
 
@@ -1008,6 +1123,46 @@ export abstract class Mag {
         }
     }
 
+    /**
+     * 远端击球重放(联机专用): 调用方已把球 restoreSnap 到权威端入口快照, 这里立即出手。
+     * 必须绕过前摇/后摇排队: 前摇 0.6~2s 的冻结会超过物理补算上限 600ms, 迟到事件只能
+     * 从错误入口起算(run11 RALLYING 5.8m、死球 1.5s 不收敛都源于此)。出手条件也强制为真:
+     * 权威端能广播 hit_event 就说明这拍已通过它的击球权裁定, 本端不做二次拦截。
+     */
+    public replayHit(stroke: StrokeParams, cha: Cha, hitTime?: number): void {
+        const pend = this._pendHit.get(cha);
+        if (pend) this._pendHit.delete(cha);
+        const prev = this._hitStates.get(cha);
+        if (prev) {
+            if (prev.pendExecId != null) Timer.clear(prev.pendExecId);
+            this._hitStates.delete(cha);
+        }
+        this._startWindup(stroke, cha, hitTime);
+        this._executeHit(cha, true);
+    }
+
+    /**
+     * 权威端回执已重锚本机这一拍: 中止本端还挂着的前摇/松手链。
+     * 不中止的话松手时会再执行一次 _executeHit——入口取飞行中的球位、锚点是本机 now,
+     * 与权威端刚重锚的弹道分叉(实测发球出手后立即差一米级, 随后整回合都错位)。
+     */
+    public cancelPendingHit(cha: Cha): void {
+        const state = this._hitStates.get(cha);
+        if (!state) return;
+        if (state.pendExecId != null) {
+            Timer.clear(state.pendExecId);
+            state.pendExecId = null;
+        }
+        if (cha.state !== ChaState.HIT_WINDUP) return;
+        this._hitStates.delete(cha);
+        Timer.clear(`windup_${cha.id}`);
+        Timer.clear(`special_${cha.id}`);
+        cha.state = ChaState.IDLE;
+        cha.unfreezeAnim();
+        cha.compMoving = false;
+        cha.diveDriving = false;
+    }
+
     private _startWindup(stroke: StrokeParams, cha: Cha, hitTime?: number): void {
         const ballPos = new Laya.Vector3(
             this.ball.x,
@@ -1025,7 +1180,10 @@ export abstract class Mag {
             stroke,
             hitTime,
             ballPos,
-            startedWithBall: !!cha.isP,
+            // 持球起手 = 本角色 isP, 或权威状态明确认定它持球。非权威端本地 isP 会被普通帧
+            // 覆盖/清空, 只认 isP 会让"本机明明是发球员"却被判成空挥(hitOK=false): 本地不起弹道,
+            // 权威端按自己的 isP 却起了 → 两端从这里分叉。
+            startedWithBall: !!cha.isP || (this.authBallHolderId >= 0 && this.authBallHolderId === cha.id),
             recoveryDuration: 0,
             compensating: false,
             lastDist: Math.hypot(ballPos.x - cha.x, ballPos.z - cha.z),

@@ -3,7 +3,7 @@
  * 定义换装配置接口 dressCfg（mesh/材质/贴图/动画片段），是 Ball 和 Cha 的基类
  */
 // Obj.ts
-import { Res } from "../../libs/res";
+import { Res } from "../../libs/res/res";
 import { Ani } from "./ani";
 import { MPM } from "../../libs/mpm";
 

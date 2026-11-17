@@ -16,7 +16,7 @@ export class UI {
     // ============================================================
 
     private _hitIndicator: Laya.ProgressBar | null = null;
-    private _progressBar: Laya.GBox | null = null;
+    public _progressBar: Laya.GBox | null = null;
     private _progress: Laya.GImage | null = null
     private _loadingText: Laya.Text | null = null;
     private _scoreText: Laya.Text | null = null;
@@ -140,6 +140,7 @@ export class UI {
     }
 
     setProgress(text?: string, progress?: number): void {
+        console.log(text, progress);
         if (text === undefined && progress === undefined) {
             if (this._progressBar) this._progressBar.visible = false;
             if (this._loadingText) this._loadingText.visible = false;

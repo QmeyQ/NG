@@ -46,8 +46,10 @@ export const AGC_CLIENT_ID = '1503913765794529216';
 /** 项目 id(标识头 productid) */
 export const AGC_PRODUCT_ID = '388421841221717430';
 
-/** Worker 基址(cloud.ts Cloud.BASE 同源引用, 避免循环依赖) */
-export const AGC_PROXY = 'https://www.normalgame.cn/';
+// Web 自定义域名可能在 TLS 握手前断连；微信保持已配置的 request 合法域名。
+export const AGC_PROXY = wxEnv
+    ? 'https://www.normalgame.cn/'
+    : 'https://cloud.2998856667.workers.dev/';
 
 // ==================== Worker 响应归一化 ====================
 

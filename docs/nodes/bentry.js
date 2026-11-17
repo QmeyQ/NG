@@ -2,7 +2,7 @@ window.__DOC_FILES=window.__DOC_FILES||{};
 window.__DOC_FILES["nodes/bentry.js"]={
   "location": [
     -761.24,
-    -503.15
+    -504.11
   ],
   "width": 240,
   "name": "bentry",
@@ -61,7 +61,7 @@ window.__DOC_FILES["nodes/bentry.js"]={
             "type": "Event"
           }
         ],
-        "height": 100
+        "height": 133
       },
       "e2": {
         "location": [
@@ -85,7 +85,7 @@ window.__DOC_FILES["nodes/bentry.js"]={
             "type": "Event"
           }
         ],
-        "height": 100
+        "height": 133
       },
       "e3": {
         "location": [
@@ -95,8 +95,8 @@ window.__DOC_FILES["nodes/bentry.js"]={
         "width": 240,
         "name": "e3",
         "label": "资源与模型加载",
-        "type": "流程",
-        "desc": "加载场地/球/角色/动画控制器；失败走加载失败提示。",
+        "type": "Group",
+        "desc": "场景加载细化子树(双击进入)：场地/球动态加载 → 角色模板 → 球拍/动画状态机 → INITCHA 按头像定模型。失败仅记录日志不阻塞开局。产出 roleModels(roleId→模型) 与就绪事件交 e4。",
         "inputs": [
           {
             "name": "场景资源",
@@ -109,7 +109,22 @@ window.__DOC_FILES["nodes/bentry.js"]={
             "type": "Event"
           }
         ],
-        "height": 100
+        "use_custom_color": true,
+        "color": [
+          0.16,
+          0.62,
+          0.78
+        ],
+        "height": 154,
+        "group_input_location": [
+          -487.41,
+          52.16
+        ],
+        "group_output_location": [
+          1355.33,
+          84.74
+        ],
+        "node_tree_file": "nodes/e3.js"
       },
       "e4": {
         "location": [
@@ -120,7 +135,7 @@ window.__DOC_FILES["nodes/bentry.js"]={
         "name": "e4",
         "label": "角色克隆与人数",
         "type": "流程",
-        "desc": "按 head 选角色皮肤，按 gamePlayerCount 克隆 2/4 个角色。",
+        "desc": "按 gamePlayerCount 克隆 2/4 个角色并实例化：Mag._initPlayers 只认 e3 产出的 roleModels(roleId→模型)，逐角色选 girl1/boy 模板克隆、生成 Cha(id/odd)、挂球拍；未被使用的模板必须隐藏(角色 0 也可能用 boy，此时 girl1 模板要藏)。人数决定单打(role 0/1)或双打(role 0..3)。",
         "inputs": [
           {
             "name": "角色就绪",
@@ -133,7 +148,7 @@ window.__DOC_FILES["nodes/bentry.js"]={
             "type": "Event"
           }
         ],
-        "height": 100
+        "height": 133
       },
       "e5": {
         "location": [
@@ -161,7 +176,7 @@ window.__DOC_FILES["nodes/bentry.js"]={
             "type": "Event"
           }
         ],
-        "height": 100
+        "height": 155
       },
       "e6": {
         "location": [
@@ -189,7 +204,7 @@ window.__DOC_FILES["nodes/bentry.js"]={
             "type": "Event"
           }
         ],
-        "height": 100
+        "height": 155
       },
       "e7": {
         "location": [
@@ -208,7 +223,7 @@ window.__DOC_FILES["nodes/bentry.js"]={
           }
         ],
         "outputs": [],
-        "height": 100
+        "height": 133
       },
       "e8": {
         "location": [
@@ -227,7 +242,7 @@ window.__DOC_FILES["nodes/bentry.js"]={
           }
         ],
         "outputs": [],
-        "height": 100
+        "height": 133
       }
     },
     "links": [

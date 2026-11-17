@@ -80,7 +80,7 @@ window.__DOC_FILES["nodes/pcloud.js"]={
         "name": "c2",
         "label": "init / verify / reg",
         "type": "流程",
-        "desc": "Cloud.init 回调 from=local|cloud；verify 成功补资料；gone 时 reregister()。",
+        "desc": "Cloud.init 回调 from=local|reg；verify 成功补资料；gone 时 reregister()。Web 云服务统一走 cloud Worker 官方域名；TLS 断连不可当作注册业务码，也不自动重发注册。细化流程见『注册登录子流程』。",
         "inputs": [
           {
             "name": "用户记录",
@@ -236,6 +236,37 @@ window.__DOC_FILES["nodes/pcloud.js"]={
         ],
         "outputs": [],
         "height": 133
+      },
+      "c10": {
+        "location": [
+          390,
+          460
+        ],
+        "width": 260,
+        "name": "c10",
+        "label": "注册登录子流程",
+        "type": "Group",
+        "desc": "细化 init/verify/reg：本地读取 → 云端验证 → gone 清号重注册 → Worker /token 注册通道 → te reg 认领分号 → 落盘回调。",
+        "inputs": [
+          {
+            "name": "用户记录",
+            "type": "Event"
+          }
+        ],
+        "outputs": [
+          {
+            "name": "用户身份",
+            "type": "Event"
+          }
+        ],
+        "use_custom_color": true,
+        "color": [
+          0.36,
+          0.48,
+          0.72
+        ],
+        "height": 154,
+        "node_tree_file": "nodes/c10.js"
       }
     },
     "links": [
@@ -347,6 +378,16 @@ window.__DOC_FILES["nodes/pcloud.js"]={
         "to_node": "__group_out__",
         "to_socket": "GOBE token",
         "to_socket_identifier": "GOBE token",
+        "to_socket_type": "Event"
+      },
+      {
+        "from_node": "c1",
+        "from_socket": "用户记录",
+        "from_socket_identifier": "用户记录",
+        "from_socket_type": "Event",
+        "to_node": "c10",
+        "to_socket": "用户记录",
+        "to_socket_identifier": "用户记录",
         "to_socket_type": "Event"
       }
     ]

@@ -5,7 +5,7 @@
  * 1. 平台自适应基础运算: 特性检测一次性选定最优实现(hypot/expm1/cbrt/fma),
  *    老引擎(低端 JavaScriptCore / 旧基础库)自动降级手写实现, 新平台用原生(防溢出/精度更优)。
  * 2. 微积分工具: MT.integ(Simpson 数值积分) / MT.deriv(中心差分数值微分) /
- *    MT.osc(呼吸振荡) / ProgModel(基于微分方程解析解的进度预测模型)。
+ *    MT.osc(呼吸振荡) / ProgPID(PID 速度环预测进度, 真值锚外推)。
  * 3. 项目内任何需要"微积分/平滑预测/振荡动画"的地方一律调本库, 不得散落手写
  *    (已知调用方: slecet 呼吸与加载预测进度)。物理引擎 phy.rk4 是专用积分器
  *    (性能关键路径, 内联状态), 不迁移仅共享本库的平台自适应运算。
@@ -161,47 +161,72 @@ export class PIDCtrl {
     }
 }
 
-/**
- * 进度预测模型(微积分驱动的"合理假进度"):
- *
- * 数学模型 —— 一阶渐近微分方程:
- *   dp/dt = k·(1-p),  p(0) = p0
- * 分离变量积分(∫ dp/(1-p) = ∫ k dt → -ln(1-p) = k·t + C):
- *   p(t) = 1 - (1-p0)·e^(-k·t)
- * 性质: 速度 ∝ 剩余距离——初期快、后期慢、永不到 1(渐近), 是"未知总时长任务"
- * 的最优预测形态(越接近完成越不敢冒进, 完成时 finish() 精确跳 1 无回退)。
- *
- * tick 用解析解逐步推进(每步以当前 p 为初值重积分, 累积无漂移);
- * MT.integ 数值积分通道保留给任意 v(t) 场景(本模型解析解更稳不走数值)。
- */
-export class ProgModel {
-    /** 渐近速率(1/ms): 越大越快到高位。经验值 0.003 ≈ 1s 到 95% */
-    public k: number;
+/** 真值优先，缺少速率时仍预测推进；仅 finish 可显示完成。 */
+export class ProgPID {
+    private _pid: PIDCtrl;
     private _p = 0;
-    /** 真实进度锚(外部已知确切值时设入, 预测只在真值之上渐近) */
     private _real = -1;
+    private _cap = 0.99;
+    private _rate = 0;
+    private _anchorAt = 0;
+    private _lastReal = -1;
+    private _lastRealAt = 0;
 
-    constructor(k = 0.003) {
-        this.k = k;
+    constructor(kp = 1.6, ki = 0.25, kd = 0.06) {
+        this._pid = new PIDCtrl(kp, ki, kd, 0.6, 0.4);
     }
 
-    /** 推进 dt 毫秒(解析解逐步积分, 任意 dt 无漂移) */
-    tick(dt: number): void {
-        if (dt <= 0 || this._p >= 1) return;
-        this._p = 1 - (1 - this._p) * Math.exp(-this.k * dt);
+    cap(v: number): void {
+        if (!Number.isFinite(v)) return;
+        v = Math.max(0, Math.min(0.99, v));
+        if (v === this._cap) return;
+        this._cap = v;
+        // 阶段切换不能沿用上一阶段的积分与测速样本。
+        this._pid.reset();
+        this._rate = 0;
+        this._anchorAt = 0;
+        this._lastReal = -1;
+        this._lastRealAt = 0;
     }
 
-    /** 外部真进度(0~1): 预测值与真值取大, 真值只升不降 */
-    anchor(real: number): void {
-        if (real >= 0 && real > this._real) this._real = Math.min(real, 1);
+    anchor(real: number, now: number): void {
+        if (!Number.isFinite(real) || !Number.isFinite(now) || real < 0) return;
+        real = Math.min(real, 0.99);
+        if (real <= this._real) return;
+        if (real > this._cap) this.cap(real);
+        if (this._lastReal >= 0 && now > this._lastRealAt) {
+            const r = (real - this._lastReal) / ((now - this._lastRealAt) / 1000);
+            this._rate = Number.isFinite(r) && r > 0
+                ? (this._rate > 0 ? this._rate * 0.7 + r * 0.3 : r) : 0;
+        } else {
+            this._rate = 0;
+        }
+        this._real = real;
+        this._lastReal = real;
+        this._lastRealAt = now;
+        this._anchorAt = now;
+        this._pid.reset();
+        if (this._p < real) this._p = real;
     }
 
-    /** 当前预测进度(真值锚优先) */
+    /** 推进 dt 毫秒(PID 速度环, dt 截顶防后台标签页回来跳变) */
+    tick(dt: number, now: number): void {
+        if (!Number.isFinite(dt) || !Number.isFinite(now) || dt <= 0 || this._p >= 1) return;
+        const dtSec = Math.min(dt, 100) / 1000;
+        let target = this._cap;
+        if (this._real >= 0 && this._rate > 0) {
+            const extrapolated = this._real + this._rate * Math.max(0, now - this._anchorAt) / 1000;
+            target = Math.max(this._real, Math.min(extrapolated, this._cap));
+        }
+        const v = Math.max(0, this._pid.feed(target - this._p, dtSec));
+        const next = Math.min(this._cap, this._p + v * dtSec);
+        if (next > this._p) this._p = next;   // cap 下调不回退已显示进度
+    }
+
     get value(): number {
-        return this._real >= 0 ? Math.max(this._real, this._p * 0.98) : this._p;
+        return this._real >= 0 ? Math.max(this._real, this._p) : this._p;
     }
 
-    /** 完成: 精确置 1 */
     finish(): void {
         this._p = 1;
         this._real = 1;

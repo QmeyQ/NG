@@ -1,15 +1,18 @@
 const { regClass, property } = Laya;
 
-import { Res } from "./libs/res";
+import { Res } from "./libs/res/res";
 import { UI } from "./ui/ui"
 import { Dialog } from "./ui/DIalog";
-import { Cloud, CloudUser } from "./libs/cloud";
+import { Cloud, CloudUser } from "./libs/server/cloud";
 import * as NetBoot from "./libs/netboot";
 import { Au } from "./libs/au";
 import { SceneNav } from "./libs/nav";
 import { Timer } from "./libs/time";
-import { MT, ProgModel } from "./libs/MT";
+import { MT, ProgPID } from "./libs/MT";
 import { QA } from "./libs/gobe/qa";
+import { SocialPage } from "./ui/social";
+import { PersonalPage } from "./ui/personal";
+import { Social } from "./libs/server/social";
 
 @regClass()
 export class slecet extends Laya.Script {
@@ -50,6 +53,10 @@ export class slecet extends Laya.Script {
     private _norCancel = false;
     /** 游戏 item(index 0)进度条: 呼吸(探测中)/百分比(下载)/红(失败) */
     private _gameBar: any = null;
+    /** 社交页(item2 运行时构建, 首次切入懒加载) */
+    private socialPage: SocialPage | null = null;
+    private personalPage: PersonalPage | null = null;
+    private _pendingPersonalTab: number | null = null;
     private shopLoaded: boolean = false;
     private bagLoaded: boolean = false;
     private selHead: string | null = null;      // 头像弹窗中选中的头像
@@ -63,6 +70,7 @@ export class slecet extends Laya.Script {
     /** 设置页击球操作区辅助开关(item4/show, Check 模式: selected=开), 持久化 localStorage 供 badm 场景读取 */
     private showBtn: any = null;
     private doubleBtn: any = null;
+    private hideIdBtn: any = null;
 
     onAwake(): void {
 
@@ -114,6 +122,18 @@ export class slecet extends Laya.Script {
         this.doubleBtn?.on(Laya.Event.CLICK, this, () => {
             Au.tap();
             Laya.LocalStorage.setItem("double", this.doubleBtn.selected ? "1" : "0");
+        });
+
+        // —— 设置页 屏蔽自己ID开关(hideId, Check 模式 selected=屏蔽):
+        // 对局玩家列表不展示自己真实ID(显示****), 但服务器操作/身份识别仍用真实 userid ——
+        this.hideIdBtn = UI.findNode(this.owner, "hideId");
+        if (this.hideIdBtn) {
+            const savedH = Laya.LocalStorage.getItem("hideMyId");
+            if (savedH !== null && savedH !== "") this.hideIdBtn.selected = savedH === "1";
+        }
+        this.hideIdBtn?.on(Laya.Event.CLICK, this, () => {
+            Au.tap();
+            Laya.LocalStorage.setItem("hideMyId", this.hideIdBtn.selected ? "1" : "0");
         });
 
         // menu 预制体复用激活(挂回 root)时切回主菜单音乐(match back → menu 场景音乐对齐)
@@ -180,20 +200,21 @@ export class slecet extends Laya.Script {
                 }
                 box.getChild("Box").alpha = 1;
                 const u = UI.findNode(box, "img") as Laya.GImage;
-                if (u) {
+                if (u && box.name !== "3") {  // 我的栏头像不参与按键放大
                     this.oldS = u.scaleX;
                     // 轴心先移中心再缩放: 绕中心缩放不跑偏(原左上轴心放大向右下扩张)
                     this._centerPivot(u);
-                    u.scaleX += u.scaleX > 0.7 ? 0 : 0.4;
-                    u.scaleY += u.scaleY > 0.7 ? 0 : 0.4;
+                    u.scaleX += u.scaleX > 0.7 ? 0 : 0.2;  // 放大幅度减半
+                    u.scaleY += u.scaleY > 0.7 ? 0 : 0.2;
                     // 张力位移: 放大后整体平移增强画面张力
                     // (还原时 _resetPivot 恢复记录的原始 y, 此位移自动归位)
-                    u.y += u.zIndex > 3 ? 40 : -80;
+                    u.y += u.zIndex > 3 ? 20 : -40;
                     this.oldImg = u;
                     this.oldBox = box;
 
                 }
-                const idx = parseInt(box.name);
+                let idx = parseInt(box.name);
+                if (idx === 4) { this._pendingPersonalTab = 2; idx = 3; }  // 设置页已并入个人页设置tab
                 if (this.pageCtrl) this.pageCtrl.selectedIndex = idx;
                 this._setPage(idx);
                 this.onPageChange(idx);
@@ -226,6 +247,19 @@ export class slecet extends Laya.Script {
             if (u) this.fillUser(u);
             if (from === "local") this.verifyUser();
             else this.initGobe();
+            // 邀请归因: 被邀者(?inv=)登录后自动向邀请者发一次好友申请(本地标记防重)
+            if (u) Social.init(() => {
+                Social.tryInviteFriend();
+                // 新消息提醒(策划): 收到他人新消息→提示音+toast(发送者: 预览); +号徽标计未读;
+                // 正在看聊天面板(suppressNotify)时抑制, 避免打扰。GOBE 实时与云兜底送达均触发。
+                Social.onNewMessage = (m) => {
+                    if (Social.suppressNotify) return;
+                    const nm = (Social.profile(m.from) || { name: "" } as any).name || ("玩家" + String(m.from).slice(-4));
+                    let pv = String(m.text || ""); if (pv.length > 20) pv = pv.slice(0, 20) + "…";
+                    Au.tap();
+                    Dialog.toast(nm + ": " + pv, 2000);
+                };
+            });
         });
     }
 
@@ -309,7 +343,7 @@ export class slecet extends Laya.Script {
                 }
                 // 无更新也必须走 url(): 本会话 _packMap 注册 nor 包索引, 否则 match 预制体 get 报"资源包不存在"。
                 // 本地恢复 = cGet .br + 内存解压提取(存储 v2, 数百 ms 无确定进度)——
-                // bar 挂 MT.ProgModel 微积分预测(dp/dt=k(1-p) 渐近, 初快后慢不到 1), 'XP' 解压真进度事件锚入
+                // bar 挂 MT.ProgPID 预测(PID 速度环: 无真值渐近天花板, 'XP' 解压真进度锚入沿实测速率外推)
                 this._startProgTrack();
                 Res.url(Res.ResList.nor, (info) => {
                     this._norChecking = false;
@@ -339,9 +373,9 @@ export class slecet extends Laya.Script {
             Dialog.showD("正在下载游戏资源 0%", "下载中", 0, "隐藏", (k2) => {
                 if (k2 === 1) Dialog.toast("下载将在后台继续");
             });
-            Res.on('DP', this._onNorDp);
+            this._startProgTrack(true);
             Res.url(Res.ResList.nor, true, (info) => {
-                Res.off('DP', this._onNorDp);
+                this._stopProgTrack();
                 this._norDling = false;
                 Dialog.closeD();
                 if (!info) {
@@ -359,9 +393,10 @@ export class slecet extends Laya.Script {
 
     /** nor 包下载进度 → 弹窗正文 + bar 百分比 */
     private _onNorDp = (url: string, percent: number, _speed: number, loaded: number, total: number): void => {
-        if (!this._norDling) return;
-        this._setBarPct(this._gameBar, percent / 100);
-        Dialog.updateBody(`正在下载游戏资源 ${percent}%\n${(loaded / 1000000).toFixed(2)}/${(total / 1000000).toFixed(2)}Mb`);
+        if (!this._progModel || url !== Res.ResList.nor) return;
+        this._progModel.cap(percent >= 100 ? 0.99 : 0.8);
+        if (total > 0) this._progModel.anchor(Math.min(100, percent) / 100 * 0.8, Timer.now());
+        if (this._norDling) Dialog.updateBody(percent >= 100 ? '下载完成，正在解压资源…' : `正在下载游戏资源 ${percent}%\n${(loaded / 1000000).toFixed(2)}/${(total / 1000000).toFixed(2)}Mb`);
     };
 
     /**
@@ -392,9 +427,9 @@ export class slecet extends Laya.Script {
         Dialog.showD("正在更新游戏资源 0%", "更新中", 0, "隐藏", (k2) => {
             if (k2 === 1) Dialog.toast("更新将在后台继续");
         });
-        Res.on('DP', this._onNorDp);
+        this._startProgTrack(true);
         Res.url(Res.ResList.nor, true, (info) => {
-            Res.off('DP', this._onNorDp);
+            this._stopProgTrack();
             this._norDling = false;
             Dialog.closeD();
             if (!info) {
@@ -413,27 +448,31 @@ export class slecet extends Laya.Script {
         this._setBarPct(this._gameBar, MT.osc(Timer.now(), 450, 0, 0.04));
     };
 
-    // ============ 预测进度跟踪(本地恢复/解压: MT.ProgModel 微积分渐近 + XP 真值锚) ============
+    // ============ 预测进度跟踪(本地恢复/解压: MT.ProgPID 速度环预测 + XP 真值锚) ============
 
-    private _progModel: ProgModel | null = null;
+    private _progModel: ProgPID | null = null;
     private _progTid: string | null = null;
     private _progLastT = 0;
 
-    /** 解压真进度(res.ts 'XP' 事件, 5% 粒度) → 锚入预测模型(真值只升不降) */
-    private _onXp = (_pack: string, frac: number): void => {
-        if (this._progModel) this._progModel.anchor(frac);
+    private _onXp = (pack: string, frac: number): void => {
+        if (pack !== 'nor' || !this._progModel) return;
+        this._progModel.cap(0.99);
+        this._progModel.anchor(0.8 + frac * 0.19, Timer.now());
+        if (this._norDling) Dialog.updateBody(`提取游戏资源 ${Math.round(frac * 100)}%`);
     };
 
-    /** 启动预测进度: bar 以 ProgModel 渐近推进(初快后慢), XP 真进度锚入, 完成 finish 跳 1 */
-    private _startProgTrack(): void {
+    private _startProgTrack(download = false): void {
         this._stopProgTrack();
-        this._progModel = new ProgModel(0.004);
+        this._stopBarBreath();
+        this._progModel = new ProgPID();
+        this._progModel.cap(download ? 0.8 : 0.95);
         this._progLastT = Timer.now();
+        Res.on('DP', this._onNorDp);
         Res.on('XP', this._onXp);
         this._progTid = Timer.frameLoop(() => {
             if (!this._progModel) return;
             const now = Timer.now();
-            this._progModel.tick(Math.min(now - this._progLastT, 100));
+            this._progModel.tick(Math.min(now - this._progLastT, 100), now);
             this._progLastT = now;
             this._setBarPct(this._gameBar, this._progModel.value);
         });
@@ -441,6 +480,7 @@ export class slecet extends Laya.Script {
 
     private _stopProgTrack(): void {
         if (this._progTid != null) { Timer.clear(this._progTid); this._progTid = null; }
+        Res.off('DP', this._onNorDp);
         Res.off('XP', this._onXp);
         this._progModel = null;
     }
@@ -699,7 +739,23 @@ export class slecet extends Laya.Script {
     private onPageChange(idx: number): void {
         this.syncDirty();
         if (idx === 1) this.loadShop();
-        else if (idx === 3) this.loadBagPage();
+        else if (idx === 3) {
+            if (!this.personalPage) { const item3 = this._pages[3]; if (item3) this.personalPage = new PersonalPage(item3); }
+            if (this.personalPage) {
+                this.personalPage.open();
+                if (this._pendingPersonalTab !== null) { this.personalPage.setTab(this._pendingPersonalTab); this._pendingPersonalTab = null; }
+            }
+        }
+        // 社交页: 切入懒加载并开轮询, 切走停轮询(省云端查表)
+        if (idx === 2) {
+            if (!this.socialPage) {
+                const item2 = this._pages[2];
+                if (item2) this.socialPage = new SocialPage(item2);
+            }
+            if (this.socialPage) this.socialPage.open();
+        } else if (this.socialPage) {
+            this.socialPage.close();
+        }
     }
 
     /** 昵称/签名有变化未同步 → 后台自动触发云函数同步 */

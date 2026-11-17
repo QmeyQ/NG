@@ -167,12 +167,17 @@ function gameStateInner(g: any): any {
         // "发球站位不对→球不模拟"要看的就是这两条
         ballCalc: !!(g.ballO as any)?.phy?.isCalc,
         serverId: mag && (mag as any).currentServer ? (mag as any).currentServer.id : null,
+        localIsP: g.localCha ? !!g.localCha.isP : null,
         ballToServer: (() => {
             const srv = mag && (mag as any).currentServer;
             if (!srv || !g.ballO) return null;
             return Math.round(Math.hypot(g.ballO.x - srv.x, g.ballO.y - srv.y, g.ballO.z - srv.z) * 100) / 100;
         })(),
         localCha: v3(g.localCha && g.localCha.pos),
+        localChaId: g.localCha ? g.localCha.id : null,
+        playersP: mag && (mag as any).players
+            ? (mag as any).players.map((p: any) => ({ id: p.id, isP: !!p.isP, x: Math.round(p.x * 100) / 100, z: Math.round(p.z * 100) / 100 }))
+            : null,
         mode: W.gameMode || null,
         count: W.gamePlayerCount || null,
         assignments: W.gamePlayerAssignments || null,
@@ -193,16 +198,20 @@ function gameStateInner(g: any): any {
 function matchState(): any {
     const p = role('matchPage');
     if (!p) return null;
+    // 指派状态住 roleSync 单例(跨场景常驻); acks 字段保留恒 0——协商已删除(表落地=开赛)
+    const rs: any = (W as any).__roleSync ? (W as any).__roleSync.state() : {};
     return {
         isMatching: !!p.isMatching,
         matched: !!p._matchSucceeded,
         started: !!p._gameStarted,
         wantPlayers: p.matchMaxPlayers,
-        resolved: !!p._assignmentResolved,
-        assignSeq: p._assignSeq || 0,
-        appliedSeq: p._appliedAssignSeq || 0,
-        acks: p._assignAcks ? p._assignAcks.size : 0,
-        finalAssignment: p._finalAssignment || null
+        resolved: !!rs.resolved,
+        assignSeq: rs.assignSeq || 0,
+        appliedSeq: rs.appliedSeq || 0,
+        acks: 0,
+        finalAssignment: rs.finalAssignment || null,
+        roleSync: rs.mode ? rs : null,
+        btnTitle: p.matchBtn && !p.matchBtn.destroyed ? String(p.matchBtn.title || '') : ''
     };
 }
 

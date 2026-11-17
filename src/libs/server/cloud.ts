@@ -18,12 +18,12 @@
  * 本地用户记录(idb mainStore key=cloud_user):
  *   { userid, key(密匙), name, flag, head, dollar, bag, bagSynced }
  */
-import { Timer } from "./time";
-import { IDBStorage } from "./IDBStorage";
-import { pFetch, wxEnv } from "./wx";
-import { agcRegister, AGC_PROXY, AgcTokenRes, isLimitedRes, parseWorkerRes, seedGobe } from "./agcCore";
-import { webCall, webReady } from "./agcWeb";
-import { wxCall } from "./agcWx";
+import { Timer } from "../time";
+import { IDBStorage } from "../IDBStorage";
+import { pFetch, wxEnv } from "../wx";
+import { agcRegister, AGC_PROXY, AgcTokenRes, isLimitedRes, parseWorkerRes, seedGobe } from "../agcCore";
+import { webCall, webReady, webDegraded } from "../agcWeb";
+import { wxCall } from "../agcWx";
 
 export interface CloudUser {
     userid: string;
@@ -90,7 +90,8 @@ export class Cloud {
         }
         p.then((res: any) => {
             if (res != null) { cb(res); return; }
-            if (res === null && !safe) { cb(null); return; }
+            // 非幂等写直连失败: 若已会话级降级(CORS 请求未达服务端)可安全回退 Worker 一次; 否则不重试防重复扣费
+            if (res === null && !safe) { if (webDegraded()) { Cloud.te(t, d, cb); } else { cb(null); } return; }
             Cloud.te(t, d, cb);
         });
     }
@@ -121,6 +122,16 @@ export class Cloud {
             });
         };
         once();
+    }
+
+    /** 幂等读调用(社交 sync/find/rank/profiles 等): 直连优先 + Worker 兜底 + 多实例重试, 同 loadBag 路径 */
+    static teSafe(t: string, d: any, cb?: (res: any) => void): void {
+        Cloud.teRetry(t, d, 3, cb);
+    }
+
+    /** 非幂等写调用(社交 friend/msg/score/mes 等): 直连失败不自动重发(防重复申请/重复消息), 同 setHead/buy 路径 */
+    static teWrite(t: string, d: any, cb?: (res: any) => void): void {
+        Cloud.teOnce(t, d, cb || ((): void => { }), false);
     }
 
     // ==================== 用户本地管理 ====================
@@ -211,9 +222,11 @@ export class Cloud {
 
         agcRegister().then((r: AgcTokenRes | null) => {
             if (!r || r.code !== 0 || !r.key || !r.user) {
-                console.error("[Cloud] 注册失败:", r);
-                // 限流(7)/上游异常(11)等原因只有 Worker 知道, 透出去玩家才知道该等还是该重试
-                Cloud.lastMsg = (r && r.msg) || "";
+                console.error("[Cloud] 注册失败，code:", r?.code ?? null);
+                // 限流(7)/上游异常(11)等原因只有 Worker 知道, 透出去玩家才知道该等还是该重试;
+                // null(网络层失败)与无 msg 的响应给兜底文案, 避免 UI 显示空白原因
+                Cloud.lastMsg = (r && r.msg)
+                    || (r ? "注册失败，请稍后重试" : "网络异常，请检查网络后重试");
                 finish(null);
                 return;
             }
@@ -222,6 +235,7 @@ export class Cloud {
             const userid = String(u.userid || "");
             if (!userid) {
                 console.error("[Cloud] 注册失败: 服务器未返回 userid");
+                Cloud.lastMsg = "注册响应缺少用户编号，请稍后重试";
                 finish(null);
                 return;
             }
@@ -240,6 +254,7 @@ export class Cloud {
             Cloud.save(() => finish(Cloud._user));
         }).catch((e) => {
             console.error("[Cloud] 注册请求异常:", e);
+            Cloud.lastMsg = "网络异常，请检查网络后重试";
             finish(null);
         });
     }

@@ -2,11 +2,11 @@
   "out": "ui.br",
   "magic": "BRP1",
   "version": "1.0",
-  "fileCount": 30,
-  "rawSize": 3585201,
-  "containerSize": 3586137,
-  "brSize": 2401328,
-  "ratio": 0.6696,
+  "fileCount": 31,
+  "rawSize": 3143300,
+  "containerSize": 3144268,
+  "brSize": 2440877,
+  "ratio": 0.7763,
   "files": [
     {
       "path": "dialog/bg.png",
@@ -14,7 +14,7 @@
     },
     {
       "path": "dialog/dialog.lh",
-      "size": 3310
+      "size": 3217
     },
     {
       "path": "dialog/ok.png",
@@ -22,19 +22,23 @@
     },
     {
       "path": "head/0.png",
-      "size": 364616
+      "size": 161124
+    },
+    {
+      "path": "head/1.png",
+      "size": 161090
     },
     {
       "path": "head/2.png",
-      "size": 366182
+      "size": 166663
     },
     {
       "path": "head/3.png",
-      "size": 364615
+      "size": 364390
     },
     {
-      "path": "head/4.png",
-      "size": 366182
+      "path": "internal/blueprint.bin",
+      "size": 128755
     },
     {
       "path": "internal/UI/Button.lh",
@@ -126,7 +130,7 @@
     },
     {
       "path": "menu.ls",
-      "size": 16744
+      "size": 54509
     }
   ]
 }

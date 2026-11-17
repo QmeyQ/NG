@@ -1,13 +1,12 @@
 import { Gnet } from "./libs/gobe/net";
 import { Timer } from "./libs/time";
 import { Au } from "./libs/au";
-import { Cloud } from "./libs/cloud";
+import { Cloud } from "./libs/server/cloud";
 import { Dialog } from "./ui/DIalog";
 import { SceneNav } from "./libs/nav";
 import * as NetBoot from "./libs/netboot";
 import { QA } from "./libs/gobe/qa";
-import * as Msg from "./libs/gobe/msg";
-import * as Proto from "./libs/pvpProto";
+import { RoleSync } from "./libs/gobe/roleSync";
 const { regClass } = Laya;
 
 /**
@@ -46,14 +45,10 @@ export class load extends Laya.Script {
     private matchMaxPlayers: number = 2;
     private _gameStarted: boolean = false;
     private _isProcessing: boolean = false;
+    /** 取消在飞(按钮"取消中", 不可点): 点击立即置位, 异步退房收尾后由按钮态复位 */
+    private _cancelling: boolean = false;
     /** 匹配请求序号：取消/重试后，迟到的旧请求回调不得再把界面切回成功态。 */
     private _matchAttemptSeq: number = 0;
-
-    // 角色分配协商
-    private _collectedAssignments: Map<string, { playerId: string, roleId: number }[]> = new Map();
-    private _finalAssignment: { playerId: string, roleId: number }[] | null = null;
-    private _assignmentResolved: boolean = false;
-    private _resolveTimer: string | null = null;
 
     // 游戏场景(game 分包内相对路径: uuid 通道断链——fileconfig 空, uuidMap 无映射, res://uuid 加载静默失败)
     private static readonly SCENE_URL: string = "game/badm.ls";
@@ -101,7 +96,10 @@ export class load extends Laya.Script {
     private _disconnectRoom: any = null;
     private _rcvDisconnect: ((player: any, event?: any) => void) | null = null;
     private _onBrowserOnline = (): void => {
-        if (!this._gameStarted && (this._matchSucceeded || Gnet.getRoom() || this.isMatching)) {
+        // 只有"确实有旧房间可恢复"(房间在/有缓存房间号/已匹配成功)才进入恢复模式。
+        // 仅因为正在匹配就置恢复标志, 会让恢复线程的失败收尾把 isMatching 清掉,
+        // 正在飞的 matchRoom 结果随即被当成用户取消退房 —— 实测表现为"点了匹配一直不落房"。
+        if (!this._gameStarted && (this._matchSucceeded || Gnet.getRoom() || this._getSavedRoomId())) {
             this._roomRecoveryRequired = true;
             this._autoReconnectOnEnter = true;
         }
@@ -145,6 +143,12 @@ export class load extends Laya.Script {
 
         this._initSceneNodes();
         QA.installMatch(this);
+        // 角色指派同步单例的回调只挂一次(预制体复用不重跑 onAwake):
+        // 表落地 → 跳游戏; 房间人数变化 → 刷新按钮 x/y
+        RoleSync.onAssigned = (t) => this._applyAssignmentAndStart(t.assignments);
+        RoleSync.onRoomChanged = () => {
+            if (this.isMatching && !this._gameStarted && this._matchSucceeded) this._setBtnRoomStatus();
+        };
 
         // 匹配按钮控制: 匹配中点击=取消, 空闲点击=重新匹配
         // 禁点击翻转 selected(Check 模式 selected=true 时引擎改显 selectedTitle, 干扰两态文案)
@@ -194,12 +198,9 @@ export class load extends Laya.Script {
         this._isProcessing = false;
         this._backing = false;
         this._userCancel = false;
-        // 指派状态整体归零(含 seq): 不归零则第二局再也发不出 role_assign
+        this._cancelling = false;
+        // 指派状态整体归零(表/序号/定时器都在 roleSync 单例里): 不归零则第二局再也发不出 role_assign
         this._resetAssignmentState();
-        if (this._resolveTimer) {
-            Timer.clear(this._resolveTimer);
-            this._resolveTimer = null;
-        }
 
         const btn: any = this.matchBtn;
         if (btn && !btn.destroyed) {
@@ -209,6 +210,9 @@ export class load extends Laya.Script {
         this._playMusic();
         this._startFx();
         this._bindNetworkListeners();
+        // 一进匹配页就装好 match 空间 handler 与常驻消息泵: 对端可能在进房回调之前就广播,
+        // 晚装一步这条指派就被直接丢弃(实测同房不开赛)。
+        RoleSync.install();
         // 页面一进入就检查持久化的旧房间 ID；即使 Room 对象已丢失也应尝试恢复。
         if (this._getSavedRoomId()) this._roomRecoveryRequired = true;
 
@@ -398,8 +402,6 @@ export class load extends Laya.Script {
             }
             console.log('[load] 已建房:', room.id || room.roomId);
             this._saveRoomId(room);
-            this._matchSucceeded = true;
-            this._setBtnMatched();
             this.handleRoomJoined(room, false);
         }, { roomType: 'demo', enableFrameSync: true });
     }
@@ -427,8 +429,6 @@ export class load extends Laya.Script {
                 return;
             }
             this._saveRoomId(room);
-            this._matchSucceeded = true;
-            this._setBtnMatched();
             this.handleRoomJoined(room, false);
         }, {
             // Gnet.joinRoom 自己按 playerName/teamId 组 customPlayerProperties, 这里给它身份字段
@@ -440,9 +440,20 @@ export class load extends Laya.Script {
     private _joinPreviousRoom(roomId: string, playerConfig: any): void {
         if (!roomId || this._reconnecting || this._gameStarted || this._backing || this._userCancel) return;
         this._reconnecting = true;
+        // 用户规格 B1: 恢复期间按钮显示"恢复中"(不是"匹配成功"); 点击取消会 bump 序号作废本次回调
+        this._setBtnRestoring();
+        const attempt = this._matchAttemptSeq;
         console.warn(`[load] 本地 Room 为空，尝试通过旧房间 ID 恢复: ${roomId}`);
         Gnet.joinRoom(roomId, (err: Error | null, restoredRoom: any) => {
-            this._reconnecting = false;
+            const stale = attempt !== this._matchAttemptSeq;
+            if (!stale) this._reconnecting = false;
+            if (stale) {
+                // 恢复在飞时用户取消了: 迟到的房间不能要(是当前房就退掉)
+                if (restoredRoom && Gnet.getRoom() === restoredRoom && !this._gameStarted) {
+                    Gnet.leaveRoom((e: Error | null) => { if (e) console.warn("[load] 清理已取消恢复的迟到房间失败:", e.message); });
+                }
+                return;
+            }
             if (!err && restoredRoom) {
                 this._reconnectAttempts = 0;
                 this._roomRecoveryRequired = false;
@@ -451,8 +462,6 @@ export class load extends Laya.Script {
                 this._bindMatchListener();
                 this._bindDisconnectListener();
                 this.isMatching = true;
-                this._matchSucceeded = true;
-                this._setBtnMatched();
                 console.log("[load] 通过旧房间 ID 恢复成功");
                 this.handleRoomJoined(restoredRoom, true);
                 return;
@@ -472,9 +481,12 @@ export class load extends Laya.Script {
                 this._autoReconnectOnEnter = false;
                 this._reconnecting = false;
                 this._matchSucceeded = false;
-                this.isMatching = false;
-                this._isProcessing = false;
-                this._setBtnMatching(false);
+                // 显式匹配可能正在飞(旧恢复任务的迟到失败), 这时清 isMatching/_isProcessing
+                // 会让 matchRoom 的成功结果被当成取消 —— 只清恢复侧状态, 匹配侧交给 matchRoom 收尾。
+                if (!this._isProcessing) {
+                    this.isMatching = false;
+                    this._setBtnMatching(false);
+                }
                 console.warn("[load] 旧房间已不存在, 已清除缓存房间号, 可直接重新匹配");
                 return;
             }
@@ -483,10 +495,11 @@ export class load extends Laya.Script {
                 this._roomRecoveryRequired = false;
                 this._autoReconnectOnEnter = false;
                 this._matchSucceeded = false;
-                this.isMatching = false;
-                this._isProcessing = false;
-                this._setBtnFail();
-                Dialog.toast("恢复旧房间失败，请点击按钮重新匹配", 2500);
+                if (!this._isProcessing) {
+                    this.isMatching = false;
+                    this._setBtnFail();
+                    Dialog.toast("恢复旧房间失败，请点击按钮重新匹配", 2500);
+                }
                 console.error("[load] 旧房间恢复连续失败，已解除恢复锁，不再无限重试");
                 return;
             }
@@ -518,8 +531,12 @@ export class load extends Laya.Script {
         // 优先让当前 Room 自身恢复，保留 SDK 内部的房间身份与玩家会话。
         if (room && typeof room.reconnect === "function") {
             this._reconnecting = true;
+            this._setBtnRestoring();
+            const attempt = this._matchAttemptSeq;
             Promise.resolve(room.reconnect(playerConfig)).then(() => {
-                this._reconnecting = false;
+                const stale = attempt !== this._matchAttemptSeq;
+                if (!stale) this._reconnecting = false;
+                if (stale) return;
                 this._reconnectAttempts = 0;
                 this._roomRecoveryRequired = false;
                 this._autoReconnectOnEnter = false;
@@ -528,11 +545,10 @@ export class load extends Laya.Script {
                 console.log("[load] 原房间重连成功");
                 if (!this._gameStarted) {
                     this.isMatching = true;
-                    this._matchSucceeded = true;
-                    this._setBtnMatched();
                     this.handleRoomJoined(Gnet.getRoom() || room, true);
                 }
             }).catch((err: any) => {
+                if (attempt !== this._matchAttemptSeq) return;
                 this._reconnecting = false;
                 this._reconnectAttempts++;
                 console.warn("[load] 原房间重连失败:", err && err.message ? err.message : err);
@@ -563,10 +579,11 @@ export class load extends Laya.Script {
                 this._roomRecoveryRequired = false;
                 this._autoReconnectOnEnter = false;
                 this._matchSucceeded = false;
-                this.isMatching = false;
-                this._isProcessing = false;
-                this._setBtnFail();
-                Dialog.toast("未找到旧房间信息，请点击按钮重新匹配", 2500);
+                if (!this._isProcessing) {
+                    // this.isMatching = false;
+                    // this._setBtnFail();
+                    // Dialog.toast("未找到旧房间信息，请点击按钮重新匹配", 2500);
+                }
                 console.error("[load] 当前 Client 无 Room 且没有 lastRoomId；停止无限重试并恢复按钮操作");
             } else {
                 this._scheduleReconnect(1000 * this._reconnectAttempts);
@@ -667,6 +684,16 @@ export class load extends Laya.Script {
      */
     private _startMatch(retry: boolean = false): void {
         if (this._isProcessing || this._gameStarted) return;
+        // 显式开始新一轮匹配 = 放弃旧恢复任务: 缓存的房间号可能只是残留, 恢复线程与 matchRoom
+        // 并行时, 恢复失败的收尾会把 isMatching 清掉(视同用户取消), 刚拿到的房间被当作迟到回调退掉。
+        this._roomRecoveryRequired = false;
+        this._autoReconnectOnEnter = false;
+        this._reconnectAttempts = 0;
+        if (this._reconnectTimer) {
+            Timer.clear(this._reconnectTimer);
+            this._reconnectTimer = null;
+        }
+        this._clearSavedRoomId();
         // 只有显式开始新一轮匹配时才解除上一次取消抑制；迟到的 room-dismiss 事件不能自动重启匹配。
         if (!this.isMatching) this._userCancel = false;
         // 用户显式开启全新匹配前，不允许残留的旧恢复任务覆盖本次请求。
@@ -772,33 +799,57 @@ export class load extends Laya.Script {
     }
 
     /**
-     * 按钮两态切换: 匹配中(白圆+橙字"单/双打匹配中"+动态点) / 未匹配(橙底白字"匹配")
-     * 背景圆颜色由呼吸帧按 isMatching 持续重画, 此处只管文案与字色
-     * 文字不变根因: GButton Check 模式点击翻转 selected 后显示 selectedTitle, 须与 title 同步设置
+     * 按钮文案统一写入(title/selectedTitle 同步防 Check 态显旧文案, 清 selected 防翻转)。
+     * 状态表(用户规格, 规范在 pvpProto 文件头 B1~B4): 恢复中/匹配中(x/y)/等待开局/取消中/匹配成功/匹配失败。
+     * 除"取消中"外所有态都清取消锁; "匹配成功"只在满员且分配表落地时出现。
      */
-    private _setBtnMatching(on: boolean): void {
+    private _btnText(txt: string, color: string): void {
         const btn: any = this.matchBtn;
         if (!btn || btn.destroyed) return;
-        this._matchSucceeded = false;
-        const txt = on ? this.matchMaxPlayers === 2 ? "单打匹配中" : "双打匹配中" : "匹配";
+        this._cancelling = false;
         btn.title = txt;
         btn.selectedTitle = txt;
-        btn.titleColor = on ? "#ff8600" : "#ffffff";
-        // GButton 点击后可能保留 selected；统一还原成未点击态。
+        btn.titleColor = color;
         btn.selected = false;
+    }
+
+    /** 匹配中(无房, 动态点由帧循环追加) / 未匹配 */
+    private _setBtnMatching(on: boolean): void {
+        this._matchSucceeded = false;
+        this._btnText(on ? this._matchPrefix() : "匹配", on ? "#ff8600" : "#ffffff");
         if (!on) this._dots = 0;
     }
 
-    /** 匹配成功态：按钮显示成功文案并清除 selected，但保留 isMatching 以便用户仍可取消等待中的房间。 */
-    private _setBtnMatched(): void {
-        const btn: any = this.matchBtn;
-        if (!btn || btn.destroyed) return;
+    /** 已在房间: 未满员显示"匹配中(x/y)"(绝不显示匹配成功), 满员无表显示"等待开局" */
+    private _setBtnRoomStatus(): void {
+        const room: any = Gnet.getRoom();
+        if (!room) return;
         this._matchSucceeded = true;
         this._dots = 0;
-        btn.title = "匹配成功";
-        btn.selectedTitle = "匹配成功";
-        btn.titleColor = "#ffffff";
-        btn.selected = false;
+        const max = room.maxPlayers || this.matchMaxPlayers;
+        const n = (Gnet.getPlayers() || []).length;
+        if (n >= max) this._btnText("等待开局…", "#ffffff");
+        else this._btnText(`${this._matchPrefix()}(${n}/${max})`, "#ff8600");
+    }
+
+    /** 恢复旧房间在飞(重进/重连回调未归) */
+    private _setBtnRestoring(): void {
+        this._dots = 0;
+        this._btnText("恢复中…", "#ff8600");
+    }
+
+    /** 取消在飞: 点击瞬间就显示, 不等异步退房/取消回调(用户规格 B4); 期间不可再点 */
+    private _setBtnCancelling(): void {
+        this._dots = 0;
+        this._btnText("取消中…", "#ffffff");
+        this._cancelling = true;
+    }
+
+    /** 匹配成功态：仅满员且分配表落地(即将跳场景)时调用 */
+    private _setBtnMatched(): void {
+        this._matchSucceeded = true;
+        this._dots = 0;
+        this._btnText("匹配成功", "#ffffff");
     }
 
 
@@ -807,27 +858,32 @@ export class load extends Laya.Script {
      * 背景仍走呼吸帧的未匹配态(橙圆), 点击按钮即重新匹配恢复
      */
     private _setBtnFail(): void {
-        const btn: any = this.matchBtn;
-        if (!btn || btn.destroyed) return;
-        btn.title = "匹配失败";
-        btn.selectedTitle = "匹配失败";
-        btn.titleColor = "#ff0000";
-        btn.selected = false;
+        this._btnText("匹配失败", "#ff0000");
         this._dots = 0;
     }
 
     /**
-     * 匹配按钮点击: 匹配中 → 取消; 空闲 → 重新匹配
+     * 匹配按钮点击: 匹配中/恢复中 → 取消(立即显示"取消中"); 空闲 → 重新匹配
      */
     private onMatchBtnClick(): void {
         Au.tap();
-        // 匹配请求进行中也必须允许再次点击取消；_isProcessing 只阻止空闲态重复发起请求。
-        if (this._gameStarted || (this._isProcessing && !this.isMatching && !Gnet.getRoom())) return;
-        if (this.isMatching || Gnet.getRoom()) {
+        // 取消在飞期间不可再点; 匹配请求进行中也必须允许再次点击取消；_isProcessing 只阻止空闲态重复发起请求。
+        if (this._gameStarted || this._cancelling || (this._isProcessing && !this.isMatching && !Gnet.getRoom() && !this._reconnecting)) return;
+        if (this.isMatching || Gnet.getRoom() || this._reconnecting) {
             // 主动取消: 标记吞掉随后离开房间触发的解散事件(防自动重匹配体感"没停止")
             this._userCancel = true;
             this._isProcessing = true;
+            // 用户规格 B4: 点击瞬间显示"取消中", 异步退房/取消回调落地后才回"匹配"
+            this._setBtnCancelling();
             console.log("[load] 取消匹配");
+            if (this._reconnecting) {
+                // 恢复在飞: 作废这一代恢复回调(joinRoom/reconnect 落地时按序号丢弃并退掉迟到的房)
+                this._matchAttemptSeq++;
+                this._reconnecting = false;
+                this._roomRecoveryRequired = false;
+                this._autoReconnectOnEnter = false;
+                if (this._reconnectTimer) { Timer.clear(this._reconnectTimer); this._reconnectTimer = null; }
+            }
             this.exitMatch(() => {
                 this._setBtnMatching(false);
             });
@@ -912,6 +968,7 @@ export class load extends Laya.Script {
         }
         this._dots = 0;
         this.isMatching = false;
+        this._resetAssignmentState();
 
         const finish = () => {
             if (superseded()) {
@@ -921,12 +978,12 @@ export class load extends Laya.Script {
             // 上一次取消的 500ms 收尾可能迟到落在"已经进房并已采纳指派"之后:
             // 实测因此把 _finalAssignment 清成 null, 而游戏场景已经按那张表开起来了 ——
             // 两端从这一刻起一张表一份, 权威帧与击球事件全数错配(表现就是开局几秒后整体卡死)。
-            if (this._gameStarted || this._assignmentResolved) {
+            if (this._gameStarted || RoleSync.state().resolved) {
                 console.warn("[load] 本局已进房/已定指派, 迟到取消收尾不再清理状态");
                 return;
             }
             this._isProcessing = false;
-            // 离开房间即作废本次指派, 下一局重新走 role_assign
+            // 离开房间即作废本次指派, 下一局重新出表
             this._resetAssignmentState();
             // 保留取消标记，直到用户显式开始下一轮匹配；避免超过 2 秒的迟到 room-dismiss 事件自动重匹配。
             console.log("[load] 已退出匹配");
@@ -967,164 +1024,31 @@ export class load extends Laya.Script {
     }
 
     /**
-     * 检查房间是否满员，满员则开始角色分配协商
+     * 进房入口: 交给 roleSync(无表索要/权威满员出表); 满员不再本地协商
      */
     private checkAndStartGame(): void {
         if (this._gameStarted) return;
-        if (this._assignmentResolved) return;
         const room = Gnet.getRoom();
         if (!room) return;
-        const players = Gnet.getPlayers();
-        const maxPlayers = room.maxPlayers || this.matchMaxPlayers;
-        if (players.length >= maxPlayers) {
-            this._assignRoles(players);
-        }
+        RoleSync.enterRoom(String(room.id || room.roomId || ''), room.maxPlayers || this.matchMaxPlayers);
     }
 
-    /**
-     * 重置角色分配协商状态，允许重新满人计算
-     */
-    // ============ 角色指派(单一权威源; 时序定义见 libs/pvpProto) ============
-    // 旧实现: 满员后每端各算一份表广播 first, 房主挑"第一个有表的"发 final, 再靠 okplay 互认。
-    // 实测后果: 后进那端的 players 列表还没刷新就自认房主、给自己发 final, 两端拿到不同的表
-    //           (A 停在 1/2 只看得到自己, B 与遗留玩家配成 2/2 各自开场)。
-    // 现在: 满员只由房主判定并出唯一一份 role_assign; 其他端只认房主的表,
-    //       回 ack 后等 match_start —— 只有收到开赛令的一方才跳场景。
-
-    /** 房主生成的指派序号(用生成时刻, 全员按它幂等) */
-    private _assignSeq: number = 0;
-    /** 本机已应用过的指派序号 */
-    private _appliedAssignSeq: number = 0;
-    /** 房主已收到的 ack */
-    private _assignAcks: Set<string> = new Set();
-    /** 已采纳但还没等到 match_start 的分配表 */
-    private _pendingAssign: any[] | null = null;
-
-    /** 匹配页消息上下文: 身份取房间 playerId; 这一阶段还没有权威端, 任期恒 0 */
-    private _msgCtx: Msg.SpaceCtx = {
-        selfId: () => this._myRoomPid(),
-        authId: () => null,
-        authTerm: () => 0
-    };
-    /** 指派三件套的处理器; 走 msg 层统一信封/过期/校验, 本处只管业务 */
-    private _msgSubs: Record<string, (data: any, senderId: string) => void> = {
-        [Proto.Kind.RoleAssign]: (d, s) => this._onRoleAssign(d, s),
-        [Proto.Kind.RoleAck]: (d, s) => this._onRoleAck(d, s),
-        [Proto.Kind.MatchStart]: (d, s) => this._onMatchStart(d, s)
-    };
+    // ============ 角色指派(权威广播 + 客户端索要; 协议规范见 pvpProto 文件头) ============
+    // 表/序号/定时器全部住 roleSync 单例(活过场景跳转, 恢复房间靠它); 这里只留薄壳。
 
     /** 本机在房间体系里的 id(GOBE 分配的 playerId) */
     private _myRoomPid(): string {
         return String(Gnet.getCurrentPlayerId() || this.openId || '');
     }
 
-    /** 本房间房主(GOBE 建房者); 拿不到就退回当前权威端/自己 */
-    private _matchOwnerId(): string {
-        const room: any = Gnet.getRoom();
-        return String(Gnet.getRoomOwnerId() || (room && room.ownerId) || this._myRoomPid());
-    }
-
     /** 换房/退房/重匹配/回菜单: 指派状态整体归零 */
     private _resetAssignmentState(): void {
-        this._assignSeq = 0;
-        this._appliedAssignSeq = 0;
-        this._assignAcks = new Set<string>();
-        this._pendingAssign = null;
-        this._finalAssignment = null;
-        this._assignmentResolved = false;
-        if (this._resolveTimer) {
-            Timer.clear(this._resolveTimer);
-            this._resolveTimer = null;
-        }
+        RoleSync.leave();
     }
 
-    /** 满员入口: 只有房主出表, 其他端安静等 role_assign */
-    private _assignRoles(players: any[]): void {
-        if (this._assignmentResolved || this._assignSeq > 0) return;
-        const ownerId = this._matchOwnerId();
-        if (ownerId !== this._myRoomPid()) {
-            console.log(`[load] 满员 ${players.length} 人, 本机非房主(房主=${ownerId}), 等待 role_assign`);
-            return;
-        }
-        const roleIds = players.map((_p: any, i: number) => i);
-        for (let i = roleIds.length - 1; i > 0; i--) {
-            const j = Math.floor(Math.random() * (i + 1));
-            const t = roleIds[i]; roleIds[i] = roleIds[j]; roleIds[j] = t;
-        }
-        const assignments = players.map((p: any, i: number) => ({
-            playerId: String(p.playerId),
-            roleId: roleIds[i],
-            teamId: Proto.teamOfRoleId(roleIds[i], players.length)
-        }));
-        const room: any = Gnet.getRoom();
-        this._assignSeq = Timer.now();
-        this._finalAssignment = assignments;
-        this._assignAcks = new Set<string>([this._myRoomPid()]);
-        this._sendAssign(Proto.Kind.RoleAssign, this._assignSeq, assignments, String((room && (room.id || room.roomId)) || ''));
-        console.log(`[load] 房主指派角色 seq=${this._assignSeq}: ${JSON.stringify(assignments)}`);
-        // 房主自己先生效; 其他端必须等 match_start
-        this._applyAssignmentAndStart(assignments);
-        this._resolveTimer = Timer.setTimeout(Proto.ASSIGN_ACK_WAIT_MS, () => this._broadcastStart());
-    }
-
-    private _sendAssign(kind: string, assignSeq: number, assignments: any[], roomId?: string): void {
-        const payload: any = { assignSeq: assignSeq, assignments: assignments };
-        if (roomId !== undefined) payload.roomId = roomId;
-        Msg.send(kind, payload);
-    }
-
-    /** 收齐 ack 或超时 → 广播开赛令(同一 assignSeq, 端上幂等) */
-    private _broadcastStart(): void {
-        if (!this._finalAssignment) return;
-        this._resolveTimer = null;
-        this._sendAssign(Proto.Kind.MatchStart, this._assignSeq, this._finalAssignment);
-        console.log(`[load] 广播 match_start seq=${this._assignSeq} (已 ack ${this._assignAcks.size} 端)`);
-    }
-
-    /** 只认房主的表: 任何端自己算出来的分配都不作数(msg 层已做过 assignSeq 过期与结构校验) */
-    private _onRoleAssign(data: any, sendPlayerId: string): void {
-        const ownerId = this._matchOwnerId();
-        if (String(sendPlayerId) !== ownerId) {
-            console.warn(`[load] 丢弃非房主 role_assign from=${sendPlayerId} 房主=${ownerId}`);
-            return;
-        }
-        if (Number(data.assignSeq) <= this._appliedAssignSeq) return;
-        this._appliedAssignSeq = Number(data.assignSeq);
-        this._assignSeq = Number(data.assignSeq);
-        this._pendingAssign = data.assignments;
-        this._finalAssignment = data.assignments;
-        console.log(`[load] 采纳房主指派 seq=${data.assignSeq}: ${JSON.stringify(data.assignments)}`);
-        this._sendAssign(Proto.Kind.RoleAck, data.assignSeq, data.assignments);
-    }
-
-    /** ack 只给房主处理; assignSeq 必须是本次指派 */
-    private _onRoleAck(data: any, sendPlayerId: string): void {
-        if (this._myRoomPid() !== this._matchOwnerId()) return;
-        if (Number(data.assignSeq) !== this._assignSeq || !this._finalAssignment) return;
-        this._assignAcks.add(String(sendPlayerId));
-        if (this._assignAcks.size >= this._finalAssignment.length && this._resolveTimer) {
-            Timer.clear(this._resolveTimer);
-            this._broadcastStart();
-        }
-    }
-
-    private _onMatchStart(data: any, sendPlayerId: string): void {
-        if (String(sendPlayerId) !== this._matchOwnerId()) return;
-        const list = this._pendingAssign || data.assignments;
-        this._pendingAssign = null;
-        this._appliedAssignSeq = Math.max(this._appliedAssignSeq, Number(data.assignSeq));
-        console.log(`[load] 收到 match_start seq=${data.assignSeq}, 开赛`);
-        this._applyAssignmentAndStart(list);
-    }
-
-    /** 应用最终分配并跳游戏场景 */
+    /** 应用最终分配并跳游戏场景(roleSync 表落地回调: 表=开赛, 无 ack/开赛令) */
     private _applyAssignmentAndStart(assignment: any[]): void {
-        if (this._assignmentResolved) return;
-        this._assignmentResolved = true;
-        if (this._resolveTimer) {
-            Timer.clear(this._resolveTimer);
-            this._resolveTimer = null;
-        }
+        if (this._gameStarted) return;
         const myId = this._myRoomPid();
         let mine: any = null;
         for (const a of assignment || []) if (String(a.playerId) === myId) mine = a;
@@ -1137,38 +1061,28 @@ export class load extends Laya.Script {
         (window as any).gameMode = "pvp";
         (window as any).gamePlayerAssignments = assignment;
         this._gameStarted = true;
+        // 用户规格 B3: 满员且表落地才显示"匹配成功"(随即跳场景)
+        this._setBtnMatched();
+        // 先冻结表(停广播/索要, 之后只应答恢复请求)再跳场景
+        RoleSync.enterGame();
         console.log(`%c[load] 最终角色分配: ${JSON.stringify(assignment)} 本机 roleId=${mine.roleId}`, "color: #FF00FF; font-weight:bold");
         this._stopFx();
         SceneNav.open(load.SCENE_URL, { playerCount });
     }
 
     private _roomEventsBound: boolean = false;
-    private _rcvClient: ((info: any) => void) | null = null;
     private _rcvServer: ((info: any) => void) | null = null;
     private _rcvJoin: ((player: any) => void) | null = null;
     private _rcvLeave: ((player: any) => void) | null = null;
     private _rcvDismiss: ((roomId: string) => void) | null = null;
 
     /**
-     * 绑定房间相关事件（回调存字段, onDestroy 精确 off, 防跨场景残留导致新实例双回调/状态错乱）
+     * 绑定房间相关事件（回调存字段, onDestroy 精确 off, 防跨场景残留导致新实例双回调/状态错乱）。
+     * 协议消息泵不在这里: Msg.installPump 常驻(roleSync.install 补装), 场景跳转不再互清。
      */
     private bindRoomEvents(): void {
         if (this._roomEventsBound) return;
         this._roomEventsBound = true;
-
-        Msg.bind('match', this._msgCtx, this._msgSubs);
-
-        this._rcvClient = (info: any) => {
-            if (Msg.dispatchInfo(info)) return;
-            try {
-                // msg 层已登记但被规则丢弃的协议消息也走到这里(msg 自己 warn 过原因)
-                const data = JSON.parse(info.msg);
-                console.log("[load] 收到未处理的客户端消息 kind=" + (data && data.kind));
-            } catch (e) {
-                // 系统文本消息(如 "1014 离开了房间")非 JSON 属正常流量, 降级 log 勿按 error 打印
-                console.log("[load] 收到非 JSON 客户端消息:", info.msg);
-            }
-        };
 
         this._rcvServer = (info: any) => {
             try {
@@ -1189,23 +1103,15 @@ export class load extends Laya.Script {
 
         this._rcvJoin = (player: any) => {
             console.log("[load] 玩家加入:", player, Gnet.getPlayers());
-            // 检查是否满员，满员则跳转游戏场景
-            this.checkAndStartGame();
+            // 出表/索要由 roleSync 自己的 join 监听驱动; 这里只管按钮与看门狗
+            if (this.isMatching && !this._gameStarted) this._setBtnRoomStatus();
             this._armMatchWait();
-            // 兜底: onJoin 派发可能早于本地 players 列表更新, 延时复查满员
-            Timer.setTimeout(300, () => {
-                if (!this._gameStarted && !this._assignmentResolved) this.checkAndStartGame();
-            });
         };
 
         this._rcvLeave = (player: any) => {
             console.log("[load] 玩家离开:", player, Gnet.getPlayers());
             this._armMatchWait();
-            if (!this._gameStarted) {
-                this._resetAssignmentState();
-                // 满员协商中途有人离开: 重新检查满员状态
-                this.checkAndStartGame();
-            }
+            if (!this._gameStarted && this.isMatching) this._setBtnRoomStatus();
         };
 
         this._rcvDismiss = (roomId: string) => {
@@ -1213,7 +1119,6 @@ export class load extends Laya.Script {
             this._onRoomDismissed();
         };
 
-        Gnet.onClient(this._rcvClient);
         Gnet.onServer(this._rcvServer);
         Gnet.onJoin(this._rcvJoin);
         Gnet.onLeave(this._rcvLeave);
@@ -1257,12 +1162,13 @@ export class load extends Laya.Script {
 
         // 匹配进入: 维持匹配态等待满员
         if (this.isMatching || fromMatch) this.isMatching = true;
-        if (fromMatch) this._setBtnMatched();
+        // 用户规格 B2: 进房≠匹配成功, 未满员显示"匹配中(x/y)", 满员无表显示"等待开局"
+        this._setBtnRoomStatus();
 
         // 绑定 room 级别事件（加入房间后 client.room 才有值）
         this.bindRoomEvents();
 
-        // 检查是否满员，满员则跳转游戏场景
+        // 进 roleSync: 无表开始索要, 本机权威且满员则出表(表落地回调 _applyAssignmentAndStart)
         this.checkAndStartGame();
         // 不满员的房不会自己长人: 挂看门狗(实测两人各进各的房后双双无限等待, 匹配页一直停在"匹配中")
         this._armMatchWait();
@@ -1482,18 +1388,13 @@ export class load extends Laya.Script {
             Timer.clear(this._reconnectTimer);
             this._reconnectTimer = null;
         }
-        if (this._resolveTimer) {
-            Timer.clear(this._resolveTimer);
-            this._resolveTimer = null;
-        }
         this._clearMatchWait();
 
-        if (this._rcvClient) { Gnet.off("client", this._rcvClient); this._rcvClient = null; }
         if (this._rcvServer) { Gnet.off("server", this._rcvServer); this._rcvServer = null; }
         if (this._rcvJoin) { Gnet.off("join", this._rcvJoin); this._rcvJoin = null; }
         if (this._rcvLeave) { Gnet.off("leave", this._rcvLeave); this._rcvLeave = null; }
         if (this._rcvDismiss) { Gnet.off("dismiss", this._rcvDismiss); this._rcvDismiss = null; }
-        Msg.unbind('match', this._msgCtx, this._msgSubs);
+        // match 空间 handler/消息泵归 roleSync 单例常驻(恢复房间要靠它活过场景), 这里不摘
         this._roomEventsBound = false;
     }
 }

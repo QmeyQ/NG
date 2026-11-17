@@ -8,13 +8,14 @@
  *   4) 下载 + 解压 + 存盘完成后 → 场景跳转到 game/menu
  *   5) 点“取消” → 退出
  */
-import { Res } from "./libs/res";
+import { Res } from "./libs/res/res";
 import { Dialog } from "./ui/DIalog";
 import { Timer } from "./libs/time";
 import { UI } from "./ui/ui";
 import { Au } from "./libs/au";
 import { SceneNav } from "./libs/nav";
 import { Sys } from "./libs/sys";
+import { ProgPID } from "./libs/MT";
 
 const { regClass, property } = Laya;
 
@@ -45,6 +46,14 @@ export class index extends Laya.Script {
     private _progressBar: any = null;
     private _progressText: any = null;
     private _downloading = false;
+
+    /** PID 预测进度(vers 探测/本地恢复/Brotli 解压无真值阶段外推, DP/XP 真值锚入) */
+    private _prog: ProgPID | null = null;
+    private _progTid: any = null;
+    private _progLastT = 0;
+    /** XP(解压真进度)映射区间: 本地恢复 [0.15,0.85], 网络下载后解压 [0.8,0.99] */
+    private _xpBase = 0.15;
+    private _xpSpan = 0.70;
 
     /** 隐私协议 CheckBox(GButton Check 模式) */
     private _checkBox: any = null;
@@ -120,8 +129,11 @@ export class index extends Laya.Script {
         this._resChecked = true;
         // vers 网络探测期间给界面反馈(可能数秒, 无提示体感"卡住无反应")
         if (this._progressText) this._progressText.text = "正在检查资源...";
+        // 探测无真值: PID 预测渐近 15%(探测阶段天花板)
+        this._startProg(0.15);
         Res.vers(Res.ResList.ui, (result) => {
             console.log(result)
+            this._prog?.anchor(0.15, Timer.now());
             if (result.needUpdate) {
                 this._dlTip = `需要下载初始资源${result.size > 0 ? `：[0000ff]${(result.size / 1000000).toFixed(2)}Mb` : `：[0000ff]约 12Mb`}`;
                 this._asked = true;
@@ -130,11 +142,17 @@ export class index extends Laya.Script {
                 // 无更新：从本地缓存恢复包信息(Res.url 缓存路径, 缺文件会自动重下), 完成后再跳
                 if (this._progressText) this._progressText.text = "正在加载资源...";
                 this._downloading = true;
+                // 本地恢复: 解压真进度 XP 映射 [0.15,0.85], 预测天花板 0.85
+                this._xpBase = 0.15;
+                this._xpSpan = 0.70;
+                this._prog?.cap(0.85);
                 Res.url(Res.ResList.ui, (list) => {
                     console.log('[index] 本地资源就绪', list);
                     Res.off('DP', this._onProgress);
                     this._downloading = false;
+                    this._stopProg();
                     if (!list) {
+                        this._resChecked = false;
                         Dialog.toast("资源加载失败，请点击屏幕重试");
                         if (this._progressText) this._progressText.text = "加载失败";
                         return;
@@ -147,6 +165,38 @@ export class index extends Laya.Script {
         });
     }
 
+    /** 启动 PID 预测进度条: cap=阶段天花板, 帧环推进, DP/XP 真值锚入 */
+    private _startProg(cap: number): void {
+        this._stopProg();
+        this._prog = new ProgPID();
+        this._prog.cap(cap);
+        this._progLastT = Timer.now();
+        Res.on('DP', this._onProgress);
+        Res.on('XP', this._onXp);
+        this._progTid = Timer.frameLoop(() => {
+            if (!this._prog || !this._progressBar) return;
+            const now = Timer.now();
+            this._prog.tick(now - this._progLastT, now);
+            this._progLastT = now;
+            this._progressBar.width = this._prog.value * 860;
+        });
+    }
+
+    private _stopProg(): void {
+        if (this._progTid != null) { Timer.clear(this._progTid); this._progTid = null; }
+        Res.off('DP', this._onProgress);
+        Res.off('XP', this._onXp);
+        this._prog = null;
+    }
+
+    /** 解压真进度(Res 'XP', ~5% 粒度) → 按阶段区间锚入预测 */
+    private _onXp = (pack: string, frac: number): void => {
+        if (pack !== 'ui' || !this._downloading) return;
+        this._prog?.cap(0.99);
+        this._prog?.anchor(this._xpBase + frac * this._xpSpan, Timer.now());
+        if (this._progressText) this._progressText.text = `提取资源：${Math.round(frac * 100)}%`;
+    };
+
     // ============================================================
     // 隐私协议
     // ============================================================
@@ -158,7 +208,7 @@ export class index extends Laya.Script {
             console.warn('[index] 未找到隐私协议 CheckBox');
             return;
         }
-    
+
         // title 走 GButton.title(同步 _titleStr, selected 翻转后文案不回退)
         // 运行时修正 UI 里的 heref 拼写错误与未闭合的 <a/>
         const tw = UI.findNode(this.owner, "title") as Laya.GTextField;//(this._checkBox as any).titleWidget;
@@ -169,7 +219,7 @@ export class index extends Laya.Script {
             this._checkBox.title = `同意<a href="${PRIVACY_URL}">用户隐私协议</a>`;
             // GTextField 构造内置 textIns LINK 转发, 参数为 href
             tw.on(Laya.Event.LINK, index, (href: string) => {
-                if(Timer.invoke("link") < 0 || Timer.invoke("link") > 500)
+                if (Timer.invoke("link") < 0 || Timer.invoke("link") > 500)
                     Sys.openLink(href);
                 // 记录时间戳: 该次点击的 CLICK 会继续冒泡到 GButton(翻转 selected 并弹窗),
                 // _onCheckBoxClick 凭此识别链接点击, 撤销翻转避免"链接页+隐私弹窗"双开
@@ -285,7 +335,9 @@ export class index extends Laya.Script {
     private _onBgClick(): void {
         Au.unlock();
         Au.tap();
-        if (!this._asked || this._resOk || this._downloading) return;
+        if (this._resOk || this._downloading) return;
+        if (!this._resChecked && this._gateOk()) { this._checkRes(); return; }
+        if (!this._asked) return;
         // 有弹窗(下载框/隐私框)正开着时不叠弹
         if (Dialog.isOpen()) return;
         this._askDownload(this._dlTip);
@@ -310,13 +362,19 @@ export class index extends Laya.Script {
                     Dialog.closeD();
                     this._downloading = true;
                     if (this._progressBar) {
-                        this._progressBar.width = 0;
                         this._progressText.text = "下载资源...";
                     }
+                    // 网络下载: DP 真进度映射 [0.15,0.8], 解压 XP 映射 [0.8,0.99]
+                    this._xpBase = 0.8;
+                    this._xpSpan = 0.19;
+                    if (!this._prog) this._startProg(0.15);
+                    this._prog?.anchor(0.15, Timer.now());
+                    this._prog?.cap(0.8);
                     Res.url(Res.ResList.ui, true, (list) => {
                         console.log('[index] 初始资源加载完成', list);
                         Res.off('DP', this._onProgress);
                         this._downloading = false;
+                        this._stopProg();
                         if (!list) {
                             // 失败不跳转: 复位下载态, 点背景板可重弹下载框
                             Dialog.toast("下载失败，请点击屏幕重试");
@@ -335,6 +393,7 @@ export class index extends Laya.Script {
                     });
                 } else if (key === 0) {
                     // 取消下载 = 离开游戏(平台分支收口 sys): web 回上一页; 微信退出小游戏
+                    this._stopProg();
                     if (this._progressText) this._progressText.text = "已取消下载，点击屏幕可重新下载";
                     Sys.back("已取消下载，点击屏幕可重新下载");
                 }
@@ -383,29 +442,8 @@ export class index extends Laya.Script {
             return;
         }
 
-        const elapsed = Timer.now() - this._enterTime;
-        const remain = this.minSplashMs - elapsed;
-
-        if (remain <= 0) {
-            this._jumped = true;
-            SceneNav.open("ui/menu.ls", undefined, this._menuLoader);
-            return;
-        }
-
-        // 这段时间里健康游戏忠告继续显示，等时间到了再跳
-        this._waitTimerId = Timer.setTimeout(remain, () => {
-            if (this._jumped) return;
-            // 等待期间取消勾选 = 撤回进入许可, 不跳(重新勾选同意后由 _resOk 出口续跳)
-            if (!this._gateOk()) {
-                this._waitTimerId = null;
-                this._syncGateText();
-                Dialog.toast("请先勾选“同意用户隐私协议”");
-                return;
-            }
-            this._jumped = true;
-            this._waitTimerId = null;
-            SceneNav.open("ui/menu.ls", undefined, this._menuLoader);
-        });
+        SceneNav.open("ui/menu.ls", undefined, this._menuLoader);
+        return;
     }
 
     /** 进入游戏闸门: 同意记录(localStorage)存在 且 CheckBox 当前处于勾选状态 */
@@ -419,12 +457,16 @@ export class index extends Laya.Script {
         if (this._progressText) this._progressText.text = "请同意用户隐私协议";
     }
 
-    /** 下载进度回调 */
+    /** 下载进度回调: DP 真值锚入预测(本地恢复意外转网络下载时切换 XP 映射区间) */
     private _onProgress = (url: string, percent: number, speed: number, loaded: number, total: number): void => {
-        if (!this._progressBar) return;
-        if (!this._downloading) return;
+        if (!this._progressBar || !this._downloading || url !== Res.ResList.ui) return;
 
-        this._progressBar.width = percent * 860 / 100;
+        if (this._xpBase < 0.8) {
+            this._xpBase = 0.8;
+            this._xpSpan = 0.19;
+        }
+        this._prog?.cap(percent >= 100 ? 0.99 : 0.8);
+        if (total > 0) this._prog?.anchor(0.15 + Math.min(100, percent) / 100 * 0.65, Timer.now());
         if (this._progressText) {
             this._progressText.text = "下载资源:" + this._fmtSize(loaded) + "/" + this._fmtSize(total)
                 + "  " + this._fmtSize(speed) + "/s";
@@ -455,6 +497,7 @@ export class index extends Laya.Script {
 
     onDestroy(): void {
         Res.off('DP', this._onProgress);
+        this._stopProg();
 
         // 清掉等待跳转的定时器，避免切场景后回调打到已销毁对象上
         if (this._waitTimerId != null) {

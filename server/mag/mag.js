@@ -21,6 +21,7 @@
  *   del    {token, userid}                 → 删除用户
  *   passwd {token, u, p}                   → 修改管理员账号密码
  *   shell  {token, cmd}                    → Shell 命令(运维, cwd=函数目录)
+ *   clean  {token}                         → 一次性清理遗留 __shield__ 独立审计行(审计已并入用户行 history)
  *
  * 错误码: 0成功 1用户不存在 2认证失败 5参数错误
  */
@@ -34,7 +35,7 @@ const ADMIN_ROW = 'mag:admin';
 // ==================== 工具 ====================
 
 // 代码版本(每次部署自增): 客户端响应 v 字段可核对云端实际运行的版本, 部署问题定位后删除
-const CODE_V = 'v1022a';
+const CODE_V = 'v1116a';
 
 function out(c, extra) {
     return Object.assign({ code: c, v: CODE_V }, extra || {});
@@ -299,6 +300,27 @@ let myHandler = async function (event, context, callback, logger) {
                 if (!ok) { callback(out(5, { msg: '存储删除失败' })); return; }
                 if (logger) logger.info('mag del user: ' + id);
                 callback(out(0));
+                return;
+            }
+
+            // ---- 一次性清理遗留独立审计行(最小写入改造后不再产生) ----
+            case 'clean': {
+                const PREFIX = '__shield__';
+                let deleted = 0;
+                // 分页前缀扫描 + 逐行删除; 上限 50 页防失控(每页 ≤1000 行)
+                for (let page = 0; page < 50; page++) {
+                    const rows = await db.dbListPrefix(PREFIX, 1000);
+                    if (!db.dbOk) { callback(out(5, { msg: '存储访问失败: ' + (db.dbErr() || '未知'), deleted: deleted })); return; }
+                    if (!rows || !rows.length) break;
+                    for (const row of rows) {
+                        const ok = await db.dbDel(row.id);
+                        if (!ok) { callback(out(5, { msg: '存储删除失败: ' + row.id, deleted: deleted })); return; }
+                        deleted++;
+                    }
+                    if (rows.length < 1000) break;
+                }
+                if (logger) logger.info('mag clean legacy shield rows: ' + deleted);
+                callback(out(0, { deleted: deleted }));
                 return;
             }
 

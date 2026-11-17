@@ -52,9 +52,10 @@
     font-size:14px;text-align:center;pointer-events:none;z-index:0;line-height:2}
   #hint{position:absolute;left:12px;bottom:10px;color:#556070;font-size:11px;pointer-events:none;z-index:4;
     background:rgba(20,22,26,.6);padding:4px 8px;border-radius:6px}
-  #zoomBadge{position:absolute;right:12px;bottom:10px;color:#556070;font-size:11px;z-index:4;cursor:pointer;
-    background:rgba(20,22,26,.6);padding:4px 8px;border-radius:6px;border:1px solid transparent}
-  #zoomBadge:hover{color:var(--tx2)}
+  #zoomBadge{position:absolute;right:12px;bottom:10px;color:#7c8794;font-size:15px;font-weight:600;z-index:4;
+    cursor:ew-resize;user-select:none;-webkit-user-select:none;touch-action:none;
+    background:rgba(20,22,26,.75);padding:7px 14px;border-radius:8px;border:1px solid var(--line)}
+  #zoomBadge:hover{color:var(--tx);border-color:#4a5568}
 
   /* ---------- 未使用节点工作区（左侧，自动收展） ---------- */
   #stage{flex:1;display:flex;min-height:0;min-width:0}
@@ -189,6 +190,7 @@
   <button id="btnOpen" title="导入 JSON / JS / ZIP：整份项目作为一个组节点插入，可无限嵌套">导入项目</button>
   <button id="btnOpenDir" title="选择导出的整个文件夹（含 index.js 与 nodes/）：自动装配所有子组">导入文件夹</button>
   <button id="btnSave" title="导出整包 ZIP：index.js + 各子组自己的 .js 数据文件（原 JSON 结构）">导出整包</button>
+  <button id="btnReload" title="重新加载 ./index.js 并覆盖本地存档（丢弃当前未导出的编辑）">重载</button>
   <input type="file" id="fileInput" accept=".json,.js,.zip,application/json,text/javascript,application/zip" hidden>
   <input type="file" id="dirInput" webkitdirectory directory multiple hidden>
 </header>
@@ -212,8 +214,8 @@
   <div id="world"></div>
   <svg id="linkTop"><path id="tmpPath" fill="none" stroke="#fff" stroke-width="2" stroke-dasharray="6 4" style="display:none"></path></svg>
   <div id="emptyTip">空节点树<br>点击右上角「＋ 添加节点」开始构建</div>
-  <div id="hint">左键拖动空白平移（触屏可直接拖动） · 按住滚轮拖动框选 · Shift+滚轮框选追加 · 右键拖动平移 · 拖动选中节点整体移动 · 滚轮缩放 · 拖动端口连线（虚线灰点=拖出即新建端口） · 双击任意节点进入 / 创建子树 · Delete 移出到左侧「未使用」 · Ctrl+Z 撤销 / Ctrl+Y 重做 · 框选多个节点后 Ctrl+C / Ctrl+V 整组复制（含内部连线） · Ctrl+S 导出 ZIP</div>
-  <div id="zoomBadge" title="点击重置为 100%">100%</div>
+  <div id="hint">左键拖动空白平移（触屏可直接拖动） · 按住滚轮拖动框选 · Shift+滚轮框选追加 · 右键拖动平移 · 拖动选中节点整体移动 · 滚轮缩放 · 拖动端口连线（虚线灰点=拖出即新建端口） · 双击任意节点进入 / 创建子树 · Delete 移出到左侧「未使用」 · Ctrl+Z 撤销 / Ctrl+Y 重做 · 框选多个节点后 Ctrl+C / Ctrl+V 整组复制（含内部连线） · 连线支持框选/Shift+点选多选后 Delete 批量删除 · Ctrl+S 导出 ZIP</div>
+  <div id="zoomBadge" title="左右滑动调节缩放 · 点击重置为 100%">100%</div>
 
   <aside id="insp">
     <div class="ihead"><b id="inspTitle">属性</b><button id="inspX" title="关闭">✕</button></div>
@@ -298,6 +300,7 @@ let root=null;          // 整个文档（一棵根树，内含嵌套 node_tree�
 let path=[];            // 当前所在子树路径 [{name,tree}]
 let sel=null;           // 主选择：{type:'node',key} | {type:'link',i}
 let multi=new Set();    // 多选节点键集合（含主选择节点）
+let multiLink=new Set();// 多选连线索引集合（含主选择连线）
 let view={x:0,y:0,k:1};
 let drag=null, linkG=[], uid=1;
 let clipNode=null;      // 节点复制剪贴板（纯 JSON 快照）
@@ -603,7 +606,7 @@ function render(){
       return p;};
     const hit=mk('hit',14,'transparent');
     const vis=mk('vis',2,linkColor(l));
-    if(sel&&sel.type==='link'&&sel.i===i)vis.classList.add('sel');
+    if(multiLink.has(i))vis.classList.add('sel');
     g.appendChild(hit);g.appendChild(vis);
     linksEl.appendChild(g); linkG[i]=g;
   });
@@ -618,7 +621,7 @@ function renderCrumb(){
   const bc=$('bc'); bc.innerHTML='';
   const mk=(txt,i)=>{const s=document.createElement('span');s.textContent=txt;
     if(i>=path.length-1)s.style.cursor='default';
-    else s.onclick=()=>{path=path.slice(0,i+1);pruneEmptyGroups();sel=null;multi.clear();touch();fitView();syncHash();};
+    else s.onclick=()=>{path=path.slice(0,i+1);pruneEmptyGroups();sel=null;multi.clear();multiLink.clear();touch();fitView();};
     bc.appendChild(s);};
   mk(root.name||'根文档',-1);
   path.forEach((p,i)=>{const b=document.createElement('b');b.textContent='/';bc.appendChild(b);mk(p.name,i);});
@@ -753,17 +756,20 @@ function updateSelVisuals(){
   world.querySelectorAll('.node').forEach(el=>
     el.classList.toggle('sel',multi.has(el.dataset.key)||!!(sel&&sel.type==='node'&&el.dataset.key===sel.key)));
   linksEl.querySelectorAll('g.lnk').forEach(g=>{
-    const on=!!(sel&&sel.type==='link'&&+g.dataset.i===sel.i);
-    g.querySelector('.vis').classList.toggle('sel',on);
+    g.querySelector('.vis').classList.toggle('sel',multiLink.has(+g.dataset.i));
   });
 }
 function selectNode(key){
   sel={type:'node',key};multi=new Set([key]);updateSelVisuals();refreshInsp();
 }
-function selectLink(i){
-  sel={type:'link',i};multi.clear();updateSelVisuals();refreshInsp();
+function selectLink(i,additive){
+  if(additive){                            // Shift/Ctrl 加选：切换该连线的选中状态
+    if(multiLink.has(i)){multiLink.delete(i);if(sel&&sel.type==='link'&&sel.i===i)sel=null;}
+    else{multiLink.add(i);sel={type:'link',i};}
+  }else{sel={type:'link',i};multiLink=new Set([i]);}
+  multi=new Set();updateSelVisuals();refreshInsp();
 }
-function deselect(){sel=null;multi.clear();updateSelVisuals();refreshInsp();}
+function deselect(){sel=null;multi.clear();multiLink.clear();updateSelVisuals();refreshInsp();}
 
 /* ================= 检查器 ================= */
 function sockRow(s,side,i){
@@ -824,7 +830,7 @@ wrap.addEventListener('pointerdown',e=>{
   const rh=e.target.closest('.rh');
   if(rh){startResize(e,rh.closest('.node'));return;}   // 拖节点底边：调整高度
   const lg=e.target.closest('g.lnk');
-  if(lg){selectLink(+lg.dataset.i);return;}
+  if(lg){selectLink(+lg.dataset.i,e.shiftKey||e.ctrlKey);return;}   // Shift/Ctrl 加选连线
   const nd=e.target.closest('.node');
   if(nd){startNodeDrag(e,nd);return;}   // 按下不选中：松手时未移动（单击）才弹面板
   startPan(e);                          // 左键 / 触屏拖空白：直接平移画布
@@ -864,7 +870,7 @@ const rubberBox=document.createElement('div');rubberBox.id='rubber';document.bod
 function startRubber(e){
   e.preventDefault();
   drag={type:'rubber',sx:e.clientX,sy:e.clientY,add:e.shiftKey,moved:false};
-  if(!drag.add){multi.clear();updateSelVisuals();refreshInsp();}   // 非追加模式先清空选择
+  if(!drag.add){multi.clear();multiLink.clear();updateSelVisuals();refreshInsp();}   // 非追加模式先清空选择
   rubberBox.style.display='block';
   rubberBox.style.left=e.clientX+'px';rubberBox.style.top=e.clientY+'px';
   rubberBox.style.width='0px';rubberBox.style.height='0px';
@@ -887,6 +893,7 @@ function startNodeDrag(e,el){
   const key=el.dataset.key;
   window.addEventListener('pointermove',onMove);
   window.addEventListener('pointerup',onUp);
+  multiLink.clear();                          // 拖动节点即放弃连线选择
   if(multi.has(key)&&multi.size>1){          // 拖动多选集合：保持整组选中
     const items=[...multi].map(k=>{const m=cur().nodes[k];return{k,n:m,ox:m._x,oy:m._y,
       el:world.querySelector('.node[data-key="'+CSS.escape(k)+'"]')};});
@@ -978,7 +985,17 @@ function onUp(e){
       const w=n._w||220,h=n._h||150;
       if(n._x<rx2&&n._x+w>rx1&&n._y<ry2&&n._y+h>ry1)hits.push(key);}
     multi=d.add?new Set([...multi,...hits]):new Set(hits);
-    sel=hits.length===1?{type:'node',key:hits[0]}:null;   // 恰好框中一个时打开属性面板
+    // 框选同时覆盖连线：两端节点中心连线的中点落入矩形即选中
+    const linkHits=[];
+    (cur().links||[]).forEach((l,i)=>{
+      const a=cur().nodes[l.from_node],b=cur().nodes[l.to_node];
+      if(!a||!b)return;
+      const mx=(a._x+(a._w||220)+b._x)/2,my=(a._y+(a._h||150)/2+b._y+(b._h||150)/2)/2;
+      if(mx>rx1&&mx<rx2&&my>ry1&&my<ry2)linkHits.push(i);
+    });
+    multiLink=d.add?new Set([...multiLink,...linkHits]):new Set(linkHits);
+    sel=hits.length===1?{type:'node',key:hits[0]}
+      :(!hits.length&&linkHits.length===1?{type:'link',i:linkHits[0]}:null);   // 恰好框中一个时打开属性面板
     updateSelVisuals();refreshInsp();
     return;
   }
@@ -1159,9 +1176,13 @@ function removeSocketLinks(tree,key,side,s){
 }
 function deleteSelected(){
   const t=cur();
-  if(!sel&&!multi.size)return;
-  if(sel&&sel.type==='link'){
-    t.links.splice(sel.i,1);sel=null;touch();toast('已删除连线');return;
+  if(!sel&&!multi.size&&!multiLink.size)return;
+  if(multiLink.size){                        // 多选连线：按下标从大到小批量删除
+    [...multiLink].sort((a,b)=>b-a).forEach(i=>{if(t.links[i])t.links.splice(i,1);});
+    const n=multiLink.size;
+    multiLink.clear();
+    if(sel&&sel.type==='link')sel=null;
+    if(!multi.size&&(!sel||sel.type!=='node')){touch();toast('已删除 '+n+' 条连线');return;}
   }
   const keys=new Set(multi);
   if(sel&&sel.type==='node')keys.add(sel.key);
@@ -1182,7 +1203,7 @@ function deleteSelected(){
   });
   t.links=t.links.filter(l=>t.nodes[l.from_node]&&t.nodes[l.to_node]);
   if(wasEmpty)shelfManual=null;        // 原本为空 → 有新条目时自动展开
-  multi.clear();sel=null;touch();
+  multi.clear();multiLink.clear();sel=null;touch();
   toast('已移出 '+moved+' 个节点到左侧「未使用」');
 }
 function renameNode(oldK,newK){
@@ -1205,45 +1226,9 @@ function enterTree(key){
   const n=cur().nodes[key];if(!n)return;
   if(!n.node_tree)n.node_tree={name:(n.label||n.name||key)+' 子树',nodes:{},links:[]};
   addMirrors(n.node_tree,n);   // 新建子树立即注入 组输入/组输出
-  path.push({name:n.node_tree.name||key,tree:n.node_tree,key});
-  sel=null;multi.clear();render();fitView();syncHash();
+  path.push({name:n.node_tree.name||key,tree:n.node_tree});
+  sel=null;multi.clear();multiLink.clear();render();fitView();
 }
-
-/* ---- 地址栏深链：#分组键/子分组键，README 等外部页面可直接落到某一组 ---- */
-function syncHash(){
-  const h=path.map(p=>p.key||p.name).filter(Boolean).join('/');
-  try{history.replaceState(null,'',location.pathname+location.search+(h?'#'+h:''));}catch(_){/* file:// 下忽略 */}
-}
-function gotoHash(){
-  if(!root)return;
-  let raw='';
-  try{raw=decodeURIComponent((location.hash||'').replace(/^#/,''));}catch(_){raw=(location.hash||'').replace(/^#/,'');}
-  const segs=raw.split('/').map(s=>s.trim()).filter(Boolean);
-  const next=[];let tree=root,focus=null;
-  for(const s of segs){
-    let hit=null,leaf=null;
-    for(const k in tree.nodes){
-      const n=tree.nodes[k];
-      if(!n)continue;
-      const same=k===s||n.name===s||n.label===s||(n.node_tree&&n.node_tree.name===s);
-      if(!same)continue;
-      if(n.node_tree&&!hit)hit={k,n};
-      else if(!leaf)leaf={k,n};
-    }
-    if(hit){
-      addMirrors(hit.n.node_tree,hit.n);
-      next.push({name:hit.n.node_tree.name||hit.k,tree:hit.n.node_tree,key:hit.k});
-      tree=hit.n.node_tree;continue;
-    }
-    if(leaf)focus=leaf;                 // 末段可以是普通节点：直接选中并居中
-    break;
-  }
-  path=next;sel=focus?{type:'node',key:focus.k}:null;
-  multi=new Set(focus?[focus.k]:[]);
-  render();
-  if(focus){updateSelVisuals();refreshInsp();panToNode(focus.n);}else fitView();
-}
-window.addEventListener('hashchange',gotoHash);
 
 /* ================= 添加节点弹窗 ================= */
 $('btnAdd').onclick=()=>$('modalWrap').hidden=false;
@@ -1413,9 +1398,29 @@ $('btnRaw').onclick=()=>{
 
 /* ================= 顶部工具栏 ================= */
 $('btnFit').onclick=fitView;
-$('zoomBadge').onclick=()=>{const r=wrap.getBoundingClientRect();
-  const cx=r.width/2,cy=r.height/2;
-  view.x=cx-(cx-view.x)/view.k;view.y=cy-(cy-view.y)/view.k;view.k=1;applyView();};
+{ // 缩放徽标：左右滑动调节画布缩放（以画布中心为锚点），点击重置 100%
+  const zb=$('zoomBadge');
+  const resetZoom=()=>{const r=wrap.getBoundingClientRect();const cx=r.width/2,cy=r.height/2;
+    view.x=cx-(cx-view.x)/view.k;view.y=cy-(cy-view.y)/view.k;view.k=1;applyView();};
+  zb.addEventListener('pointerdown',e=>{
+    e.preventDefault();e.stopPropagation();
+    try{zb.setPointerCapture(e.pointerId);}catch(_){/* 合成事件无活动指针时忽略 */}
+    const sx=e.clientX,sk=view.k;let moved=false;
+    const mv=ev=>{
+      const dx=ev.clientX-sx;
+      if(!moved&&Math.abs(dx)<=4)return;   // 超过阈值才算滑动
+      moved=true;
+      const r=wrap.getBoundingClientRect(),cx=r.width/2,cy=r.height/2;
+      const k2=clamp(sk*Math.pow(1.012,dx),0.2,2.5);   // 每像素约 1.2% 指数滑动
+      view.x=cx-(cx-view.x)/view.k*k2;
+      view.y=cy-(cy-view.y)/view.k*k2;
+      view.k=k2;applyView();
+    };
+    const up=()=>{zb.removeEventListener('pointermove',mv);zb.removeEventListener('pointerup',up);
+      if(!moved)resetZoom();};
+    zb.addEventListener('pointermove',mv);zb.addEventListener('pointerup',up);
+  });
+}
 $('treeName').addEventListener('change',e=>{cur().name=e.target.value;render();autosave();});
 
 $('btnOpen').onclick=()=>$('fileInput').click();
@@ -1452,7 +1457,7 @@ $('dirInput').addEventListener('change',async e=>{
   }
   loadEntries(entries);
 });
-function loadEntries(entries){
+async function loadEntries(entries){
   const files={};
   for(const en of entries){
     if(/\.js$/i.test(en.path)){
@@ -1470,41 +1475,44 @@ function loadEntries(entries){
   const obj=JSON.parse(JSON.stringify(files[main]));
   const miss=[];
   const used=new Set([main]);
-  const missing=hydrateDoc(obj,files,miss,used);
+  const missing=await hydrateRefs(obj,files,null,miss,used);
   insertDoc(obj);
   const orphans=collectUnreferenced(files,used,'导入文件夹');   // 未被引用的文件 → 未使用区展示
-  if(missing)toast('有 '+missing+' 个子组文件没找到，已置空：'+miss.slice(0,2).join('、'),true);
+  if(missing)toast('有 '+missing+' 个子组文件没找到（引用已保留）：'+miss.slice(0,2).join('、'),true);
   else toast('已从文件夹装配 '+used.size+' 个数据文件'+(orphans?'，另有 '+orphans+' 个未引用文件已放入「未使用节点」':''));
 }
 
-/* ---- 子组内容拆分：node_tree_file 指向子组自己的 .js，导入时再装配 ---- */
-function hydrateDoc(obj,files,missingRefs,usedRefs){
+/* ---- 子组内容拆分：node_tree_file 指向子组自己的 .js，导入时再装配 ----
+   统一装配器：传 files 表（文件夹/ZIP）→ 表内查找；传 base（页面目录）→ 动态 <script> 加载 */
+async function hydrateRefs(obj,files,base,missingRefs,usedRefs){
   let missing=0;
   const norm=p=>String(p||'').replace(/^\.\//,'');
-  const lookup=ref=>{                  // 允许误选上一层/子目录：按路径后缀兜底匹配
-    if(!files)return null;
-    if(files[ref])return ref;
-    const k=Object.keys(files).find(x=>x===ref||x.endsWith('/'+ref)||ref.endsWith('/'+x));
-    return k||null;
+  const lookup=async ref=>{
+    if(files){                         // 允许误选上一层/子目录：按路径后缀兜底匹配
+      if(files[ref])return{doc:files[ref],key:ref};
+      const k=Object.keys(files).find(x=>x===ref||x.endsWith('/'+ref)||ref.endsWith('/'+x));
+      return k?{doc:files[k],key:k}:null;
+    }
+    const d=await loadDataScript(base+ref);
+    return d?{doc:d,key:ref}:null;
   };
-  function fixTree(t,depth){
+  async function fixTree(t,depth){
     if(!t||typeof t!=='object'||depth>64)return t;
     const ns=t.nodes||{};
     for(const k in ns){
       const n=ns[k];
       if(!n||typeof n!=='object')continue;
-      if(n.node_tree){fixTree(n.node_tree,depth+1);continue;}
+      if(n.node_tree){await fixTree(n.node_tree,depth+1);continue;}
       if(!n.node_tree_file)continue;
       const ref=norm(n.node_tree_file);
-      const hit=lookup(ref);
-      const f=hit?files[hit]:null;
-      const sub=f?(f.node_tree||(f.nodes?f:null)):null;
-      if(sub){delete n.node_tree_file;n.node_tree=fixTree(JSON.parse(JSON.stringify(sub)),depth+1);if(usedRefs)usedRefs.add(hit);}
+      const hit=await lookup(ref);
+      const sub=hit?(hit.doc.node_tree||(hit.doc.nodes?hit.doc:null)):null;
+      if(sub){delete n.node_tree_file;n.node_tree=await fixTree(JSON.parse(JSON.stringify(sub)),depth+1);if(usedRefs)usedRefs.add(hit.key);}
       else{missing++;if(missingRefs)missingRefs.push(ref);}   // 找不到就保留引用，别删
     }
     return t;
   }
-  fixTree(obj,0);
+  await fixTree(obj,0);
   return missing;
 }
 /* 遍历导入的文件表：凡没被任何 node_tree_file 引用到的数据文件，
@@ -1576,7 +1584,7 @@ async function loadZip(buf){
   if(!main){toast('ZIP 中没有找到主文档 index.js',true);return;}
   const obj=JSON.parse(JSON.stringify(files[main]));
   const used=new Set([main]);
-  const missing=hydrateDoc(obj,files,null,used);
+  const missing=await hydrateRefs(obj,files,null,null,used);
   insertDoc(obj);
   const orphans=collectUnreferenced(files,used,'导入 ZIP');
   if(missing)toast('有 '+missing+' 个子组缺少数据文件，已置空',true);
@@ -1587,13 +1595,12 @@ async function loadJsText(txt){
   const obj=evalDataScript(txt);
   if(!obj||typeof obj!=='object'){toast('JS 数据解析失败：未找到文档对象',true);return;}
   if(!obj.nodes||typeof obj.nodes!=='object'){toast('格式不符：缺少 nodes 字段',true);return;}
+  await finishImport(obj);
+}
+/* 单文件导入共用收尾：按页面目录动态装配引用 → 插入/展开 → 缺文件提示 */
+async function finishImport(obj){
   const miss=[];
-  let missing=hydrateDoc(obj,null,miss);
-  if(missing){                              // 单文件带引用：尝试按页面所在目录动态加载 nodes/*.js
-    const before=missing;
-    missing=await hydrateDocAsync(obj,'');
-    if(missing<before)toast('已按页面目录动态加载 '+(before-missing)+' 个子组文件');
-  }
+  const missing=await hydrateRefs(obj,null,'',miss);
   try{
     insertDoc(obj);
     if(missing)toast('有 '+missing+' 个子组文件没找到（'+miss.slice(0,2).join('、')+'）；请把 nodes/ 放到页面同目录，或用「导入文件夹」选整个导出目录',true);
@@ -1605,8 +1612,6 @@ async function loadText(txt,filename){
   let obj;
   try{obj=JSON.parse(txt);}catch(err){toast('JSON 解析失败：'+err.message,true);return;}
   if(!obj||typeof obj!=='object'){toast('格式不符',true);return;}
-  let missing=hydrateDoc(obj,null);
-  if(missing)missing=await hydrateDocAsync(obj,'');   // 引用尝试按页面目录动态加载
   if(!obj.nodes||typeof obj.nodes!=='object'){
     // 单节点 JSON（含 inputs/outputs/type 字段）：直接作为节点插入，不做组包装
     if(obj.inputs||obj.outputs||obj.type){
@@ -1614,10 +1619,7 @@ async function loadText(txt,filename){
       obj={nodes:{[nk]:obj},links:[],_singleNode:true};
     }else{toast('格式不符：缺少 nodes 字段',true);return;}
   }
-  try{
-    insertDoc(obj);
-    if(missing)toast('有 '+missing+' 个子组文件没找到；请把 nodes/ 放到页面同目录，或用「导入文件夹」选整个导出目录',true);
-  }catch(err){toast('导入失败：'+err.message,true);}
+  await finishImport(obj);
 }
 function insertDoc(obj){
   const t=cur();
@@ -1691,7 +1693,7 @@ function insertNodes(obj,t,quiet){
 function loadFromObject(obj){
   if(!obj||typeof obj!=='object'||!obj.nodes||typeof obj.nodes!=='object')
     throw new Error('格式不符：缺少 nodes 字段');
-  root=obj;path=[];sel=null;multi.clear();
+  root=obj;path=[];sel=null;multi.clear();multiLink.clear();
   normAll(root);
   render();fitView();autosave();
 }
@@ -1781,29 +1783,7 @@ async function buildExportFiles(){
   })(root);
   const png=await captureCanvasPng();                       // 截取当前画布画面一并导出
   if(png)files.push({name:'preview.png',data:png});
-  files.push({name:'README.md',text:buildExportReadme(docName,!!png)});   // 附 README：在线地址 + 画布预览图
   return {docName,files};
-}
-/* README.md：可直接提交到 git 仓库（GitHub 不支持内嵌 HTML，改用画布截图 preview.png），
-   并附在线查看地址 src = https://qmeyq.github.io/NG/node-workflow.html */
-function buildExportReadme(docName,hasPng){
-  const url='https://qmeyq.github.io/NG/node-workflow.html';
-  const lines=[
-    '# '+docName,
-    '',
-    '在线查看：['+url+']('+url+')',
-    ''
-  ];
-  if(hasPng)lines.push('## 画布预览','','![画布预览](preview.png)','');
-  lines.push(
-    '## 文件说明',
-    '',
-    '- `index.js`：主文档数据（JS 注入格式，内容为 JSON）',
-    '- `nodes/*.js`：含子节点的分组数据文件（父级通过 `node_tree_file` 引用）'
-  );
-  if(hasPng)lines.push('- `preview.png`：导出时当前画布画面的截图');
-  lines.push('');
-  return lines.join('\n');
 }
 /* 把当前画布手动绘制成 PNG（不用 SVG foreignObject——那样 canvas 会被污染无法导出）；空画布返回 null */
 async function captureCanvasPng(){
@@ -1884,7 +1864,7 @@ async function saveFile(){
   const {docName,files}=await buildExportFiles();
   downloadJSON(makeZip(files),docName+'.zip');
   const nData=files.filter(f=>f.name.endsWith('.js')).length-1;
-  toast('已导出 '+docName+'.zip（index.js + '+nData+' 个数据 JS + preview.png + README.md）');
+  toast('已导出 '+docName+'.zip（index.js + '+nData+' 个数据 JS + preview.png）');
 }
 /* ---- 动态加载：用 <script> 读取数据 JS（file:// 本地可用，无需服务器） ---- */
 function dirOf(p){const i=String(p).lastIndexOf('/');return i<0?'':String(p).slice(0,i+1);}
@@ -1900,28 +1880,20 @@ function loadDataScript(path){
     document.head.appendChild(s);
   });
 }
-async function hydrateDocAsync(doc,base){
-  let missing=0;
-  async function fixTree(t,depth){
-    if(!t||typeof t!=='object'||depth>64)return t;
-    const ns=t.nodes||{};
-    for(const k in ns){
-      const n=ns[k];
-      if(!n||typeof n!=='object')continue;
-      if(n.node_tree){await fixTree(n.node_tree,depth+1);continue;}
-      if(!n.node_tree_file)continue;
-      const ref=String(n.node_tree_file).replace(/^\.\//,'');
-      const obj=await loadDataScript(base+ref);
-      const sub=obj?(obj.node_tree||(obj.nodes?obj:null)):null;
-      if(sub){delete n.node_tree_file;n.node_tree=await fixTree(JSON.parse(JSON.stringify(sub)),depth+1);}
-      else missing++;                                          // 找不到就保留引用，别删
-    }
-    return t;
-  }
-  await fixTree(doc,0);
-  return missing;
-}
+// hydrateDocAsync 已并入 hydrateRefs（files 表 / base 目录两种装配方式共用一套遍历）
 $('btnSave').onclick=saveFile;
+$('btnReload').onclick=reloadFromDisk;
+/* 重载：重新加载 ./index.js（带子组装配），并用结果覆盖本地存档 */
+async function reloadFromDisk(){
+  if(!confirm('重载将丢弃当前未导出的编辑，从 ./index.js 重新加载并覆盖本地存档，继续？'))return;
+  const obj=await loadDataScript('./index.js?r='+Date.now());   // 时间戳防缓存
+  if(!obj){toast('重载失败：未找到 ./index.js',true);return;}
+  const miss=await hydrateRefs(obj,null,'');
+  loadFromObject(obj);
+  undoStack.length=0;redoStack.length=0;lastState=null;updateUndoBtns();   // 重载后从干净基线开始
+  touch();                                                                // autosave 覆盖本地存档
+  toast(miss?('已重载 index.js（'+miss+' 个子组文件缺失）'):'已重载 index.js');
+}
 
 /* ---- 单节点 JSON 导出（属性面板按钮） ---- */
 function exportNodeFile(key){
@@ -2035,16 +2007,16 @@ function rebuildPath(){          // 恢复快照后按名称重建当前所在�
   const names=path.map(p=>p.name);path=[];
   let tree=root;
   for(const nm of names){
-    let found=null,fkey='';
+    let found=null;
     for(const k in tree.nodes){const n=tree.nodes[k];
-      if(n.node_tree&&(n.node_tree.name===nm||k===nm)){found=n.node_tree;fkey=k;break;}}
+      if(n.node_tree&&(n.node_tree.name===nm||k===nm)){found=n.node_tree;break;}}
     if(!found)break;
-    path.push({name:nm,tree:found,key:fkey});tree=found;
+    path.push({name:nm,tree:found});tree=found;
   }
 }
 function restoreFromJSON(json){
   root=JSON.parse(json);
-  sel=null;multi.clear();
+  sel=null;multi.clear();multiLink.clear();
   normAll(root);
   rebuildPath();
   render();
@@ -2075,7 +2047,7 @@ window.__loadDoc=loadFromObject;   // 调试入口
 window.__exportDoc=exportDoc;
 window.__insertDoc=insertDoc;window.__loadJsText=loadJsText;
 window.__exportFiles=buildExportFiles;
-window.__hydrateDoc=hydrateDoc;
+window.__hydrateDoc=hydrateRefs;
 window.__loadEntries=loadEntries;
 window.__loadZip=loadZip;
 window.__makeZip=makeZip;
@@ -2098,7 +2070,7 @@ window.__selectNodes=keys=>{multi=new Set(keys);sel=keys.length===1?{type:'node'
     const obj=await loadDataScript(p);
     if(obj){
       try{
-        const miss=await hydrateDocAsync(obj,dirOf(p));
+        const miss=await hydrateRefs(obj,null,dirOf(p));
         doc=obj;src=p;
         if(miss)failMsg='有 '+miss+' 个子组数据 JS 未找到';
       }catch(err){failMsg='数据 JS 载入失败：'+err.message;}
@@ -2107,7 +2079,6 @@ window.__selectNodes=keys=>{multi=new Set(keys);sel=keys.length===1?{type:'node'
   if(!doc)doc=emptyDoc();                // 3) 兜底：空文档
   try{
     loadFromObject(doc);
-    if(location.hash)gotoHash();         // 外部深链直接落到对应分组
     if(src&&src!=='本地存档')toast('已载入 '+src.replace(/^\//,''));
     else if(!src)toast(failMsg||'未找到数据文件，已载入空文档',true);
   }catch(err){

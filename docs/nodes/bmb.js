@@ -2,13 +2,13 @@ window.__DOC_FILES=window.__DOC_FILES||{};
 window.__DOC_FILES["nodes/bmb.js"]={
   "location": [
     443.1,
-    921.74
+    920.94
   ],
   "width": 240,
   "name": "bmb",
   "label": "羽毛球游戏",
   "type": "Group",
-  "desc": "首个已上线的完整玩法。双击进入后是比赛侧的全部结构：入口装配、Mag、规则、PVP/PVE、联网、物理、碰撞、对象、输入、AI、UI 与已知问题。",
+  "desc": "首个已上线的完整玩法。结构：入口装配、Mag(对象/生命周期)、Rule(状态机/判罚)、PVP/PVE(网络/对手)、物理、碰撞、对象、输入、AI、UI 与已知问题。Mag/Rule 以 MatchState + RuleHost 解耦。",
   "inputs": [
     {
       "name": "进入比赛",
@@ -42,7 +42,7 @@ window.__DOC_FILES["nodes/bmb.js"]={
       "bentry": {
         "location": [
           -761.24,
-          -503.15
+          -504.11
         ],
         "width": 240,
         "name": "bentry",
@@ -87,7 +87,7 @@ window.__DOC_FILES["nodes/bmb.js"]={
         "name": "bmag",
         "label": "比赛管理 Mag",
         "type": "Group",
-        "desc": "比赛核心态与操作入口：players / ball / phase / 比分 / 发球方 / 权威标志；本地输入与远端重放最终都走 hit()。",
+        "desc": "比赛编排层：拥有 players/ball/teamMap/court/cfg 与 MatchState；规则委托 Rule，网络委托 PVP/PVE。本地输入与远端重放最终都走 hit()。",
         "inputs": [
           {
             "name": "对局就绪",
@@ -134,7 +134,7 @@ window.__DOC_FILES["nodes/bmb.js"]={
         "name": "brule",
         "label": "规则与判定",
         "type": "Group",
-        "desc": "rule.ts：8 个 MatchPhase、发球权/接发、站位与发球区、越界、落地结算、21 分制、换边与鹰眼。",
+        "desc": "rule.ts：比赛状态机与判罚引擎。依赖 RuleHost(不 import Mag)，负责阶段/发球权/站位/落地结算/21 分制/换边/鹰眼。",
         "inputs": [
           {
             "name": "判决请求",
@@ -173,7 +173,7 @@ window.__DOC_FILES["nodes/bmb.js"]={
         "name": "bpvp",
         "label": "PVP 对战",
         "type": "Group",
-        "desc": "pvp.ts：角色指派 → 权威端选举 → 帧心跳 → 操作上行/重放 → 球校正与快照恢复。当前有 5 个 P0 级问题。",
+        "desc": "pvp.ts：角色指派 → 权威端选举 → 帧心跳 → 操作上行/重放 → 球校正与快照恢复。传输层不持有规则，状态只经 applyState 覆盖。",
         "inputs": [
           {
             "name": "进入比赛",
@@ -243,7 +243,7 @@ window.__DOC_FILES["nodes/bmb.js"]={
         "name": "bnet",
         "label": "联网与协议",
         "type": "Group",
-        "desc": "GOBE 房间 / 帧同步 + 消息信封 + pvpProto 校验 + NetBoot 会话。消息分帧通道与可靠通道两类。",
+        "desc": "GOBE 房间 / 帧同步 + 消息信封 + pvpProto 校验 + NetBoot 会话。frame 有损画面，msg 事件/协商；hit_event/ball_stop 走应用层 ACK+重传。",
         "inputs": [
           {
             "name": "平台身份",

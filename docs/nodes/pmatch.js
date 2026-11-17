@@ -160,7 +160,7 @@ window.__DOC_FILES["nodes/pmatch.js"]={
         "name": "l5",
         "label": "角色指派协商",
         "type": "流程",
-        "desc": "房主单源生成 role_assign，各端 role_ack；收齐 first/final/okplay 得 _finalAssignment。",
+        "desc": "房主单源生成 role_assign(assignSeq=生成时刻)，每 400ms 重发直到收齐 role_ack；非房主满员后每 800ms 用 assignSeq=0 的 role_ack 主动索要，房主收到立即重发。收齐 ack 或 2500ms 到期 → 广播 match_start(两遍) → 仅收到开赛令的端跳场景；非房主另有 1.5s 按表兜底。",
         "inputs": [
           {
             "name": "满员",

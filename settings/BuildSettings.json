@@ -13,7 +13,6 @@
     "js/brotli_wasm.js",
     "js/brotli_wasm_bg.wasm"
   ],
-  "enableSubpackages": true,
   "subpackages": [
     {
       "path": "ui",

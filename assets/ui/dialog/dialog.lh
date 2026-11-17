@@ -65,7 +65,7 @@
         {
           "_$override": "ug1dmopr",
           "src": "",
-          "height": 4,
+          "height": 0,
           "width": 0,
           "y": 0,
           "x": 0
@@ -170,7 +170,7 @@
       "name": "panel",
       "x": 54,
       "y": 148,
-      "width": 229,
+      "width": 234,
       "height": 125,
       "mouseThrough": true,
       "scroller": {
@@ -183,7 +183,7 @@
           "_$id": "bhedihlj",
           "_$type": "GTextField",
           "name": "txt",
-          "width": 227,
+          "width": 233,
           "height": 27,
           "relations": [
             {
@@ -192,8 +192,6 @@
                 "_$ref": "l7heuxk4"
               },
               "data": [
-                1,
-                0,
                 3,
                 0,
                 20,
@@ -211,7 +209,7 @@
           "_$id": "t2v0qh65",
           "_$type": "GTextInput",
           "name": "inp",
-          "width": 230,
+          "width": 234,
           "height": 124,
           "visible": false,
           "relations": [
@@ -221,8 +219,6 @@
                 "_$ref": "l7heuxk4"
               },
               "data": [
-                1,
-                0,
                 3,
                 0,
                 20,

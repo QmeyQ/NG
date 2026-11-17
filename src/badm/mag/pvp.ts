@@ -116,12 +116,19 @@ export class PVP extends Mag {
 
     /**
      * 构造函数 - 初始化 PVP 联机比赛管理器
-     * @param p1 本地玩家挂载的 Laya.Sprite3D 节点
+     * @param scene3D 当前比赛所在的 3D 场景
      * @param ball 比赛用球实例
      * @param isSingle 是否单机模式（PVP 中通常为 false）
      */
-    constructor(p1: Laya.Sprite3D, ball: Ball, isSingle: boolean = false, p2?: Laya.Sprite3D, racket?: Laya.Sprite3D) {
-        super(p1, ball, isSingle, p2, racket);
+    constructor(
+        scene3D: Laya.Scene3D,
+        ball: Ball,
+        isSingle: boolean,
+        modelTemplates: { [modelId: number]: Laya.Sprite3D },
+        racket: Laya.Sprite3D,
+        roleModels: number[]
+    ) {
+        super(scene3D, ball, isSingle, modelTemplates, racket, roleModels);
         this.isPvpMode = true;  // 非权威端 rule 不本地推进(状态由权威端 state 帧驱动)
         // 覆盖基类状态变更回调：仅当本地为权威端时才发起状态提案同步
         this.onStateChange = () => {
@@ -130,6 +137,10 @@ export class PVP extends Mag {
             // 状态切换(包括倒计时结束分球/回合重置)后尽快发布权威快照，
             // 不必等待下一轮固定心跳；50ms 合并窗口避免同一帧重复发送。
             this._scheduleAuthFlush();
+        };
+        // 真正出手时(前摇结束、弹道起算)才广播击球事件: 锚点与两端弹道入口一致
+        this.onHit = (info) => {
+            if (info) this._publishExecutedHit(info);
         };
     }
 
@@ -273,14 +284,10 @@ export class PVP extends Mag {
         // 帧静默基准与心跳同时刻建立: 否则刚绑网的非权威端第一拍就算出"静默=整个开机时长"立即升格
         this._lastAuthFrameAt = Timer.now();
 
-        // 注册点对点消息：信封解析、去重、过期判定全在 msg 层，本处只管投递
-        Gnet.off('client');
+        // 协议消息走全应用唯一常驻泵(Msg.installPump): 不再各自注册/互清 client 回调——
+        // 旧版 Gnet.off('client') 会把匹配页的泵一起清掉, 回匹配页后恢复/重匹配全收不到消息。
+        Msg.installPump();
         Msg.bind('game', this._msgCtx, this._msgSubs);
-        this._clientCb = (info: any) => {
-            if (this._destroyed) return;
-            Msg.dispatchInfo(info);
-        };
-        Gnet.onClient(this._clientCb);
 
         // 注册帧同步回调：权威端广播的帧在此处理(同样字段化, destroy 精确摘除)
         Gnet.offFrame(this._frameCb);
@@ -373,9 +380,9 @@ export class PVP extends Mag {
      */
     public syncAction(opt: any): void {
         if (!this._gobeId || this._destroyed) return;
-        // 权威端本地操作已经生效：击球事件即刻入历史并用可靠通道广播(轨迹只由那一条决定)。
+        // 权威端本地操作已经生效：击球事件改在【真正出手】时发布(onHit→_publishExecutedHit)。
+        // 按下点只触发前摇, 此刻球还在手上, 拿它当弹道锚点会让对端提前约一个前摇(~180ms)起算。
         if (this._amAuth) {
-            if (opt.type === 'hit') this._queueHitEvent(this._makeHitEvent(opt, this._gobeId), true);
             this._scheduleAuthFlush();
             return;
         }
@@ -409,6 +416,11 @@ export class PVP extends Mag {
     private _hitEventCounter = 0;
     /** 权威端全局击球序号；解决不同发送者本地时间/事件 ID 无法建立统一顺序的问题。 */
     private _authHitSequence = 0;
+    /**
+     * 已应用击球序号所属的权威任期。换任期 = 新纪元：新权威的 `_authHitSequence`
+     * 可能比本机已应用值低(它没看过全部历史事件)，不重置就会把新权威的每一拍都当"过期"丢掉。
+     */
+    private _hitSeqTerm = 0;
     private _lastAppliedAuthHitSeq = 0;
     private _lastHitGapLogAt = 0;
     private _lastHitRejectLogAt = 0;
@@ -420,6 +432,16 @@ export class PVP extends Mag {
     private _lastSyncAskAt = 0;
     private _lastRecoveryRequestAt = 0;
     private _recoveryRequestCounter = 0;
+    /**
+     * 权威端与本机的时钟差(auth = local + offset)。双端设备钟差未知, 而击球时刻/球快照时刻/
+     * 恢复快照 bt 全是权威端时基——不换算就当本机时间用, 钟差多少球就快/慢多少。
+     * 样本取"状态包 time - 本机收到时刻"的滑动最小值: 传输延时会抬高样本, 最小样本最接近同刻。
+     */
+    private _authClockOffset = 0;
+    private _authClockReady = false;
+    private _authClockSamples: number[] = [];
+    /** 钟差样本窗口: 8~10Hz 状态帧下约 3~4s, 既能抹平传输抖动也能跟住慢慢漂移 */
+    private static readonly CLOCK_WINDOW = 32;
     private static readonly HIT_EVENT_RETAIN = 32;
     /** 当前页里唯一允许存活的同步实例(bindNetwork 接管, destroy 交还) */
     private static _live: PVP | null = null;
@@ -437,6 +459,8 @@ export class PVP extends Mag {
     /** 球停止兜底对齐: 本次停止是否已上报过 + 上报序号(接收端按它去重) */
     private _ballStopAnnounced = false;
     private _ballStopCounter = 0;
+    /** 接管后的球锚点序号(BallRecovery.requestId 去重口径) */
+    private _ballAnchorCounter = 0;
 
     /**
      * 组一条权威击球事件(字段定义见 pvpProto.checkHit)。
@@ -466,12 +490,75 @@ export class PVP extends Mag {
         };
     }
 
+    /** cha.id → playerId(反向查 _playerChaMap; 本地角色兜底 _gobeId) */
+    private _pidForCha(chaId: number): string | null {
+        for (const [pid, cha] of this._playerChaMap) {
+            if (cha.id === chaId) return pid;
+        }
+        return this._localCha && this._localCha.id === chaId ? this._gobeId : null;
+    }
+
+    /**
+     * 权威端真正出手回调: 用【出手锚点时间 + 本机球入口状态】生成并广播击球事件。
+     * 本地击球(信息来自 Mag.onHit)与远端操作重放(带 hitTime)都走这里, 保证两端从
+     * 同一 (t, 参数, 入口) 起算。非权威端不发布(它收到的远端重放会被 _amAuth 拦掉)。
+     */
+    private _publishExecutedHit(info: { chaId: number; stroke: any; time: number }): void {
+        if (!this._amAuth || this._destroyed) return;
+        const playerId = this._pidForCha(info.chaId);
+        if (!playerId) return;
+        const stroke = info.stroke || {};
+        const ev = this._makeHitEvent({
+            params: { power: stroke.power, angH: stroke.angH, angV: stroke.angV, spi: stroke.spi },
+            angH: stroke.angH,
+            power: stroke.power
+        }, playerId, undefined, info.time);
+        this._queueHitEvent(ev, true);
+        this._scheduleAuthFlush();
+    }
+
     /**
      * 本机球在 t 时刻的状态 —— 只走内核的公开只读口(历史回退由内核自己做)。
      * 旧版在这里自己翻 phy.map/timeTo, 等于把内核的内部结构暴露成第二套事实来源。
      */
     private _ballStateAt(t: number): any {
         return this.ball ? this.ball.stateAt(t) : null;
+    }
+
+    /**
+     * 记录一次权威端时钟样本(状态包 time)。
+     * 样本 = authTime - 本机接收时刻 = 真实钟差 - 单程传输延时: 传输只会让样本【变小】,
+     * 所以取窗口内最大值才逼近"传输最接近 0"的那次。旧版取最小值等于专门挑最慢的一包,
+     * 钟差被系统性估小(实测开局偏差 ~100ms) → 对端击球锚点整体后移, 球慢半拍。
+     * 窗口取最近若干包: 设备时钟有轻微漂移, 老样本不能永远压住新样本。
+     */
+    private _noteAuthClock(authTime: any): void {
+        if (!Proto.isNum(authTime) || this._amAuth) return;
+        const sample = authTime - Timer.now();
+        this._authClockSamples.push(sample);
+        if (this._authClockSamples.length > PVP.CLOCK_WINDOW) this._authClockSamples.shift();
+        let max = this._authClockSamples[0];
+        for (const s of this._authClockSamples) if (s > max) max = s;
+        this._authClockOffset = max;
+        this._authClockReady = true;
+    }
+
+    /** 权威端时基 → 本机时基 */
+    private _toLocal(remoteTime: any): number {
+        return Proto.isNum(remoteTime) ? remoteTime - this._authClockOffset : remoteTime;
+    }
+
+    /** 球快照的 time 属于权威端时基, 落盘前必须换算(其余字段是空间量, 不需要换) */
+    private _toLocalSnap(snap: Proto.BallSnap | null): Proto.BallSnap | null {
+        if (!snap || !this._authClockReady) return snap;
+        return { ...snap, time: snap.time - this._authClockOffset };
+    }
+
+    /** 权威端切换后旧时钟样本作废(两端设备钟差可以完全不同) */
+    private _resetAuthClock(): void {
+        this._authClockSamples.length = 0;
+        this._authClockReady = false;
+        this._authClockOffset = 0;
     }
 
     /**
@@ -506,19 +593,33 @@ export class PVP extends Mag {
             const bs = Number.isFinite(b?.authorityHitSeq) ? b.authorityHitSeq : Number.MAX_SAFE_INTEGER;
             return as - bs || (a?.time ?? 0) - (b?.time ?? 0);
         });
+        let epochStart = false;
         for (const ev of ordered) {
             if (!ev || typeof ev.eventId !== 'string') continue;
             // 结构/数值范围/时效/权威任期 + eventId 去重【已在 msg 层做过】(dispatch → accept 是唯一入口)。
             // 这里绝不能再 accept 一次: 同 eventId 第二遍必然被判 dedupe, 击球事件会被自己吃掉。
             // 被 accept 拒掉的事件到不了这里, 所以"锚点坏了就地重锚"不再在此触发;
             // 链断的真正信号是下面的 authorityHitSeq 缺口——缺号就请求一次完整检查点。
+            // 任期纪元: 新权威(更高任期)的第一条事件把已应用序号清零重计。新权威没看过全部
+            // 历史事件时它的序号可能比本机已应用值低, 不换纪元就会把它的每一拍都当过期丢掉。
+            const evTerm = Number(ev.authTerm);
+            if (Number.isFinite(evTerm)) {
+                if (evTerm > this._hitSeqTerm) {
+                    this._hitSeqTerm = evTerm;
+                    this._lastAppliedAuthHitSeq = 0;
+                    epochStart = true;
+                    console.warn(`[PVP Sync] 击球序号进入新任期纪元 term=${evTerm}, 已应用序号清零`);
+                } else if (evTerm < this._hitSeqTerm) {
+                    continue;
+                }
+            }
             // 已经应用过更晚击球的情况下，迟到旧事件绝不能把球回滚到过去；记录并等待下一份完整权威击球起点。
-            if (Number.isFinite(ev.authorityHitSeq) && ev.authorityHitSeq <= this._lastAppliedAuthHitSeq) {
-                console.warn(`[SYNCDBG] 击球事件序号闸门跳过 seq=${ev.authorityHitSeq} applied=${this._lastAppliedAuthHitSeq} event=${ev.eventId}`);
+            if (!epochStart && Number.isFinite(ev.authorityHitSeq) && ev.authorityHitSeq <= this._lastAppliedAuthHitSeq) {
                 this._queueHitEvent(ev);
                 continue;
             }
-            if (Number.isFinite(ev.authorityHitSeq) && ev.authorityHitSeq > this._lastAppliedAuthHitSeq + 1) {
+            // 新纪元第一条事件是基线, 不与旧纪元的序号比缺口
+            if (!epochStart && Number.isFinite(ev.authorityHitSeq) && ev.authorityHitSeq > this._lastAppliedAuthHitSeq + 1) {
                 const now = Timer.now();
                 if (now - this._lastHitGapLogAt > 1000) {
                     this._lastHitGapLogAt = now;
@@ -526,16 +627,13 @@ export class PVP extends Mag {
                 }
                 this._requestSyncRecovery('hit-sequence-gap');
             }
-            if (Number.isFinite(ev.authorityHitSeq)) this._lastAppliedAuthHitSeq = ev.authorityHitSeq;
-            console.warn(`[SYNCDBG] 击球已应用 seq=${ev.authorityHitSeq} mine=${this._pidEq(ev.playerId, this._gobeId)} player=${ev.playerId} t=${ev.time}`);
-            // 每个客户端保留最近事件；若权威端切换，本机升权威后可继续转发事件历史窗口。
-            this._queueHitEvent(ev);
             let cha = this._playerChaMap.get(ev.playerId);
             if (!cha) {
                 for (const [id, c] of this._playerChaMap) if (this._pidEq(id, ev.playerId)) { cha = c; break; }
             }
-            if (!cha) { console.warn(`[SYNCDBG] 击球事件找不到角色 seq=${ev.authorityHitSeq} player=${ev.playerId}`); continue; }
-            const snap = Proto.decodeBall(ev.ball);
+            const snap = this._toLocalSnap(Proto.decodeBall(ev.ball));
+            // 应用失败的事件【不消费序号】: 否则它永远不会重试, 整段弹道丢掉
+            if (!cha || !snap) continue;
             // 击球者位置是【入口状态】的一部分, 只要数值有限就照单全收
             // (原来用场地边界卡一道, 球被打到场外时这条就被丢掉 → 对端连"谁在哪打的"都不知道)
             if (ev.chaPos && [ev.chaPos.x, ev.chaPos.y, ev.chaPos.z].every(Number.isFinite)) {
@@ -544,7 +642,9 @@ export class PVP extends Mag {
             // 入口状态灌回(位置+速度+旋转+时刻一起): 只走 Ball 的 restoreSnap,
             // 于是 strike 内部看到 state.time 已经等于击球时刻, 不再二次回退, 双端起点严格相同。
             // 旧版在这里手写 phy 字段 + ball.pos setter(会回写内核) + 清命中记录, 都是侧门。
-            if (snap) this.ball.restoreSnap(snap);
+            this.ball.restoreSnap(snap);
+            // 权威端时基 → 本机时基(设备钟差), 内核时间轴全程用本机时间
+            const tLocal = this._toLocal(ev.time);
             const mine = this._pidEq(ev.playerId, this._gobeId);
             if (ev.params) {
                 const params = { ...ev.params };
@@ -553,9 +653,16 @@ export class PVP extends Mag {
                 // 两份入口差一点, 同样的参数就会飞成两条线(run38 稳态 median 2.6m 的来源)。
                 // 击球参数与击球时刻本来就一致, 现在把入口也对齐 → 双端逐位一致;
                 // 只重锚+起算, 不再走一遍击球状态机(否则前摇/判罚会重复一次)。
-                if (mine) this.ball.restrike({ power: params.power, angH: params.angH, angV: params.angV, spi: params.spi }, ev.time);
-                else this.hit(params, cha, ev.time);
-            } else if (!mine) this.hit(undefined, cha, ev.time);
+                if (mine) {
+                    // 本端这一拍已经由权威端重锚: 撤掉本地还挂着的前摇, 否则松手会二次出手把它顶掉
+                    this.cancelPendingHit(cha);
+                    this.ball.restrike({ power: params.power, angH: params.angH, angV: params.angV, spi: params.spi }, tLocal);
+                } else this.replayHit(params, cha, tLocal);
+            } else if (!mine) this.hit(undefined, cha, tLocal);
+            // 落地成功才推进序号; 保留历史窗口供升格后转发/恢复补链。
+            if (Number.isFinite(ev.authorityHitSeq)) this._lastAppliedAuthHitSeq = ev.authorityHitSeq;
+            epochStart = false;
+            this._queueHitEvent(ev);
         }
     }
 
@@ -585,7 +692,11 @@ export class PVP extends Mag {
         if (!this._amAuth) return;
         Msg.send(Proto.Kind.BallRecovery, {
             requestId: data.requestId,
-            hitSeq: this._authHitSequence, state: JSON.stringify(this._buildStatus()),
+            hitSeq: this._authHitSequence, hitTerm: this._authorityTerm,
+            // 恢复要能补齐"请求方漏掉的整段击球链": 只给当前球位, 丢掉的中间几拍永远回不来,
+            // 球会从缺口之后的错误入口继续飞。历史窗口按序号闸门逐条应用, 已应用的自动跳过。
+            hitEvents: this._pendingHitEvents,
+            state: JSON.stringify(this._buildStatus()),
             frame: this.serializeFrame(),
             ball: Proto.encodeBall(this.ball.snapshot()),
             bt: Timer.now(),
@@ -597,35 +708,70 @@ export class PVP extends Mag {
 
     /** 只接受当前权威端发给本机的恢复快照；恢复比赛、角色与球状态后继续正常模拟。 */
     private _onBallRecovery(data: any, senderId: string): void {
-        if (Number.isFinite(data.authTerm) && data.authTerm > this._authorityTerm) this._authorityTerm = data.authTerm;
+        const recTerm = Number(data.authTerm);
         // 恢复快照与击球事件走同一条有损通道, 到达顺序不保证: 快照生成于 seq=M, 可能晚于
         // 本机已应用的 M+1 到达。照单全收会把球滚回旧弹道, 而 M+1 已被去重/序号闸门挡住永不重放
         // → 两端各飞一条线(run e 反向飞行/落点差 15m 的来源)。比已应用链更旧的快照整份作废。
-        if (Number.isFinite(data.hitSeq) && data.hitSeq < this._lastAppliedAuthHitSeq) {
-            console.warn(`[SYNCDBG] 恢复快照过期丢弃 hitSeq=${data.hitSeq} < applied=${this._lastAppliedAuthHitSeq} requestId=${data.requestId}`);
+        // 但"新旧"只在同一任期内可比: 新权威的序号是另一个纪元, 拿旧纪元的 applied 比会误杀。
+        if (Number.isFinite(recTerm) && recTerm < this._hitSeqTerm) {
+            return;
+        }
+        if (Number.isFinite(recTerm) && recTerm > this._authorityTerm) this._authorityTerm = recTerm;
+        // 先补击球链: 历史窗口里未应用的事件按序号闸门逐条落地(已应用的自动跳过),
+        // 之后的状态/球快照才是"补完链之后的现在", 不会被旧入口覆盖。
+        if (Array.isArray(data.hitEvents) && data.hitEvents.length) {
+            this._applyHitEvents(data.hitEvents, senderId);
+        }
+        if (Number.isFinite(recTerm) && recTerm === this._hitSeqTerm
+            && Number.isFinite(data.hitSeq) && data.hitSeq < this._lastAppliedAuthHitSeq) {
             return;
         }
         if (data.state) this.applyState(data.state);
         if (data.frame) this.applyFrame(data.frame);
-        const snap = Proto.decodeBall(data.ball);
+        const snap = this._toLocalSnap(Proto.decodeBall(data.ball));
         if (snap) {
             // 权威端说这颗球是静止的(待发球/已落地): 直接按"附件"落位, 内核自己熄火;
             // 在飞的话灌入完整入口快照再补算到现在 —— 两种情况都不再从外面摸 phy 字段
             if (data.bc === false) this.ball.attachTo(snap.pos, Timer.now());
             else {
                 this._hardSnapBall(snap);
-                const from = Proto.isNum(data.bt) ? data.bt : Timer.now();
+                const from = Proto.isNum(data.bt) ? this._toLocal(data.bt) : Timer.now();
                 this.ball.catchUpFrom(from);
             }
         }
+        // 纪元切换在补链之后落账: 补链用的是事件自己的任期, 这里才把"当前已应用链"归到快照任期
+        if (Number.isFinite(recTerm) && recTerm > this._hitSeqTerm) {
+            this._hitSeqTerm = recTerm;
+            this._lastAppliedAuthHitSeq = 0;
+        }
         if (Number.isFinite(data.hitSeq)) this._lastAppliedAuthHitSeq = Math.max(this._lastAppliedAuthHitSeq, data.hitSeq);
-        console.warn(`[SYNCDBG] 恢复快照已应用 hitSeq=${data.hitSeq} applied=${this._lastAppliedAuthHitSeq} bc=${data.bc} requestId=${data.requestId}`);
         console.warn(`[PVP Sync] 已应用权威异常恢复快照 requestId=${data.requestId || 'n/a'}; 后续恢复正常本地物理模拟`);
     }
 
     /** 无条件把球落到权威快照(恢复场合专用; 常规运行不纠偏球位, 见 pvpProto 头部写入纪律) */
     private _hardSnapBall(snap: Proto.BallSnap): void {
         this.ball.restoreSnap(snap);
+    }
+
+    /**
+     * 应用一份球锚点(接管/恢复快照)。比已应用击球链更旧的锚点整份作废:
+     * 否则一次迟到恢复会把球滚回旧弹道, 而后续事件已被序号闸门挡住不会重放。
+     */
+    private _applyBallAnchor(snap: Proto.BallSnap, bt: any, bc: any, hitSeq: any, hitTerm: any): void {
+        if (!snap || !this.ball || this._amAuth) return;
+        const term = Number(hitTerm);
+        if (Number.isFinite(term) && term < this._hitSeqTerm) return;
+        if (Number.isFinite(term) && term === this._hitSeqTerm
+            && Number.isFinite(hitSeq) && hitSeq < this._lastAppliedAuthHitSeq) {
+            return;
+        }
+        const local = this._toLocalSnap(snap);
+        if (!local) return;
+        if (bc === false) this.ball.attachTo(local.pos, Timer.now());
+        else {
+            this._hardSnapBall(local);
+            this.ball.catchUpFrom(Proto.isNum(bt) ? this._toLocal(bt) : Timer.now());
+        }
     }
 
     /**
@@ -677,9 +823,10 @@ export class PVP extends Mag {
         }
         // 只有当前权威端可以生成并广播击球事件；重复到达的同一 eventId 不重复入队。
         // 事件的球/角色初始条件一律取权威端自己的模拟(见 _makeHitEvent), 不吃发送方声称的数据。
-        if (this._amAuth && data.type === 'hit') {
-            this._queueHitEvent(this._makeHitEvent(data, senderId, data.eventId, data.time), true);
-        }
+        // 击球时刻也必须用权威端的本机时间: 发送方的 data.time 是另一台设备的时基,
+        // 钟差+传输延时会让权威端在错误的时刻取球状态, 整条弹道从入口就歪。
+        const hitTime = this._amAuth ? Timer.now() : this._toLocal(data.time);
+        // 事件发布挪到真正出手时(onHit→_publishExecutedHit): 收到按下时球还在手上, 不能当弹道锚点。
         // 房主收到操作后即时发布权威帧(50ms 合并抖动), 不等心跳周期
         if (this._amAuth) this._scheduleAuthFlush();
         switch (data.type) {
@@ -691,7 +838,7 @@ export class PVP extends Mag {
                 if (data.params) {
                     const params = { ...data.params };
                     if (params.spi && typeof params.spi === 'object') params.spi = new Laya.Vector3(params.spi.x || 0, params.spi.y || 0, params.spi.z || 0);
-                    this.hit(params, cha, data.time);
+                    this.hit(params, cha, hitTime);
                 } else this.hit(undefined, cha);
                 break;
             case 'move':
@@ -720,8 +867,6 @@ export class PVP extends Mag {
     private _authFlushTid: string | null = null;
     /** 已销毁标志: 所有网络回调/线程入口守卫, 防场景销毁后残留实例继续收发 */
     private _destroyed = false;
-    /** 点对点消息回调引用(destroy 精确摘除) */
-    private _clientCb: ((info: any) => void) | null = null;
     /** 帧同步回调引用(destroy 精确摘除) */
     private _frameCb: ((msg: any) => void) | null = null;
     /** 对端离开/房间解散回调引用(destroy 精确摘除) */
@@ -878,6 +1023,21 @@ export class PVP extends Mag {
         }
         this._playerStateCache.forEach((snapshot, playerId) => this._applyCharacterSnapshot(playerId, snapshot));
         this._persistRecoveryCache();
+
+        // 本机的球从此刻起才是事实源: 清掉"已报停"闸, 下一帧把当前停点重新报一次(可靠通道)。
+        this._ballStopAnnounced = false;
+        // 上一权威静默期间球可能已经落地, 而 groundHit 在本机还是非权威端时被规则忽略,
+        // 接管后不会再重发 → 阶段永远卡在 RALLYING。已静止就补交一次落地判罚。
+        const ball: any = this.ball;
+        if (ball && this.phase === MatchPhase.RALLYING && ball.resting()) {
+            const snap = ball.snapshot();
+            if (snap && snap.pos) {
+                console.warn(`[PVP Sync] 接管时球已静止, 补交落地判定 pos=(${snap.pos.x.toFixed(2)},${snap.pos.z.toFixed(2)})`);
+                this.rule.settleGroundHit({ x: snap.pos.x, y: snap.pos.y, z: snap.pos.z });
+            }
+        }
+        // 对端确认新权威(AuthDeclare 先发)后再给一次球锚点, 不依赖它的恢复请求是否丢包。
+        Timer.setTimeout(300, () => this._broadcastBallAnchor('takeover'));
         console.warn(`[PVP Recovery] 新权威端已从本地缓存恢复比赛状态与 ${this._playerStateCache.size} 个玩家快照`);
         this._scheduleAuthFlush();
     }
@@ -901,8 +1061,13 @@ export class PVP extends Mag {
         this._capturePlayerSnapshot(this._gobeId, this._localCha);
         const players: any = {};
         this._playerStateCache.forEach((snapshot, id) => { players[id] = snapshot; });
+        // 角色/比赛状态之外还带一份球锚点: 请求方往往刚经历权威交接,
+        // 它的球还停在上一权威的模拟里(见 _broadcastBallAnchor)。
+        const ball = this.ball ? Proto.encodeBall(this.ball.snapshot()) : null;
         Msg.send(Proto.Kind.RoleRecover, {
-            requestId: data.requestId, state, frame, players, updatedAt: Timer.now()
+            requestId: data.requestId, state, frame, players, updatedAt: Timer.now(),
+            ball, bt: Timer.now(), bc: this.ball ? this.ball.simulating() : false,
+            hitSeq: this._authHitSequence, hitTerm: this._authorityTerm
         }, [senderId]);
         this._persistRecoveryCache();
     }
@@ -923,6 +1088,8 @@ export class PVP extends Mag {
                 this._applyCharacterSnapshot(playerId, data.players[playerId]);
             }
         }
+        const anchor = Proto.decodeBall(data.ball);
+        if (anchor) this._applyBallAnchor(anchor, data.bt, data.bc, data.hitSeq, data.hitTerm);
         this._persistRecoveryCache();
         console.log(`[PVP Recovery] 已从权威端 ${senderId} 恢复本玩家与全房间角色状态 requestId=${data.requestId || "n/a"}`);
     }
@@ -1010,6 +1177,31 @@ export class PVP extends Mag {
     }
 
     /**
+     * 接管后的球锚点: 上一权威静默期间它可能仍在本地挥拍(它的击球事件发不出去),
+     * 新权威手上的球才是事实。对端不做这一步就会停在上一权威的世界里, 两端各滚一颗球
+     * (实测交接后 phase=RALLYING 两端球位差 11m 且再也收敛不回来)。
+     * 走 BallRecovery(定向逐端, forMe) —— 载荷与异常恢复同构, 接收端已有防旧快照闸门。
+     */
+    private _broadcastBallAnchor(reason: string): void {
+        if (!this._amAuth || this._destroyed || !this.ball) return;
+        const peers = (Gnet.getPlayers() || [])
+            .map((p: any) => String(p.playerId ?? '').trim())
+            .filter((id: string) => !!id && !this._pidEq(id, this._gobeId));
+        if (!peers.length) return;
+        const ball = Proto.encodeBall(this.ball.snapshot());
+        if (!ball) return;
+        const bc = this.ball.simulating();
+        for (const pid of peers) {
+            Msg.send(Proto.Kind.BallRecovery, {
+                requestId: `${this._gobeId}:anchor:${Timer.now()}:${this._ballAnchorCounter++}`,
+                hitSeq: this._authHitSequence, hitTerm: this._authorityTerm,
+                ball, bt: Timer.now(), bc
+            }, [pid]);
+        }
+        console.warn(`[PVP Sync] 已广播球锚点(${reason}) bc=${bc} hitSeq=${this._authHitSequence} term=${this._authorityTerm}`);
+    }
+
+    /**
      * 兜底对齐(用户规格): 球【停止】的那一刻, 权威端把自己的球位报一次给对端。
      * 主路径仍然是"每一次击球同步一次入口(参数+时刻+入口状态+击球者位置)";
      * 这一条负责把残余误差清零: 弹道跑到停止点后就不再变化, 此时对齐是无损的,
@@ -1036,15 +1228,31 @@ export class PVP extends Mag {
     /** 对端球停止上报: 走 attachTo(位置/零速/时钟/熄火一次到位), 下一拍起双端同一状态 */
     private _onBallStop(data: any, senderId: string): void {
         if (this._amAuth || this._destroyed) return;
-        if (Number.isFinite(data.authTerm) && data.authTerm > this._authorityTerm) this._authorityTerm = data.authTerm;
-        // 重传可能把上一回合的停球送进新回合: 本机已应用更晚击球 = 这份停球过期, 不能钉住正在飞的球
-        if (Number.isFinite(data.hs) && data.hs < this._lastAppliedAuthHitSeq) {
-            console.warn(`[SYNCDBG] 停球过期丢弃 hs=${data.hs} < applied=${this._lastAppliedAuthHitSeq} stop=${data.stopId}`);
+        const stopTerm = Number(data.authTerm);
+        if (Number.isFinite(stopTerm) && stopTerm < this._hitSeqTerm) {
+            return;
+        }
+        if (Number.isFinite(stopTerm) && stopTerm > this._authorityTerm) this._authorityTerm = stopTerm;
+        // 重传可能把上一回合的停球送进新回合: 本机已应用更晚击球 = 这份停球过期, 不能钉住正在飞的球。
+        // hs 只在同一任期纪元内可比(新权威的序号是另一套)。
+        if (Number.isFinite(data.hs) && (!Number.isFinite(stopTerm) || stopTerm === this._hitSeqTerm)
+            && data.hs < this._lastAppliedAuthHitSeq) {
             return;
         }
         const snap = Proto.decodeBall(data.ball);
         if (!snap || !this.ball) return;
-        console.warn(`[SYNCDBG] 停球对齐 hs=${data.hs} applied=${this._lastAppliedAuthHitSeq} pos=(${snap.pos.x.toFixed(2)},${snap.pos.z.toFixed(2)}) stop=${data.stopId}`);
+        // 停球是不是"击球前钉在手上的旧附件"要看【权威端生成这份停球的时刻 bt】, 不看球快照的
+        // 内核时刻: SERVING 里权威端每帧 attachTo(手) 会把快照时刻刷成新的, 一份"击球前生成、
+        // 击球后才到"的停球, 快照时刻可能比本机锚点还新。bt 是生成瞬间, 早于击球锚点就是旧事实;
+        // 真停球(落地/判罚熄火)一定生成在击球之后, bt 晚于锚点, 照收。
+        const li = (this.ball as any).lastHitInfo;
+        const btLocal = Proto.isNum(data.bt) ? this._toLocal(data.bt) : null;
+        const snapT = Proto.isNum((snap as any).time) ? this._toLocal((snap as any).time) : null;
+        const genT = btLocal != null ? btLocal : snapT;
+        if (genT != null && li && genT < (li.time ?? 0) - 50
+            && (this.ball.flying() || this.ballJustHit())) {
+            return;
+        }
         this.ball.attachTo(snap.pos, Timer.now());
     }
 
@@ -1274,6 +1482,7 @@ export class PVP extends Mag {
 
         // 权威端变化后本端身份立即跟进
         const authorityChanged = !this._pidEq(this._currentAuthId, frameAuthId);
+        if (authorityChanged) this._resetAuthClock();
         this._currentAuthId = frameAuthId;
         this._lastHeartbeat = Timer.now();
         this._lastAuthSyncAt = Timer.now();
@@ -1301,6 +1510,9 @@ export class PVP extends Mag {
                 if (Number.isFinite(candidateTerm)) this._authorityTerm = Math.max(this._authorityTerm, candidateTerm as number);
                 this._currentAuthId = this._gobeId;
                 this._authFrameSeq = 0;
+                // 升格后本机产生的击球事件归入当前任期纪元; 已应用序号继续沿用
+                // (本地球状态就是这条链的结果, 不能清零)
+                this._hitSeqTerm = this._authorityTerm;
                 this._amAuth = true;
                 this.isAuthoritative = true;
                 this._lastHeartbeat = Timer.now();
@@ -1355,6 +1567,7 @@ export class PVP extends Mag {
         if (this._pidEq(this._currentAuthId, this._gobeId)) {
             // 候选为自己：立即接管，广播声明
             this._authFrameSeq = 0;
+            this._hitSeqTerm = this._authorityTerm;
             this._amAuth = true;
             this.isAuthoritative = true;
             // 统一帧同步线程无需停启，切换 _amAuth 后自动走权威端分支
@@ -1394,7 +1607,7 @@ export class PVP extends Mag {
         if (newerTerm) this._authorityTerm = incomingTerm;
         // 认定发送方为新权威端，刷新心跳；切换后主动请求一次权威恢复快照。
         const authorityChanged = !this._pidEq(this._currentAuthId, senderId);
-        if (authorityChanged) this._authFrameSeq = 0;
+        if (authorityChanged) { this._authFrameSeq = 0; this._resetAuthClock(); }
         this._currentAuthId = senderId;
         this._lastHeartbeat = Timer.now();
         this._lastAuthFrameAt = Timer.now();
@@ -1526,6 +1739,13 @@ export class PVP extends Mag {
             serveRemainMs: this.phase === MatchPhase.SERVING ? this.rule.remainMs() : -1,
             // 鹰眼挑战窗口开合(同步给非权威端: 双击进鹰眼提示)
             eagleWin: this.rule.eagleWinOpen,
+            // 球静止(持球/死球)时把权威球位随状态帧带上: 两端各钉各的蒙皮手节点会稳定差
+            // 0.3~0.6m(挥拍动画/插值不同步), 照抄权威球位是无损的。飞行中不发——
+            // 弹道由击球事件逐拍锚定, 球位不参与同步。
+            ball: this.ball && this.ball.resting() ? Proto.encodeBall(this.ball.snapshot()) : null,
+            // 这份静态球位生成于哪一任期的第几拍之后: 接收端据此判"它是不是击球前生成的旧事实"
+            authTerm: this._authorityTerm,
+            hitSeq: this._authHitSequence,
             time: Timer.now(),
         };
     }
@@ -1551,7 +1771,10 @@ export class PVP extends Mag {
     private _applyStateWithCompensation(st: any, ageMs: number = 0): void {
         // 不完整/损坏的状态包不得部分覆盖本地状态。
         if (!st || typeof st.phase !== 'number' || !st.scores || !st.gamesWon) return;
+        // 权威端时钟样本(同一刻的权威时间 - 本机时间); 接管重放的旧缓存不参与估计
+        if (ageMs === 0) this._noteAuthClock(st.time);
         const prevPhase = this.phase;
+        const prevMatchEnded = this.matchEnded;
         this.phase = st.phase;
         this.scores[TeamSide.LEFT] = st.scores.left;
         this.scores[TeamSide.RIGHT] = st.scores.right;
@@ -1564,6 +1787,14 @@ export class PVP extends Mag {
         if (typeof st.lastScoreReason === 'string') this.lastScoreReason = st.lastScoreReason;
         if (typeof st.isBallAssigned === 'boolean') this.isBallAssigned = st.isBallAssigned;
         this.isServeShot = st.isServeShot;
+
+        // 比赛结束是权威端 state 的持久字段, 非权威端没有本地 rule 判罚, 只能在这里补一次回调,
+        // 否则联机客机永远看不到"比赛结束"(阶段停在 ENDED 但 UI 毫无反馈)。
+        if (st.matchEnded === true && !prevMatchEnded) {
+            const winReq = Math.ceil(this.cfg.bestOf / 2);
+            const winner = this.gamesWon[TeamSide.LEFT] >= winReq ? TeamSide.LEFT : TeamSide.RIGHT;
+            this.onMatchEnded?.(winner);
+        }
 
         // 权威状态显式指定持球角色，不能依赖普通角色帧的 isP：普通帧会跳过本地控制角色，
         // 导致本机持球标记无法被权威端纠正。新协议中 -1 表示当前无人持球。
@@ -1581,6 +1812,35 @@ export class PVP extends Mag {
         // 之前这里按 holderId 直接把 isCalc 关掉, 结果权威端一句过期的"球在我手上"就把对端的球
         // 冻在半空 1.6s 不动(实测连续 4 个样本本端 y=0.93 悬着、对端已经落到 z=-7.24)。
 
+        // 权威静止球位(持球/死球): 直接 attach 到权威位姿(无损对齐, 消除蒙皮手姿态差)。
+        // 收不收按【权威阶段】分层: SERVING/COUNTDOWN/鹰眼里球已归属或已判分, 权威的静止球位
+        // 就是事实——本端还飞着的球只可能是本地投机出手没送达权威端(静默/丢包)或上一回合残留,
+        // 一味按"有活球就拒收"会让权威已经钉回发球手/判分熄火, 本端却沿错误弹道飞完整段。
+        // 只有 RALLYING 才保留"本端有活球(刚出手/正在飞)时拒收常规静止球位"的纪律:
+        // SERVING 每帧 attachTo(手) 会把快照内核时刻刷新, 快照时刻比较挡不住"击球前生成、
+        // 击球后一帧才到"的附件, attach 会把刚打出的球钉回手上。
+        // 接管/恢复快照(ageMs>0)是完整事实, 不套这条: 故障段本端球确实是错的。
+        const bsnap = Proto.decodeBall((st as any).ball);
+        const live = this.ballJustHit() || !!(this.ball && this.ball.flying());
+        const idlePhase = st.phase === MatchPhase.SERVING || st.phase === MatchPhase.COUNTDOWN
+            || st.phase === (MatchPhase as any).EAGLE_CONFIRM
+            || st.phase === (MatchPhase as any).EAGLE_CHALLENGE;
+        // 状态包生成于【本机已应用的那一拍之前】就是旧事实: 10Hz 帧迟到 100~300ms 时,
+        // 一份"击球前的静止球位"会把刚由击球事件重锚的球又钉回手上。seq 只在同一任期内可比。
+        const stTerm = Number((st as any).authTerm);
+        const stHitSeq = Number((st as any).hitSeq);
+        const beforeLastHit = Number.isFinite(stHitSeq) && stTerm === this._hitSeqTerm
+            && stHitSeq < this._lastAppliedAuthHitSeq;
+        const preHit = ageMs === 0 && (beforeLastHit || (live && !idlePhase));
+        if (preHit) {
+            this.authBallPose = null;
+        } else if (bsnap && this.ball && !this._amAuth) {
+            this.ball.attachTo(bsnap.pos, Timer.now());
+            this.authBallPose = { x: bsnap.pos.x, y: bsnap.pos.y, z: bsnap.pos.z, at: Timer.now() };
+        } else if (!bsnap && !this.ballJustHit()) {
+            this.authBallPose = null;
+        }
+
         // 通过 ID 反查角色实例，恢复发球/接发球方与最近击球角色；-1 也必须清空旧引用。
         this.currentServer = typeof st.serverId === 'number' && st.serverId >= 0
             ? (this.players.find(p => p.id === st.serverId) ?? null) : null;
@@ -1595,7 +1855,16 @@ export class PVP extends Mag {
         // Timer.start 它——一旦升格权威, 第一帧撞上 Timer.invoke 的自起副作用(返回 -1 → 剩余算成
         // 满额 10s), HUD 冻在"请发球10"而上一权威早已演完"发球超时", 两端状态机从此不同步。
         const remainMs = this.phase === MatchPhase.SERVING ? st.serveRemainMs : st.cdRemainMs;
-        if (typeof remainMs === 'number' && remainMs >= 0) this.rule.syncClock(remainMs - ageMs);
+        // 剩余毫秒是【发送端发包那一刻】的值, 直接当成本刻剩余会系统性偏大一个单程延时:
+        // 10Hz 状态包不断重基, HUD 秒数在进位边界来回错开。用包内 time 换到本端时基,
+        // 与现在相减得到本包在路上的时长, 从剩余里扣掉再重基。
+        let transit = 0;
+        if (ageMs === 0 && this._authClockReady && Proto.isNum(st.time)) {
+            transit = Timer.now() - this._toLocal(st.time);
+            if (!(transit > 0)) transit = 0;
+            else if (transit > 500) transit = 500;
+        }
+        if (typeof remainMs === 'number' && remainMs >= 0) this.rule.syncClock(remainMs - Math.max(ageMs, transit));
 
         // 触发比分变更回调，刷新 UI
         this.onScoreChanged?.(this.scores[TeamSide.LEFT], this.scores[TeamSide.RIGHT]);
@@ -1899,8 +2168,8 @@ export class PVP extends Mag {
         if (this._authFlushTid != null) { Timer.clear(this._authFlushTid); this._authFlushTid = null; }
         if (this._setupRetryTid != null) { Timer.clear(this._setupRetryTid); this._setupRetryTid = null; }
         // 摘除 GNet 回调(精确引用): 旧版不清 = 残留实例继续吃消息/帧,
-        // 第二局双实例并存互抢(收不到消息/提案强制通过) + 旧心跳 serializeFrame 崩
-        if (this._clientCb) { Gnet.off('client', this._clientCb); this._clientCb = null; }
+        // 第二局双实例并存互抢(收不到消息/提案强制通过) + 旧心跳 serializeFrame 崩。
+        // client 协议泵是 Msg 层常驻单例, 不归本实例摘(匹配页恢复房间还要用)。
         if (this._frameCb) { Gnet.offFrame(this._frameCb); this._frameCb = null; }
         if (this._leaveCb) { Gnet.off("leave", this._leaveCb); this._leaveCb = null; }
         if (this._dismissCb) { Gnet.off("dismiss", this._dismissCb); this._dismissCb = null; }

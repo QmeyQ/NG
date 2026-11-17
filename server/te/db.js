@@ -6,9 +6,15 @@
  *
  * 数据行(平铺字段): { id(主键), name, flag, bag(JSON字符串), dollar, head, etc(ctime), ... }
  *
+ * 最小写入契约: 业务分支先 dbGet 拿旧行, 内存合并字段(含行内审计 history)后 dbUpsert
+ * 一次落库 —— 每请求单记录"一查一写", 不再用 dbPut 的内部二次读。dbPut 保留兼容。
+ *
  * 接口(与旧 fetch 版完全一致, 调用方零改动):
  *   dbGet(id)          → row 对象 | null(无此行) | null(调用失败, 用 dbOk 区分)
  *   dbPut(id, fields)  → 部分字段合并更新(读旧行→合并→整行 upsert) → true/false
+ *   dbUpsert(row)      → 整行直写(调用方已持旧行并合并, 无内部读) → true/false
+ *   dbTop(field, n)    → 按字段降序取前 n 行(排行: level 索引) → [row] | null
+ *   dbByIds(ids)       → 主键批量查(in) → [row] | null
  *   dbDel(id)          → true/false
  *   dbList()           → [row] | null
  *   dbOk               → 最后一次调用是否成功(false=CloudDB 故障, te 应回 code 5)
@@ -59,6 +65,45 @@ async function dbPut(id, fields) {
     }
 }
 
+/** 整行直写(无内部读): 调用方已持有旧行并完成合并, 1 次 CloudDB 写入 */
+async function dbUpsert(row) {
+    try {
+        await w().executeUpsert(Object.assign({}, row, { id: String(row.id) }));
+        dbOk = true;
+        return true;
+    } catch (e) {
+        dbOk = false;
+        w().noteOpError(e);
+        return false;
+    }
+}
+
+/** 按字段降序取前 n 行(排行榜: level 为零填充胜场字符串, 已建索引) */
+async function dbTop(field, limit) {
+    try {
+        const rows = await w().executeQueryTop(String(field), limit);
+        dbOk = true;
+        return rows;
+    } catch (e) {
+        dbOk = false;
+        w().noteOpError(e);
+        return null;
+    }
+}
+
+/** 主键批量查(in, 一次查询取回多行: 好友资料等) */
+async function dbByIds(ids) {
+    try {
+        const rows = await w().executeQueryByIds((ids || []).map(String));
+        dbOk = true;
+        return rows;
+    } catch (e) {
+        dbOk = false;
+        w().noteOpError(e);
+        return null;
+    }
+}
+
 /** 删除一行 */
 async function dbDel(id) {
     try {
@@ -85,4 +130,4 @@ async function dbList() {
     }
 }
 
-module.exports = { dbGet, dbPut, dbDel, dbList, dbErr, get dbOk() { return dbOk; } };
+module.exports = { dbGet, dbPut, dbUpsert, dbTop, dbByIds, dbDel, dbList, dbErr, get dbOk() { return dbOk; } };

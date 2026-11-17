@@ -1,150 +1,83 @@
 {
-  "out": "tool/ui.br",
-  "zip": "tool/ui.zip",
+  "out": "ui.br",
   "magic": "BRP1",
   "version": "1.0",
-  "fileCount": 46,
-  "rawSize": 20359588,
-  "containerSize": 20360961,
-  "brSize": 12082734,
-  "zipSize": 12869263,
-  "ratio": 0.5934,
-  "idShortened": 1,
+  "fileCount": 30,
+  "rawSize": 2976877,
+  "containerSize": 2977812,
+  "brSize": 2406929,
+  "ratio": 0.8083,
   "files": [
     {
       "path": "dialog/bg.png",
-      "size": 968502
+      "size": 132778
     },
     {
       "path": "dialog/dialog.lh",
-      "size": 4688
+      "size": 3310
     },
     {
       "path": "dialog/ok.png",
-      "size": 831943
+      "size": 35119
     },
     {
-      "path": "head/0101.png",
-      "size": 364614
+      "path": "head/0.png",
+      "size": 161124
     },
     {
-      "path": "head/0102.png",
-      "size": 364616
+      "path": "head/1.png",
+      "size": 161090
     },
     {
-      "path": "head/0103.png",
-      "size": 364615
+      "path": "head/2.png",
+      "size": 166663
     },
     {
-      "path": "head/0104.png",
-      "size": 364615
+      "path": "head/3.png",
+      "size": 364390
     },
     {
-      "path": "head/0201.png",
-      "size": 364614
+      "path": "internal/UI/Button.lh",
+      "size": 1420
     },
     {
-      "path": "head/0202.png",
-      "size": 364616
+      "path": "internal/UI/CheckBox.lh",
+      "size": 984
     },
     {
-      "path": "head/0203.png",
-      "size": 364616
+      "path": "internal/UI/ComboBox_ListItem.lh",
+      "size": 999
     },
     {
-      "path": "head/0204.png",
-      "size": 364616
+      "path": "internal/UI/comp.atlas",
+      "size": 4755
     },
     {
-      "path": "head/0301.png",
-      "size": 364615
+      "path": "internal/UI/comp.png",
+      "size": 322761
     },
     {
-      "path": "head/0302.png",
-      "size": 364615
+      "path": "internal/UI/PopupMenu.lh",
+      "size": 766
     },
     {
-      "path": "head/0303.png",
-      "size": 364614
+      "path": "internal/UI/ProgressBar.lh",
+      "size": 586
     },
     {
-      "path": "head/0304.png",
-      "size": 364614
+      "path": "internal/UI/ScrollBarH.lh",
+      "size": 4398
     },
     {
-      "path": "head/0401.png",
-      "size": 364614
+      "path": "internal/UI/ScrollBarV.lh",
+      "size": 4355
     },
     {
-      "path": "head/0402.png",
-      "size": 364615
+      "path": "internal/UI/Tooltips.lh",
+      "size": 560
     },
     {
-      "path": "head/0404.png",
-      "size": 364613
-    },
-    {
-      "path": "head/1111.png",
-      "size": 366182
-    },
-    {
-      "path": "head/1112.png",
-      "size": 366182
-    },
-    {
-      "path": "head/1113.png",
-      "size": 366182
-    },
-    {
-      "path": "head/1114.png",
-      "size": 366182
-    },
-    {
-      "path": "head/1211.png",
-      "size": 366182
-    },
-    {
-      "path": "head/1212.png",
-      "size": 366182
-    },
-    {
-      "path": "head/1213.png",
-      "size": 366182
-    },
-    {
-      "path": "head/1311.png",
-      "size": 366182
-    },
-    {
-      "path": "head/1312.png",
-      "size": 366182
-    },
-    {
-      "path": "head/1313.png",
-      "size": 366183
-    },
-    {
-      "path": "head/1314.png",
-      "size": 366183
-    },
-    {
-      "path": "head/1411.png",
-      "size": 366181
-    },
-    {
-      "path": "head/1412.png",
-      "size": 366183
-    },
-    {
-      "path": "head/1413.png",
-      "size": 366182
-    },
-    {
-      "path": "head/1414.png",
-      "size": 366182
-    },
-    {
-      "path": "main/12.png",
+      "path": "main/12+.png",
       "size": 168361
     },
     {
@@ -156,16 +89,16 @@
       "size": 261539
     },
     {
-      "path": "main/game/0.png",
-      "size": 2044263
+      "path": "main/game/0.jpg",
+      "size": 65192
     },
     {
-      "path": "main/game/1.png",
-      "size": 2148533
+      "path": "main/game/1.jpg",
+      "size": 23139
     },
     {
-      "path": "main/game/2.png",
-      "size": 1909696
+      "path": "main/game/2.jpg",
+      "size": 56336
     },
     {
       "path": "main/game.png",
@@ -193,7 +126,7 @@
     },
     {
       "path": "menu.ls",
-      "size": 40591
+      "size": 16748
     }
   ]
 }

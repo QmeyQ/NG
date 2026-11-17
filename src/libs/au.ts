@@ -2,7 +2,7 @@
  * Au - 静态音频管理器
  * 基于 Res 加载音频，使用 MPM 管理事件，支持分层音量控制
  */
-import { Res } from "./res";
+import { Res } from "./res/res";
 import { MPM } from "./mpm"; // 假定 MPM 已导出
 import { ToneEng, Syn, TONE_NAMES, mapTone } from "./tone";
 import { Timer } from "./time";
@@ -319,7 +319,7 @@ export class Au {
         if (!eng) return;
         try {
             if (!Au._tapSynth || Au._tapSynth.disposed) {
-                Au._tapSynth = eng.mkSyn("pluck", { vol: 4 });
+                Au._tapSynth = eng.mkSyn("pluck", { vol: 2 });  // 按键音减半
                 Au._tapEnd = 0;
             }
             // 起点顺延: 连点拿到相同时间会完全重叠爆音, 10ms 级顺延听感无差

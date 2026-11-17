@@ -13,6 +13,9 @@ import { agcWebOn, agcToken, agcDirect } from "./agcCore";
 /** 会话级降级: true=web 直连不可用(网络级失败, 大概率 CORS), 永久走 Worker 代理 */
 let degraded = false;
 
+/** 是否已会话级降级(CORS 网络级失败, 请求未达服务端) */
+export function webDegraded(): boolean { return degraded; }
+
 /** web 直连是否可用(宏 + 未降级) */
 export function webReady(): boolean {
     return agcWebOn && !degraded;
