@@ -1,6 +1,6 @@
 import { Timer } from "./time";
 import { Dialog } from "../ui/DIalog";
-import { Res } from "./res";
+import { Res } from "./res/res";
 import { wxEnv } from "./wx";
 
 /**

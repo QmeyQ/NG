@@ -8,7 +8,7 @@ window.__DOC_FILES["nodes/srv.js"]={
   "name": "srv",
   "label": "服务端后端",
   "type": "Group",
-  "desc": "Cloudflare Worker(www.normalgame.cn) 网关 + 自实现 AGC 代理 SDK + IP/历史风控；AGC 云函数 te/user.js(用户体系/发号/商店) 与 gobe.js(GOBE 凭据)、shield.js(审计)、db.js→CloudDB(NG/User)；独立管理后台 mag/magh。客户端 pcloud 经此完成注册/资料/联机凭据。",
+  "desc": "Cloudflare Worker(www.normalgame.cn) 网关 + 自实现 AGC 代理 SDK + IP/历史风控(历史改用户行 history 点查); AGC 云函数 te/user.js(用户体系/发号/商店/社交) 与 gobe.js、shield.js(行内审计纯函数)、db.js→CloudDB(NG/User, dbUpsert 直写); 独立管理后台 mag/magh(增 clean 清遗留审计行)。最小写入契约: 每请求单记录一查一写, 审计随业务同写。",
   "inputs": [
     {
       "name": "云端请求",
@@ -26,6 +26,10 @@ window.__DOC_FILES["nodes/srv.js"]={
     },
     {
       "name": "GOBE 凭据",
+      "type": "Event"
+    },
+    {
+      "name": "社交数据",
       "type": "Event"
     }
   ],
@@ -186,7 +190,7 @@ window.__DOC_FILES["nodes/srv.js"]={
         "name": "sv6",
         "label": "注册 reg",
         "type": "流程",
-        "desc": "_seq.etc 顺序发号(≥1000，16 次尝试)或指定 d.userid；写 claim 令牌 etc=Date.now():random 后回读，back.etc===claim 才赢得非原子竞争；默认 head/head/0.png、bag{head:1}、dollar:1、flag 默认签名；返回 key=code.key(id)。",
+        "desc": "reg: _seq.etc 顺序发号(≥1000, 16 次尝试)或指定 d.userid; 最小写入: 用户行/seq 行均 dbUpsert 整行直写(含行内审计 op0), 模块级 seqHint 热缓存省 seq 查(冷 5 次/热 4 次), 撞号/认领失败才重读 seq 追赶且不写回踩号; claim 令牌 etc=Date.now():random 回读校验保留(非原子竞争唯一性)。默认 head/0.png、bag{head:1}、dollar:1; 返回 key=code.key(id)。显式注册=查存在+直写+回读 3 次。",
         "inputs": [
           {
             "name": "身份可信",
@@ -210,7 +214,7 @@ window.__DOC_FILES["nodes/srv.js"]={
         "name": "sv7",
         "label": "资料 user/set/buy/bag/del",
         "type": "流程",
-        "desc": "user 改名耗 1 金币(4)、签名免费；set 头像需 bag[head]≥1，扣减/删除(3)；buy 头像道具 −1 金币且 bag++、dollar.png +5(仅测试)；bag 拉背包(d.gt=1 附带 gobe)；del 删号。每次成功调 shield.record。",
+        "desc": "user/set/buy/bag/del 最小写入: 先 dbGet 旧行→内存合并→commitRow(字段+shield.append 审计)→dbUpsert 一次(1 查 1 写); bag 审计写失败不阻塞登录; del=1 查 1 删(行不存在无审计, IP 闸门兜底)。user 改名耗 1 金币(4)/签名免费; set 需 bag[head]≥1(3); buy 头像 −1 金币 bag++、dollar.png +5(仅测试)。错误码增 12=社交条件不满足。",
         "inputs": [
           {
             "name": "用户记录",
@@ -281,7 +285,7 @@ window.__DOC_FILES["nodes/srv.js"]={
         "name": "sv10",
         "label": "审计 shield.js",
         "type": "数据",
-        "desc": "每次成功写一行：id __shield__<userid>__<13位ms><op>__<6随机字节hex>，record=ts+op(每操作一行避免追加覆盖)。op：0 reg/1 user/2 bag/3 set/4 buy/5 del。zone User，保留 24h，前缀查询惰性清理(MAX_SCAN 500)。",
+        "desc": "shield.js 行内审计(纯函数, 零 DB 操作): append/parse/makeRecord, 条目=13位ms+op 逗号分隔, 24h 裁剪+120 条上限, 随业务同一次 upsert 落用户行 history。op: 0 reg/1 user/2 bag/3 set/4 buy/6 friend(自己行)/8 score/9 mes clear; 5 del 遗留不再写。写别人行不追加对方 history(防刷爆受害者 USER_RATE_LIMITED)。并发末写覆盖丢条目为已知取舍(窗口 10s/20 次远大于丢失率)。遗留独立 __shield__ 行由 mag clean 一次性清理。",
         "inputs": [
           {
             "name": "资料就绪",
@@ -305,7 +309,7 @@ window.__DOC_FILES["nodes/srv.js"]={
         "name": "sv11",
         "label": "DB 门面 te/db.js",
         "type": "代码",
-        "desc": "dbGet/dbPut/dbDel/dbList、dbErr()、dbOk。dbPut = 读-合并-整行 upsert(非原子)。直连 CloudDB 取代旧 Worker→cloudb 回环(2-5s→~100ms)。",
+        "desc": "db.js 门面: dbGet/dbPut/dbDel/dbList 保留 + 新增 dbUpsert(整行直写无内部读)/dbTop(orderByDesc 索引取前 N)/dbByIds(in 批量)。dbPut=读-合并-整行 upsert 仅兼容保留, 业务不再走(消灭二次读)。直连 CloudDB ~100ms。",
         "inputs": [
           {
             "name": "用户记录",
@@ -348,7 +352,7 @@ window.__DOC_FILES["nodes/srv.js"]={
         "name": "sv13",
         "label": "风控回读 agc.js",
         "type": "规则",
-        "desc": "Worker 侧直连 CloudDB REST(connect-api…/v4/objects/queries，zone User/type NG) 读取 __shield__<userid>__ 审计行(24h，limit 500)，供 risk.userHistoryGate 裁决。与 mag 内嵌 SDK 是不同传输。",
+        "desc": "Worker agc.js getUserCallHistory: 改 EqualTo 主键点查用户行(limit 1)+解析 history 为 [{record}](24h 过滤), 替代旧 __shield__ 前缀扫描 ≤500 行; 行不存在→[](放行, te 自回 1); 查询失败抛错由调用方 fail-open 记录放行(行为不变)。每受闸请求 1 次点查。",
         "inputs": [
           {
             "name": "审计行",
@@ -424,6 +428,74 @@ window.__DOC_FILES["nodes/srv.js"]={
         "inputs": [],
         "outputs": [],
         "height": 130
+      },
+      "sv17": {
+        "location": [
+          70,
+          990
+        ],
+        "width": 270,
+        "height": 170,
+        "name": "sv17",
+        "label": "DB 最小写入优化",
+        "type": "流程",
+        "desc": "已实施(本地验证): 最小写入契约落地——每请求单记录一查一写(del 一查一删), 审计合并 history 额外操作 0, reg 冷 5/热 4/显式 3, Worker 点查替代前缀扫描。离线 62+34 测试断言操作次数; 浏览器 18/18。并发末写覆盖/删行无审计/纯读不审计(IP 闸门兜底)为明示取舍。证据: 离线 node --test 62(注册契约)+34(社交/最小写入) 全过; tsc 新增错误 0(基线 card.ts:80/82); esbuild bundle 1098542B; Edge CDP 真实引擎页 18/18(local/social-verify.json, 截图 local/social-page.png)。边界: 部署未授权, te/Worker/mag 改动仅本地, 线上 E2E 待授权部署后补; 并发读-合并-写末写覆盖(审计丢条目)为已知取舍; CDN token 过期 400 与 nor 缺 girl/au/hit.MP3 属既有环境问题。",
+        "inputs": [
+          {
+            "name": "DB门面",
+            "type": "Event"
+          }
+        ],
+        "outputs": [
+          {
+            "name": "审计合并",
+            "type": "Event"
+          },
+          {
+            "name": "最小写入",
+            "type": "Event"
+          }
+        ],
+        "use_custom_color": true,
+        "color": [
+          0.3,
+          0.7,
+          0.45
+        ]
+      },
+      "sv18": {
+        "location": [
+          390,
+          990
+        ],
+        "width": 270,
+        "height": 170,
+        "name": "sv18",
+        "label": "社交 API(te 分支)",
+        "type": "代码",
+        "desc": "已实施(本地验证, 待部署): te 新增 find/profiles/friend(request|accept|reject|remove)/msg/sync/mes(clear)/rank/score。数据落 NG 既有字段 social/mes/record/level; 容量 200 好友/50 申请/50 消息/200 字/10 recent; score 30s 冷却; rank orderByDesc(level)≤50; 条件不满足 code 12+msg; 认证仍 keyOk 纯计算。客户端 social.ts+SocialPage 接线, 结算 badm.onMatchEnded 上报。证据: 离线 node --test 62(注册契约)+34(社交/最小写入) 全过; tsc 新增错误 0(基线 card.ts:80/82); esbuild bundle 1098542B; Edge CDP 真实引擎页 18/18(local/social-verify.json, 截图 local/social-page.png)。边界: 部署未授权, te/Worker/mag 改动仅本地, 线上 E2E 待授权部署后补; 并发读-合并-写末写覆盖(审计丢条目)为已知取舍; CDN token 过期 400 与 nor 缺 girl/au/hit.MP3 属既有环境问题。",
+        "inputs": [
+          {
+            "name": "身份可信",
+            "type": "Event"
+          },
+          {
+            "name": "最小写入",
+            "type": "Event"
+          }
+        ],
+        "outputs": [
+          {
+            "name": "社交数据",
+            "type": "Event"
+          }
+        ],
+        "use_custom_color": true,
+        "color": [
+          0.48,
+          0.38,
+          0.75
+        ]
       }
     },
     "links": [
@@ -615,6 +687,56 @@ window.__DOC_FILES["nodes/srv.js"]={
         "to_node": "sv12",
         "to_socket": "CloudDB",
         "to_socket_identifier": "CloudDB",
+        "to_socket_type": "Event"
+      },
+      {
+        "from_node": "sv11",
+        "from_socket": "CloudDB",
+        "from_socket_identifier": "CloudDB",
+        "from_socket_type": "Event",
+        "to_node": "sv17",
+        "to_socket": "DB门面",
+        "to_socket_identifier": "DB门面",
+        "to_socket_type": "Event"
+      },
+      {
+        "from_node": "sv17",
+        "from_socket": "审计合并",
+        "from_socket_identifier": "审计合并",
+        "from_socket_type": "Event",
+        "to_node": "sv10",
+        "to_socket": "资料就绪",
+        "to_socket_identifier": "资料就绪",
+        "to_socket_type": "Event"
+      },
+      {
+        "from_node": "sv17",
+        "from_socket": "最小写入",
+        "from_socket_identifier": "最小写入",
+        "from_socket_type": "Event",
+        "to_node": "sv18",
+        "to_socket": "最小写入",
+        "to_socket_identifier": "最小写入",
+        "to_socket_type": "Event"
+      },
+      {
+        "from_node": "sv5",
+        "from_socket": "身份可信",
+        "from_socket_identifier": "身份可信",
+        "from_socket_type": "Event",
+        "to_node": "sv18",
+        "to_socket": "身份可信",
+        "to_socket_identifier": "身份可信",
+        "to_socket_type": "Event"
+      },
+      {
+        "from_node": "sv18",
+        "from_socket": "社交数据",
+        "from_socket_identifier": "社交数据",
+        "from_socket_type": "Event",
+        "to_node": "__group_out__",
+        "to_socket": "社交数据",
+        "to_socket_identifier": "社交数据",
         "to_socket_type": "Event"
       }
     ]

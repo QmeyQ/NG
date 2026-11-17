@@ -35,7 +35,7 @@ import {
 import { getUserCallHistory } from './agc.js';
 
 /** Worker 版本号, 排障时与 te 的 v 区分开(故用 wv 字段) */
-const WORKER_VERSION = 'v1106a';
+const WORKER_VERSION = 'v1116a';
 
 async function resolveCredential(env) {
   if (env.AGC_CREDENTIAL || env.AGC_CLIENT_ID) {

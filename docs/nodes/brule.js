@@ -8,7 +8,7 @@ window.__DOC_FILES["nodes/brule.js"]={
   "name": "brule",
   "label": "规则与判定",
   "type": "Group",
-  "desc": "rule.ts：8 个 MatchPhase、发球权/接发、站位与发球区、越界、落地结算、21 分制、换边与鹰眼。",
+  "desc": "rule.ts：比赛状态机与判罚引擎。依赖 RuleHost(不 import Mag)，负责阶段/发球权/站位/落地结算/21 分制/换边/鹰眼。",
   "inputs": [
     {
       "name": "判决请求",
@@ -48,7 +48,7 @@ window.__DOC_FILES["nodes/brule.js"]={
         "name": "r1",
         "label": "阶段机 MatchPhase",
         "type": "数据",
-        "desc": "WAITING_START / COUNTDOWN / SERVING / RALLYING / SCORING / ENDED / EAGLE_CONFIRM / EAGLE_CHALLENGE；前两者未使用。",
+        "desc": "WAITING_START / COUNTDOWN / SERVING / RALLYING / SCORING / ENDED / EAGLE_CONFIRM / EAGLE_CHALLENGE。WAITING_START 仅作构造初值、SCORING 不再作为停顿态；实际推进 = COUNTDOWN/SERVING/RALLYING/鹰眼/ENDED。",
         "inputs": [
           {
             "name": "判决请求",
@@ -72,7 +72,7 @@ window.__DOC_FILES["nodes/brule.js"]={
         "name": "r2",
         "label": "initMatch / update",
         "type": "流程",
-        "desc": "initMatch 重置比分与发球；update 按阶段分发到倒计时/发球/回合处理。",
+        "desc": "initMatch 重置 MatchState 与发球；update 按阶段分发。PVP 非权威端直接 return——阶段/计时/鹰眼全部由权威端 applyState 驱动，本地不自行推进。",
         "inputs": [
           {
             "name": "阶段",
@@ -249,7 +249,7 @@ window.__DOC_FILES["nodes/brule.js"]={
         "name": "r10",
         "label": "换边与局数",
         "type": "规则",
-        "desc": "每局结束 _switchSides 交换场地；gamesWon 按「边」统计，换边后不翻转 → 局数漂移（P0）。",
+        "desc": "每局结束 _switchSides 交换场地与队伍边标；gamesWon 必须随队伍一起交换(按队伍身份统计)，否则 2:0 判不出/第 3 局冠军判给输方(P0)。发球方保持「上一局胜者」：边标翻转后 servingTeam 同步翻转。",
         "inputs": [
           {
             "name": "结算",
@@ -273,7 +273,7 @@ window.__DOC_FILES["nodes/brule.js"]={
         "name": "r11",
         "label": "鹰眼阶段",
         "type": "流程",
-        "desc": "EAGLE_CONFIRM 与 EAGLE_CHALLENGE 双开窗，挑战与确认条件重叠，可能同时触发。",
+        "desc": "单一阶段窗口：结算后有轨迹 → EAGLE_CONFIRM(3s)；双击确认 → EAGLE_CHALLENGE(5s)；超时/回放结束 → endEagleConfirm → 下一回合。禁止再并行维护一套 window 定时器(两套开窗会互相覆盖)。",
         "inputs": [
           {
             "name": "结算",
@@ -293,6 +293,34 @@ window.__DOC_FILES["nodes/brule.js"]={
         "label": "未判罚项",
         "type": "待办",
         "desc": "触网未判罚；压线球被判出界；连击只靠入口前置拦截，无回看。",
+        "inputs": [],
+        "outputs": [],
+        "height": 100
+      },
+      "r13": {
+        "location": [
+          70,
+          655
+        ],
+        "width": 240,
+        "name": "r13",
+        "label": "RuleHost 边界",
+        "type": "数据",
+        "desc": "Rule 只依赖接口：state(MatchState)、players/ball/teamMap/court/cfg/mode、isPvpMode/isAuthoritative、parkBallAt 与回调出口。构造函数签名从 Mag 改为 RuleHost，消除 rule 与 mag 的双向类依赖。",
+        "inputs": [],
+        "outputs": [],
+        "height": 100
+      },
+      "r14": {
+        "location": [
+          390,
+          655
+        ],
+        "width": 240,
+        "name": "r14",
+        "label": "计时所有权",
+        "type": "规则",
+        "desc": "权威端规则计时是唯一时钟源；非权威端用 rule.syncClock(remainMs) 在本端时基重设起点。绝对时间戳不过网，跨端命中时刻由 PVP 的时钟偏移换算后再进物理内核。",
         "inputs": [],
         "outputs": [],
         "height": 100

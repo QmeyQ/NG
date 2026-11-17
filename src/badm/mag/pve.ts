@@ -15,8 +15,15 @@ export class PVE extends Mag {
     /** 本地玩家控制的角色 */
     private _localCha: Cha | null = null;
 
-    constructor(p1: Laya.Sprite3D, ball: Ball, isSingle: boolean = false, p2?: Laya.Sprite3D, racket?: Laya.Sprite3D) {
-        super(p1, ball, isSingle, p2, racket);
+    constructor(
+        scene3D: Laya.Scene3D,
+        ball: Ball,
+        isSingle: boolean,
+        modelTemplates: { [modelId: number]: Laya.Sprite3D },
+        racket: Laya.Sprite3D,
+        roleModels: number[]
+    ) {
+        super(scene3D, ball, isSingle, modelTemplates, racket, roleModels);
     }
 
     // ---------- AI 管理 ----------
@@ -73,5 +80,6 @@ export class PVE extends Mag {
     public destroy(): void {
         this._aiList.length = 0;
         this._localCha = null;
+        super.destroy();
     }
 }

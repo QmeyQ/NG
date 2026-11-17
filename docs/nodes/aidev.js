@@ -8,7 +8,7 @@ window.__DOC_FILES["nodes/aidev.js"]={
   "name": "aidev",
   "label": "AI 开发辅助",
   "type": "Group",
-  "desc": "AI 开发闭环：web-api+tool 浏览器自动化把网页 AI 转 OpenAI 兼容 API(含工具调用中继) → com.layabox.mcp 在 LayaAir IDE 起 SSE MCP(动态 tool/prompt、跨进程回调) → AI 自动编译 → 自动运行 web → 浏览器自动测试 → 自动服务端配置 → 自动上传/发布，测试反馈回灌形成迭代。",
+  "desc": "AI 开发闭环：先在工作流策划/细化（需求、条件动作、方案、验收）→ 执行 → IDE 编译 → 浏览器验证 → 回填工作流。IDE 内置 AI 调度浏览器自动化与 Laya MCP，不接入网页 AI；失败先更新策划再迭代。部署/发布仅在明确授权且验收通过后执行；本地验证与线上交付分别记录。",
   "inputs": [
     {
       "name": "开发指令",
@@ -43,16 +43,17 @@ window.__DOC_FILES["nodes/aidev.js"]={
   "node_tree": {
     "name": "AI 开发辅助 子树",
     "nodes": {
-      "ai1": {
+      "aiPlan": {
         "location": [
-          -203.24,
+          -600,
           -4.19
         ],
-        "width": 240,
-        "name": "ai1",
-        "label": "Web-to-API 桥接",
-        "type": "代码",
-        "desc": "web-api+tool：DrissionPage 控制本地 Chrome，把 ChatGPT/Grok/DeepSeek 等网页 AI 转成 OpenAI 兼容 /v1/chat/completions(SSE 流式)。FastAPI 服务 127.0.0.1:8199，作为 AI 大脑供 MCP 客户端(Cursor/Claude/Qoder)调用。start.bat 一键起 venv+独立 Chrome+API。",
+        "width": 270,
+        "height": 180,
+        "name": "aiPlan",
+        "label": "先策划 / 细化（执行前置）",
+        "type": "Group",
+        "desc": "任何执行与返工先回到工作流：需求 → 条件动作 → 实现方案 → 验收策划。策划落图后才交给 ai1 执行；保留已有变更、布局与 unused 历史。",
         "inputs": [
           {
             "name": "开发指令",
@@ -61,7 +62,37 @@ window.__DOC_FILES["nodes/aidev.js"]={
         ],
         "outputs": [
           {
-            "name": "模型响应",
+            "name": "策划完成",
+            "type": "Event"
+          }
+        ],
+        "use_custom_color": true,
+        "color": [
+          0.6,
+          0.4,
+          0.9
+        ],
+        "node_tree_file": "nodes/aiPlan.js"
+      },
+      "ai1": {
+        "location": [
+          -203.24,
+          -4.19
+        ],
+        "width": 240,
+        "name": "ai1",
+        "label": "执行方案 / AI 调度浏览器",
+        "type": "规则",
+        "desc": "仅接收 aiPlan 已落图的细化方案，IDE AI(Qoder/Cursor/Claude 等内置大模型)在授权文件范围内执行修改并生成自动化操作序列，经 web-api+tool 的 DrissionPage 调度浏览器与 Laya MCP；不接入网页 AI、不做网页 AI 转 OpenAI API 的桥接。执行完成后必须编译、浏览器验证并回填工作流。",
+        "inputs": [
+          {
+            "name": "开发指令",
+            "type": "Event"
+          }
+        ],
+        "outputs": [
+          {
+            "name": "调度指令",
             "type": "Event"
           }
         ],
@@ -74,18 +105,18 @@ window.__DOC_FILES["nodes/aidev.js"]={
         ],
         "width": 240,
         "name": "ai2",
-        "label": "工具调用中继",
-        "type": "规则",
-        "desc": "ToolSchemaConformer 对齐 OpenAI / Anthropic(input_schema) / Gemini(parameters) 三种工具声明；ToolCallStreamParser 解析 5 种工具调用文本格式；续聊保留 tool_calls 配对；深度思考走 reasoning_content 独立通道，流式头部净化。把网页 AI 输出转成标准 tool_calls。",
+        "label": "浏览器自动化基座",
+        "type": "代码",
+        "desc": "web-api+tool 只取其浏览器自动化部分：DrissionPage 接管/启动本地 Chrome(独立 user_data_dir、deploy profile)，执行 AI 下发的导航、点击/输入/截图等操作并采集 console/network，作为浏览器接入 web 端游戏运行页的执行层。",
         "inputs": [
           {
-            "name": "模型响应",
+            "name": "调度指令",
             "type": "Event"
           }
         ],
         "outputs": [
           {
-            "name": "工具调用",
+            "name": "浏览器控制",
             "type": "Event"
           }
         ],
@@ -98,12 +129,12 @@ window.__DOC_FILES["nodes/aidev.js"]={
         ],
         "width": 240,
         "name": "ai3",
-        "label": "并发与自恢复",
+        "label": "会话守卫与自恢复",
         "type": "流程",
-        "desc": "request_manager：FIFO 队列+全局锁+取消/客户端断开检测。多账号实例(browser_config INSTANCES，deploy profile，相对 user_data_dir)；页面可用性守卫 PageUnavailableError、_wait_for_composer 等 SPA 渲染、显式代理注入、faulthandler 崩溃落盘、uploads 提示词分片(FILE/CHUNKED)。",
+        "desc": "复用 web-api+tool 的会话保障能力：多实例(browser_config INSTANCES，deploy profile，相对 user_data_dir)、页面可用性守卫 PageUnavailableError、_wait_for_composer 等 SPA 渲染等待、显式代理注入、faulthandler 崩溃落盘，保障 AI 长时间调度浏览器的会话稳定。",
         "inputs": [
           {
-            "name": "工具调用",
+            "name": "浏览器控制",
             "type": "Event"
           }
         ],
@@ -196,7 +227,7 @@ window.__DOC_FILES["nodes/aidev.js"]={
         "name": "ai7",
         "label": "自动编译",
         "type": "流程",
-        "desc": "AI 经 MCP 工具触发 LayaAir 编译/构建：TS→JS 产物、资源刷新(flushChanges)。编译错误回传 AI 修正。",
+        "desc": "执行后经 MCP 触发 LayaAir 编译/构建：TS→JS、资源刷新(flushChanges)。核对最终构建日志，不把工具等待超时等同构建失败；独立记录 tsc 新增错误与既有错误。成功进入浏览器验证，失败先回填工作流再细化修复方案。",
         "inputs": [
           {
             "name": "IDE 操作",
@@ -206,6 +237,10 @@ window.__DOC_FILES["nodes/aidev.js"]={
         "outputs": [
           {
             "name": "编译产物",
+            "type": "Event"
+          },
+          {
+            "name": "编译失败",
             "type": "Event"
           }
         ],
@@ -258,9 +293,9 @@ window.__DOC_FILES["nodes/aidev.js"]={
         ],
         "width": 240,
         "name": "ai9",
-        "label": "自动测试",
+        "label": "浏览器验证 / 自动测试",
         "type": "流程",
-        "desc": "浏览器自动化驱动运行页：点击/输入/断言，覆盖启动→菜单→选局→匹配→对局黄金路径与边界；采集 console/network 错误回传 AI。",
+        "desc": "编译成功后按 aiPlan 验收策划在真实引擎运行页验证，不能以语法/tsc代替浏览器验证。浏览器自动化执行点击/输入/断言，按修改范围覆盖启动→菜单→选局→匹配→对局路径或专项边界；采集 console/network 和测试结果，先交 ai12 回填工作流。",
         "inputs": [
           {
             "name": "运行页面",
@@ -352,18 +387,26 @@ window.__DOC_FILES["nodes/aidev.js"]={
         ],
         "width": 240,
         "name": "ai12",
-        "label": "反馈闭环",
+        "label": "回填工作流 / 反馈闭环",
         "type": "规则",
-        "desc": "测试反馈/错误 → 回灌 AI 大脑(ai1)，触发下一轮 修改→编译→运行→测试→部署，形成自动迭代闭环。",
+        "desc": "本轮(加号/群/身价/屏蔽词/转交/个人页)回填: 服务端 te 增 ack/group 分支、msg 改只转交(单聊+群 gid, 屏蔽词 w=1)、读自己行响应附带 mes、friend 身价三路径(扣/到账/退还); 客户端 social.ts 转交缓存+ack+群+身价, ui/social.ts 加号菜单/群面板/红字, ui/personal.ts 左列表右panel+本地对局详情(LocalMatch IDB)+玩家加号, badm 结算存本地详情; 预制体 menu.ls item2(+菜单/身价/群)+item3(左tabs右panel)。验证: 离线114/114、tsc基线、ide-build+collect+tmpPack(ui.br31/nor.br55)、Edge CDP 9/9、doccheck新增0。边界/取舍: 身价=发送方付给接收方(accept到账/reject退还)已文档化; 屏蔽词常量表标记不拦截; 会话历史全本地、服务端 mes 仅未送达暂存; IDE 场景进程 reload 卡死不影响 build; 驱动端口冲突曾误导航登录窗口(已重开云存储 tab, 驱动改 9228); 生产上传待用户登录未执行。下一轮: 登录后 publish.py upload+tokens+线上复验。 【上线完成】用户登录华为云后覆盖上传 ui.br/nor.br/js/bundle.js(令牌不变), 生产 normalgame.cn 冒烟 9/9 通过(加号菜单/身价/群面板/个人页左列表右panel/战绩空态/零异常)。本轮闭环: 策划→实施→离线114/114→tsc→发布/收集/打包→浏览器9/9→上传→生产复验→回填。 【通讯修复闭环】te 部署成功(v1116a, probe bag/sync/ack code0+mes 附带); js/bundle.js 504040 上传成功(真实点击 js/ + 上传按钮流程); 生产冒烟 9/9。坑补充: 云函数\"函数代码\"tab 需真实鼠标点击才显示拖拽框(JS click 无效); 存储 js/ 目录需真实点击文件夹名+先点\"上传文件\"按钮再 input; 误传根目录 bundle.js 为冗余。Worker 待 CF 授权(wrangler login 会话等待中)。 【Worker 部署完成】wrangler login 用户授权后 deploy 成功(a5912aa0), /health wv=v1116a; 生产端到端 9/9。至此客户端/te/Worker/资源包全部上线一致, 通讯闭环。接管手册 h8 流程已验证(login 需保持会话存活+8976 清理)。 【item2 布局跑飞根因修复】Relation TopExt_Top(21) 移动顶边 vs BottomExt_Top(23) 顶边固定; item2 误用 21 致非设计分辨率顶边跑飞, 改 23 与兄弟页一致; 双分辨率复验+ui.br 上传+生产 9/9。引擎语义见 LayaAir3.4/src/layaAir/laya/ui2/Relation.ts applyOnSizeChanged。 【item3 tab 状态预制体化】GButton Radio + button 控制器(Record, 键序先于子节点) + GearDisplay(internalVisible) 呈现选中背景; 代码只赋值 selected。坑: controllers 序列化是 Record(按名键控)非数组; GearDisplay 改 internalVisible 非 visible; 背景外部 visible=false 会屏蔽齿轮。ui.br/bundle 已上传, 生产 9/9。 【本轮】背包3x5网格仅数量; 4tab(背包/战绩/设置/隐私); 设置并入个人页(pSet垂直滚动+隐私栏身价/屏蔽ID, item4节点移入, box4重定向); 身价=个人设置(setprice)非加好友付金币(修好友报错); buy 稳定性 probe×3 ok + 客户端直连降级回退 rescue。te/ui.br/bundle 已上线, 生产 12/12, 离线 114/114。 【GOBE 实时层】禁云轮询→lobby.ts 地区大厅房(100人,kind=lobby+region 标记)+setroom 记录+自动大厅群+onMessage 收消息落本地+sendTo 点对点(对方房)/云兜底(房不存在/无人)+freq 通知徽标; UI: 音量减半/图标放大减半/我的头像不缩放/+创建新聊天/+徽标/群≡菜单(成员/删好友/退群换房)。te(setroom/group leave/lobby群)/ui.br/bundle 已上线, 生产 14/14, 离线 114/114。边界: 双客户端 GOBE 点对点 E2E 待人工复验; 地区用 Intl 时区映射(无 IP 库)。 【新聊天/群分离+多客户端】convs 对话条目(新聊天无消息也显示); 大群广播/单玩家点对点; mcdrive.cjs 双客户端自主实测(双profile/双origin/双CDP)。已知通讯 bug 待修: setroom 未落库、非房主 updateRoom 拒→大厅群重复、freq/P2P/广播接收未验证。te/ui.br/bundle 已上线, 生产 UI 14/14, 离线 114/114。 【大区群单例】globby+地区码 get-or-create+oldLobbyGids 清理+pruneLobbyConvs(含历史消息)→单对话项; 社交消息走 CUSTOM+90; mcdrive 7/11(接收端 onRecvFromClient 未触发待 sdk 层查)。生产 UI 14/14、离线 39/39(social)、doccheck 0。te/bundle 已上线。 【GOBE 接收侧根因修复·本轮】双客户端 mcdrive 11/11 自主通过(注册/同大区房setroom/好友徽标/同意/新聊天nc=1/建对话/P2P hello-p2p/无云msg/大群广播hello-broadcast/大区群单例/无异常)。根因: ①sendToClient 的 type 是路由模式(0/1/2)非自定义消息类型, 旧 chatType=190→INVALID_MESSAGE(102016)拒发(sendFail 实锤); ②SDK onRecvFromClient 不带 imType→onMessage(type)永不触发。修: net.ts 增 ROUTE_ALL/OTHERS/TARGET 常量+chatType 标 deprecated; lobby/social 发送改 1(广播)/2(点对点); lobby.bindMsg 改 onClient catch-all 按 k 标签分发(chat/invite/invroom/freq/facc), 忽略 PVP kind 信封; freq→Social.sync 刷申请列表, accept→notifyFriendAccept(facc)→申请方自动重同步; Lobby.ensure 身份就绪本地重试。测试: 新增 lobby-receive.test.cjs(4项, 锁路由模式+catch-all+k分发); social.test mock 补 setSinks/notifyFriendAccept; mcdrive fresh profile+注册/进房就绪等待+uid JSON.stringify 净化+停留 add 面板等 req 渲染。离线 119/119, tsc 基线。待部署: bundle.js(客户端修复)+ui.br/nor.br(邀请/功能面板/长按转发预制体)需华为登录后上传; te/Worker 本轮未改无需重部署。 【转发/大区通讯真实修复·本轮】用户实测反馈转发未生效/未覆盖所有联系人/大区通讯失败。建 3 浏览器实例实测 local/mc3drive.cjs(同时开社交制造 createRoom 竞态+真实 Social.request/accept+转发)。修复: ①fwdTargets 覆盖所有好友(Social.state.f)+群(state.g)非仅已有对话; ②云兜底转发载荷(k 标签 JSON)在 handlePending 解析还原(chat/invite/invroom), 不再渲染原始 JSON; ③lobby.scheduleConverge 进房后纯 GOBE 重扫收敛到最小规范房号(解决同时进房分裂两房→大区广播互不可达, 无云调用)。mc3 9/9(三账号/竞态后收敛同房/B与C收大区广播/好友/转发覆盖含 peer/转发投递/无异常), 离线 121/121(增 handlePending 转发解析项)。js/bundle.js 559583 重传(doupload_js7 可靠版, GET 复核 MATCH)。架构模块地图已落 handover.md h12 + aihandover h10。 【自动登录+云调用最小化+新消息提醒·本轮】华为账号密码存于 Edge profile(edge-agc-login)自动填充, 点登录链接即自动登入(无需人工扫码)。云调用最小化: afterJoin(isLobby)仅大区房且房间号变化才 setroom/lobbygroup, 本地 localStorage 记录复用; 非大区房不写; sendRaw 单玩家不在同房直接云兜底不跳房。新消息提醒: Social.onNewMessage 钩子(slecet 注入 Au.tap+Dialog.toast 发送者:预览)+suppressNotify(看聊天时抑制), receiveLocal/handlePending 触发。离线 120/120(增 setroom 最小写入回归), tsc 基线。 【部署完成·本轮】华为自动登录(Edge profile 密码自动填充, 点登录链接即登入)→进应用控制台点云存储(cslp iframe)→上传 ui.br/nor.br(root)+js/bundle.js。坑: deploy_now.py 的 enter_dir(js) 未验帧重载致 bundle 误传根目录(GET 复核 size=512398 旧版无 marker); 改用可靠 doupload_js7.py(injs 以 GOBE.js 判+重取 frame+三策略点击+轮询大小)→GET 复核 js/bundle.js size=558345 MATCH 且 marker(lobby_room/suppressNotify/onNewMessage/ROUTE_TARGET/facc)全在。生产 socialdrive_prod 14/14、双客户端 mcdrive 11/11、离线 120/120、doccheck 新增 0。te/Worker 本轮未改无需重部署。",
         "inputs": [
           {
             "name": "测试反馈",
+            "type": "Event"
+          },
+          {
+            "name": "编译失败",
             "type": "Event"
           }
         ],
         "outputs": [
           {
             "name": "开发指令",
+            "type": "Event"
+          },
+          {
+            "name": "验收通过且授权部署",
             "type": "Event"
           }
         ],
@@ -378,9 +421,9 @@ window.__DOC_FILES["nodes/aidev.js"]={
     },
     "links": [
       {
-        "from_node": "__group_in__",
-        "from_socket": "开发指令",
-        "from_socket_identifier": "开发指令",
+        "from_node": "aiPlan",
+        "from_socket": "策划完成",
+        "from_socket_identifier": "策划完成",
         "from_socket_type": "Event",
         "to_node": "ai1",
         "to_socket": "开发指令",
@@ -388,23 +431,43 @@ window.__DOC_FILES["nodes/aidev.js"]={
         "to_socket_type": "Event"
       },
       {
+        "from_node": "ai7",
+        "from_socket": "编译失败",
+        "from_socket_identifier": "编译失败",
+        "from_socket_type": "Event",
+        "to_node": "ai12",
+        "to_socket": "编译失败",
+        "to_socket_identifier": "编译失败",
+        "to_socket_type": "Event"
+      },
+      {
+        "from_node": "__group_in__",
+        "from_socket": "开发指令",
+        "from_socket_identifier": "开发指令",
+        "from_socket_type": "Event",
+        "to_node": "aiPlan",
+        "to_socket": "开发指令",
+        "to_socket_identifier": "开发指令",
+        "to_socket_type": "Event"
+      },
+      {
         "from_node": "ai1",
-        "from_socket": "模型响应",
-        "from_socket_identifier": "模型响应",
+        "from_socket": "调度指令",
+        "from_socket_identifier": "调度指令",
         "from_socket_type": "Event",
         "to_node": "ai2",
-        "to_socket": "模型响应",
-        "to_socket_identifier": "模型响应",
+        "to_socket": "调度指令",
+        "to_socket_identifier": "调度指令",
         "to_socket_type": "Event"
       },
       {
         "from_node": "ai2",
-        "from_socket": "工具调用",
-        "from_socket_identifier": "工具调用",
+        "from_socket": "浏览器控制",
+        "from_socket_identifier": "浏览器控制",
         "from_socket_type": "Event",
         "to_node": "ai3",
-        "to_socket": "工具调用",
-        "to_socket_identifier": "工具调用",
+        "to_socket": "浏览器控制",
+        "to_socket_identifier": "浏览器控制",
         "to_socket_type": "Event"
       },
       {
@@ -468,9 +531,9 @@ window.__DOC_FILES["nodes/aidev.js"]={
         "to_socket_type": "Event"
       },
       {
-        "from_node": "ai9",
-        "from_socket": "测试反馈",
-        "from_socket_identifier": "测试反馈",
+        "from_node": "ai12",
+        "from_socket": "验收通过且授权部署",
+        "from_socket_identifier": "验收通过且授权部署",
         "from_socket_type": "Event",
         "to_node": "ai10",
         "to_socket": "测试反馈",
@@ -502,7 +565,7 @@ window.__DOC_FILES["nodes/aidev.js"]={
         "from_socket": "开发指令",
         "from_socket_identifier": "开发指令",
         "from_socket_type": "Event",
-        "to_node": "ai1",
+        "to_node": "aiPlan",
         "to_socket": "开发指令",
         "to_socket_identifier": "开发指令",
         "to_socket_type": "Event"

@@ -54,8 +54,38 @@
  * player_state_report     非权威端报告自己看到的自身状态, 供权威端纠偏
  * anim_state_request / anim_state_broadcast     动作状态补齐
  * eagle                   鹰眼挑战确认
- * role_assign / role_ack / match_start         进房角色指派(匹配页 load.ts, 房主单源)
+ * role_assign / role_sync                       进房角色指派(权威广播 + 客户端索要, 见下节)
  * auth_frame / non_auth_frame / auth_candidate  走帧通道的三种载荷
+ *
+ * ── 角色指派协议(用户规格 2026-11-11: 取消协商, 改权威广播 + 客户端消息同步) ──
+ * 与对局内同步同一模型: 权威单源出状态, 客户端落地即生效, 缺状态就发消息要, 不等 ack。
+ *
+ * 权威选举(公认排序, 与对局内初始权威同一口径): 房间玩家表 playerId 字典序首位。
+ *   绝不用 room.ownerId——GOBE 各端视角可不一致(并发建房双端各认自己是房主, 实测)。
+ *
+ * kind 表(match 空间, B 通道; 信封/去重/过期规则在 msg.ts registry):
+ *   role_assign { assignSeq, roomId, assignments:[{playerId,roleId,teamId}], requestId? }
+ *     生成: 只有权威端, 且只在匹配页 + 房间满员 + (无表或表未覆盖当前玩家集合)时生成一次,
+ *           assignSeq = Timer.now()(墙钟锚定, 跨端可比)。
+ *     广播: 权威端在匹配页每 ASSIGN_BROADCAST_MS(400) 重播同一份(抗单包丢失, 接收端等号放行)。
+ *     应答: 任何持表端收到 role_sync 都定向回一份(to=请求者, 带 requestId)——
+ *           权威端已进游戏场景后不再周期广播, 但照样应答(恢复房间的唯一通路)。
+ *     接收: 广播只认当前权威; 定向应答(to=本机)认任何发送者(表只能来自权威, 持表端只是复制);
+ *           roomId 不符丢弃; assignSeq 更大才采纳, 相等已应用则忽略; 落地 = 开赛, 无开赛令。
+ *   role_sync { requestId, roomId }
+ *     任何在匹配页却没有有效表的客户端, 每 ASSIGN_SYNC_MS(800) 广播一次, 直到表落地。
+ *     丢失无所谓: 下一轮再发。requestId 逐次新建, 仅用于应答关联与排障。
+ *   role_ack / match_start: 已删除。表本身就是最终状态, 不需要签收与开赛令。
+ *
+ * 冻结规则: 本端进游戏场景后表冻结——不再重生成、不采纳更新的表(对局中换表=角色错配),
+ *   只继续应答 role_sync。恢复依赖 playerId 在房间内稳定(GOBE 重进房同 id, 实测验证);
+ *   若重进后 id 变了, 旧表不含本机(checkAssign self-missing 拒收), 匹配页看门狗超时兜底。
+ *
+ * 行为规则(匹配按钮, 用户原话逐条):
+ *   B1 恢复旧房间期间按钮显示"恢复中", 不显示"匹配成功"。
+ *   B2 房间没满人不能显示"匹配成功"——未满员显示"单/双打匹配中(x/y)", 满员无表显示"等待开局"。
+ *   B3 "匹配成功"只在满员且分配表落地(即将跳场景)时显示。
+ *   B4 正在匹配时点击按钮, 立即显示"取消中"(不等异步退房/取消回调), 收尾完成回"匹配"。
  *
  * ── 约定(新增字段请全部走这里, 别再散落各处) ──────────────────────────
  * v: 协议版本, 收到高版本只解公共字段; authTerm: 权威任期; time: 发送方 Timer.now()
@@ -82,10 +112,10 @@ export const Kind = {
     PlayerStateReport: 'player_state_report',
     AnimStateRequest: 'anim_state_request',
     AnimStateBroadcast: 'anim_state_broadcast',
-    /** 角色指派单源化: 房主出表 → 全员 ack → 房主广播 start */
+    /** 角色指派: 权威单源出表广播, 客户端落地即开赛; 缺表用 RoleSync 索要(协议见文件头) */
     RoleAssign: 'role_assign',
-    RoleAck: 'role_ack',
-    MatchStart: 'match_start',
+    /** 角色表索要: 匹配页无表客户端周期广播, 任何持表端定向应答 RoleAssign */
+    RoleSync: 'role_sync',
     // ---- A 通道(帧)上的种类: 同一条 msg 层规则, 只是发送走 sendFrame ----
     /** 权威快照帧外壳 { frame, state, authTerm, syncSeq } —— 只有角色画面, 不带球位 */
     AuthFrame: 'auth_frame',
@@ -153,12 +183,20 @@ export function isVec3(p: any): boolean {
 
 // ==================== 球快照编解码 ====================
 
-/** 线上形态: [px,py,pz, vx,vy,vz, sx,sy,sz, sai, time] —— 全整数(定点) + 仿真时钟 */
+/** 线上形态: [px,py,pz, vx,vy,vz, sx,sy,sz, sai, time, qx,qy,qz,qw] —— 全整数(定点) + 仿真时钟。
+ *  尾部四元数是可选扩展: 老包只有前 11 项, 缺失按单位四元数(姿态参与物理, 见 decodeBall 注释)。 */
 export type BallSnap = {
+    /** 定点整数(与 Phy.StateSnapshot 同形): Phy.restore 只认这套字段 */
+    px: number, py: number, pz: number;
+    vx: number, vy: number, vz: number;
+    sx: number, sy: number, sz: number;
+    sai: number;
+    qx?: number, qy?: number, qz?: number, qw?: number;
+    /** 浮点视图: attach/表现层便利口径 */
     pos: { x: number, y: number, z: number };
     vel: { x: number, y: number, z: number };
     sn: { x: number, y: number, z: number };
-    sai: number;
+    sa: number;
     time: number;
 };
 
@@ -168,11 +206,14 @@ export function encodeBall(st: any): number[] | null {
     const f = (i: any, v: any): number => isNum(i) ? (i | 0) : (isNum(v) ? Math.round(v * Q) : NaN);
     /** 自旋/轴向速度缺失按 0: 它不该让整份球快照作废 */
     const f0 = (i: any, v: any): number => isNum(i) ? (i | 0) : (isNum(v) ? Math.round(v * Q) : 0);
+    // 四元数定点量与位置同网格(Fx.f2i 用同一个 Q): 缺省单位四元数, 别让缺失的 q 把整份快照作废
+    const q = (i: any, def: number): number => isNum(i) ? (i | 0) : def;
     const arr = [
         f(st.px, st.pos && st.pos.x), f(st.py, st.pos && st.pos.y), f(st.pz, st.pos && st.pos.z),
         f(st.vx, st.vel && st.vel.x), f(st.vy, st.vel && st.vel.y), f(st.vz, st.vel && st.vel.z),
         f0(st.sx, st.sn && st.sn.x), f0(st.sy, st.sn && st.sn.y), f0(st.sz, st.sn && st.sn.z),
-        f0(st.sai, st.sa), isNum(st.time) ? Math.round(st.time) : 0
+        f0(st.sai, st.sa), isNum(st.time) ? Math.round(st.time) : 0,
+        q(st.qx, 0), q(st.qy, 0), q(st.qz, 0), q(st.qw, Q)
     ];
     // 位置/速度必须完整: 缺任何一个都宁可不发(接收端会走快照恢复而不是猜半颗球)
     for (let i = 0; i < 6; i++) if (!isNum(arr[i])) return null;
@@ -182,13 +223,23 @@ export function encodeBall(st: any): number[] | null {
 export function decodeBall(a: any): BallSnap | null {
     if (!Array.isArray(a) || a.length < 11) return null;
     for (let i = 0; i < 11; i++) if (!isNum(a[i])) return null;
-    return {
+    const out: BallSnap = {
+        px: a[0] | 0, py: a[1] | 0, pz: a[2] | 0,
+        vx: a[3] | 0, vy: a[4] | 0, vz: a[5] | 0,
+        sx: a[6] | 0, sy: a[7] | 0, sz: a[8] | 0,
+        sai: a[9] | 0,
         pos: { x: a[0] / Q, y: a[1] / Q, z: a[2] / Q },
         vel: { x: a[3] / Q, y: a[4] / Q, z: a[5] / Q },
         sn: { x: a[6] / Q, y: a[7] / Q, z: a[8] / Q },
-        sai: a[9] / Q,
+        sa: a[9] / Q,
         time: a[10]
     };
+    // 姿态是物理量(axes/alx/rstep 都读 rot): 有就照收; 老包没有时保留缺失,
+    // 由 Phy.restore 按单位四元数兜底(而不是在这里编一个"看起来合理"的姿态)
+    if (a.length >= 15 && isNum(a[11]) && isNum(a[12]) && isNum(a[13]) && isNum(a[14])) {
+        out.qx = a[11] | 0; out.qy = a[12] | 0; out.qz = a[13] | 0; out.qw = a[14] | 0;
+    }
+    return out;
 }
 
 // ==================== 击球事件校验 ====================
@@ -280,8 +331,20 @@ export function decodeTrack(buf: any): { pos: { x: number, y: number, z: number 
 
 // ==================== 角色指派(单一权威源) ====================
 
-/** 房主等 ack 的上限: 到点就广播 match_start, 弱网不能让全场干等 */
-export const ASSIGN_ACK_WAIT_MS = 600;
+/** 权威端匹配页周期重播间隔(ms): 抗单包丢失; 进游戏后停播, 只应答 role_sync */
+export const ASSIGN_BROADCAST_MS = 400;
+/** 无表客户端索要间隔(ms): 恢复房间也走这条路(对端可能已在游戏场景) */
+export const ASSIGN_SYNC_MS = 800;
+
+/**
+ * 指派权威的公认排序: 房间玩家表 playerId 字典序首位(与对局内初始权威同一口径)。
+ * 不用 room.ownerId(GOBE 各端视角可不一致), 不用随机/本机下标。
+ */
+export function assignAuthorityId(players: any[]): string {
+    const ids = (players || []).map((p: any) => String(p && p.playerId != null ? p.playerId : '').trim()).filter((s: string) => !!s);
+    ids.sort();
+    return ids[0] || '';
+}
 
 /** roleId → 队伍号: 单人 0/1 各一队; 双打 0/1 一队、2/3 另一队 */
 export function teamOfRoleId(roleId: number, players: number): number {

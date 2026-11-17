@@ -108,6 +108,9 @@ export class Phy extends PhyCfg {
         this._placeCentroidAt(pos);
         this.state.vx = 0; this.state.vy = 0; this.state.vz = 0;
         this.state.sx = 0; this.state.sy = 0; this.state.sz = 0; this.state.sai = 0;
+        // 整数零速要同步回浮点影子: 不同步的话静止球的 state.vel 还留着上一段弹道的速度,
+        // 外部(诊断/表现)读到"躺着却还在飞"的假象, 后续判据也会误以为球还在动。
+        this.state.iSync();
         this.state.time = t;
         this.startT = t;
         this.t = t;
@@ -115,6 +118,9 @@ export class Phy extends PhyCfg {
         this.isSleeping = true;
         this.lastGndHit = null;
         this.lastNetHit = null;
+        // 表现尾状态必须一起丢: poseOut 在 disp.time > state.time 时优先返回 disp,
+        // 不清的话钉球后节点仍停在上一条弹道的显示位置(restore 同理)。
+        this.disp = null;
         this.map.clear();
         this.map.addByTime(t, this.state.clone());
     }
@@ -135,7 +141,20 @@ export class Phy extends PhyCfg {
         this.state.iSync();
         this.startT = this.state.time;
         this.t = this.state.time;
+        // 快照是权威"此刻仍在算"的证据: 恢复前本端可能已熄火(结算/停球), 不把算力接回来
+        // advanceTo 一帧都推不动, 球就冻在快照点。静止球不走这里(恢复方按 bc=false 走 attachAt)。
+        this.isCalc = true;
         this.isSleeping = false;
+        // 上一段弹道的碰网/落地记录必须丢: 否则恢复后第一帧会把旧轨迹的命中回调再抛一次
+        this.lastGndHit = null;
+        this.lastNetHit = null;
+        // 表现尾状态必须一起丢: poseOut 优先返回 disp(disp.time > state.time 时), 恢复后
+        // 节点会继续显示上一条弹道的位置, 随后命中重放从节点读入口 → 从旧落点起算。
+        this.disp = null;
+        // 历史必须跟快照一起重铺: 上面 strike() 在"入口时刻略早于恢复时刻"时会回退历史,
+        // 留着的旧弹道会被当成入口状态(位置/速度都是上一段轨迹的), 恢复后第一拍直接歪。
+        this.map.clear();
+        this.map.addByTime(this.state.time, this.state.clone());
         return true;
     }
 

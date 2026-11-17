@@ -1,5 +1,5 @@
 import { Cha } from "./badm/obj/cha";
-import { Res } from "./libs/res";
+import { Res } from "./libs/res/res";
 import { AIControl, AIDifficulty } from "./badm/NPC/ai";
 import { Control } from "./badm/sys/control";
 import { UI } from "./ui/ui";
@@ -7,14 +7,17 @@ import { Ball } from "./badm/obj/ball";
 import { Timer } from "./libs/time";
 import { PVE } from "./badm/mag/pve";   // 新增
 import { PVP } from "./badm/mag/pvp";   // 新增
-import { MatchPhase } from "./badm/mag/mag";
+import { MatchPhase, TeamSide } from "./badm/mag/mag";
 import { Gnet } from "./libs/gobe/net";
 import { QA } from "./libs/gobe/qa";
 import { Au } from "./libs/au";
-import { Cloud } from "./libs/cloud";
+import { Cloud } from "./libs/server/cloud";
+import { Social } from "./libs/server/social";
+import { LocalMatch, MatchPlayer } from "./libs/server/localMatch";
 import { SceneNav } from "./libs/nav";
 import { Dialog } from "./ui/DIalog";
 import { PhyCfg, State } from "./badm/engine/phyCfg";
+import { ProgPID } from "./libs/MT";
 
 
 const { regClass, property, Browser } = Laya;
@@ -54,6 +57,39 @@ export class NewScript extends Laya.Script {
     private localCha!: Cha;
     private isPvp: boolean = false;
     private isSingle: boolean = false;
+
+    /** PID 预测进度(vers 探测/Brotli 解压无真值阶段外推, DP/DC/XP 真值锚入) */
+    private _prog: ProgPID | null = null;
+    private _progTid: any = null;
+    private _progLastT = 0;
+
+    /** 启动预测进度条: cap=阶段天花板, 帧环只写百分比(文案由事件驱动) */
+    private _startProg(cap: number): void {
+        this._stopProg();
+        this._prog = new ProgPID();
+        this._prog.cap(cap);
+        this._progLastT = Timer.now();
+        Res.on('XP', this._onXp);
+        this._progTid = Timer.frameLoop(() => {
+            if (!this._prog) return;
+            const now = Timer.now();
+            this._prog.tick(now - this._progLastT, now);
+            this._progLastT = now;
+            if(this.ui._progressBar.visible)
+                this.ui.setProgress(undefined, this._prog.value * 100);
+        });
+    }
+
+    private _stopProg(): void {
+        if (this._progTid != null) { Timer.clear(this._progTid); this._progTid = null; }
+        Res.off('XP', this._onXp);
+        this._prog = null;
+    }
+
+    /** 解压真进度(Res 'XP'): nor 包下载/缓存恢复后的解压映射 [0.5,0.8] */
+    private _onXp = (_pack: string, frac: number): void => {
+        this._prog?.anchor(0.5 + frac * 0.3, Timer.now());
+    };
 
 
 
@@ -119,77 +155,131 @@ export class NewScript extends Laya.Script {
         // 展板收起开关: 点击 txt(▲/▼) 收起/展开 gList 玩家列表展板
         this._setupBoardToggle();
 
-        Res.init();        this.ui.setProgress("正在加载资源...", 10);
+        Res.init();
+        // vers 探测无真值: PID 预测渐近 10%
+        this._startProg(0.1);
+        this.ui.setProgress("正在加载资源...");
         Res.net.on('DP', (key: string, percent: number, speed: number) => {
-            this.ui.setProgress(`下载资源:${speed}/s ${key}`, percent);
+            // 网络下载真进度映射 [0.1,0.5]
+            this._prog?.cap(0.5);
+            this._prog?.anchor(0.1 + percent / 100 * 0.4, Timer.now());
+            this.ui.setProgress(`下载资源:${speed}/s ${key}`);
         });
         Res.net.on('DE', (key: string, mes: string) => {
             console.error('error', key, mes);
+            this._stopProg();
             this.ui.setProgress(`加载失败: ${key}`);
         });
         Res.net.on('DC', (key: string, blob: Blob, fromCache: boolean) => {
             console.log('complete', key, fromCache);
-             this.ui.setProgress("正在加载资源...", 50);
+            // 整包到手(下载/缓存): 进入解压阶段, XP 真值映射 [0.5,0.8], 预测天花板 0.8
+            this._prog?.anchor(0.5, Timer.now());
+            this._prog?.cap(0.8);
+            this.ui.setProgress("正在加载资源...");
         });
         Res.vers(Res.ResList.nor, (result) => {
             console.log("version：", result);
+            // 探测完成: 本地恢复无 DP/DC 事件, 直接进解压阶段预测(XP 真值锚入)
+            this._prog?.anchor(0.1, Timer.now());
+            if (!result.needUpdate) this._prog?.cap(0.8);
             Res.url(Res.ResList.nor,
                 result.needUpdate, (list) => {
                     console.log("资源加载：", list);
                     // court/ball 就绪(场景静态节点或 nor 包动态加载兜底)后再建球与角色
-                    this._ensureCourtBall(() => {
-                        this.ballO = new Ball(this.ball!);
-                        // 角色/球拍分离(用户规格): girl1@0.lh(角色) + racket@0.lh(球拍) + boy@0.lh(备选角色)
-                        // 并行加载, 全部就绪后挂 ani.controller 到 girl1/boy, 按 head 列表 index%2 选 p1
-                        let _girl1: Laya.Sprite3D, _boy: Laya.Sprite3D, _racket: Laya.Sprite3D, _ctrl: any;
-                        let _pending = 4;
-                        const onReady = () => {
-                            if (--_pending > 0) return;
-                            const scene3D = Laya.stage._scene3Ds[0];
-                            // 模板挂 ani.controller(补 Animator + layers), 挂载必须先于 clone
-                            // ——模板永不进场景(纯 clone 源), 避免缓存单例脏状态跨局残留
-                            if (_ctrl && _ctrl.layers) {
-                                for (const p of [_girl1, _boy]) {
-                                    let anim: any = p.getComponent(Laya.Animator);
-                                    if (!anim) anim = p.addComponent(Laya.Animator);  // girl1 无 Animator 组件, 补建
-                                    anim._controllerLayers.length = 0;
-                                    for (const layer of _ctrl.layers) anim.addControllerLayer(layer);
+                    this._ensureCourtBall(async () => {
+                        const scene3D = Laya.stage._scene3Ds && Laya.stage._scene3Ds[0];
+                        if (!scene3D) {
+                            console.error("[badm] 未找到 Scene3D，取消角色初始化");
+                            this._stopProg();
+                            this.ui.setProgress("场景初始化失败");
+                            return;
+                        }
+                        if (!this.ball || (this.ball as any).destroyed) {
+                            console.error("[badm] 羽毛球资源未就绪，取消角色初始化");
+                            this._stopProg();
+                            this.ui.setProgress("场地资源加载失败");
+                            return;
+                        }
+                        this.ballO = new Ball(this.ball);
+
+                        // 1) 先确定比赛模式和每个参赛槽位的模型分配。
+                        const playerCount: number = (window as any).gamePlayerCount || 4;
+                        this.isSingle = playerCount === 2;
+                        this.isPvp = (window as any).gameMode === "pvp";
+                        const roleModels = this._buildRoleModels();
+                        const roleSlots = this.isSingle ? [0, 1] : [0, 1, 2, 3];
+                        const requiredModelIds = Array.from(new Set(roleSlots.map(slot => Number(roleModels[slot]))));
+                        if (requiredModelIds.some(id => id !== 0 && id !== 1)) {
+                            console.error("[badm] roleModels 包含无效模型编号", roleModels);
+                            this._stopProg();
+                            this.ui.setProgress("角色分配数据无效");
+                            return;
+                        }
+
+                        // 2) 只加载 roleModels 实际需要的模型模板；球拍和共用动画控制器是本局公共资源。
+                        // 模板由 Res 缓存持有，永不加入场景；Mag 只接收模板并负责 clone 实例。
+                        const modelPaths: { [modelId: number]: string } = {
+                            0: "nor/girl1@0.lh",
+                            1: "nor/boy@0.lh"
+                        };
+                        const resourceJobs: Promise<any>[] = [
+                            Res.get("nor/racket@0.lh"),
+                            Res.get("nor/ani.controller"),
+                            ...requiredModelIds.map(modelId =>
+                                Res.get(modelPaths[modelId]).then(node => ({ modelId, node }))
+                            )
+                        ];
+                        let _racket: Laya.Sprite3D;
+                        let _ctrl: Laya.AnimatorController;
+                        const modelTemplates: { [modelId: number]: Laya.Sprite3D } = {};
+                        try {
+                            const loaded = await Promise.all(resourceJobs);
+                            _racket = loaded[0] as Laya.Sprite3D;
+                            _ctrl = loaded[1];
+                            for (const item of loaded.slice(2) as any[]) {
+                                modelTemplates[item.modelId] = item.node as Laya.Sprite3D;
+                            }
+                            if (!_racket || !(_ctrl instanceof Laya.AnimatorController) || !_ctrl.data.controllerLayers.length) {
+                                throw new Error("球拍或 ani.controller 资源无效");
+                            }
+                            for (const modelId of requiredModelIds) {
+                                const template = modelTemplates[modelId];
+                                if (!template) throw new Error(`角色模型资源缺失: ${modelPaths[modelId]}`);
+                                let anim = template.getComponent(Laya.Animator);
+                                if (!anim) anim = template.addComponent(Laya.Animator);
+                                anim.controller = _ctrl;
+                            }
+                        } catch (error) {
+                            console.error("[badm] 角色资源加载/动画挂载失败", error);
+                            this._stopProg();
+                            this.ui.setProgress("角色资源加载失败");
+                            return;
+                        }
+
+                        console.log(`[badm] 角色资源就绪: models=${requiredModelIds.join(",")}, roles=${roleModels.map((m, i) => `${i}:${m === 1 ? "boy" : "girl1"}`).join(" ")}`);
+                        console.log(`[badm] 共用动画控制器已挂载: ${_ctrl.data.controllerLayers.length} 层`);
+                        this._prog?.anchor(0.8, Timer.now());
+                        this._prog?.cap(0.95);
+                        this.ui.setProgress("初始化角色...");
+                        console.log(`[NewScript] 模式: ${this.isSingle ? '单打' : '双打'}, isPvp=${this.isPvp}`);
+
+                            // 3) 角色模板资源和动画均就绪后，Mag 按 roleModels 为每个参赛槽位 clone 一次。
+                            // 模板不进场景，scene3D 由入口显式传递，不从模板 parent 反推。
+                            this.ui.setProgress("创建参赛角色...");
+                            try {
+                                if (this.isPvp) {
+                                    this.mag = new PVP(scene3D, this.ballO, this.isSingle, modelTemplates, _racket, roleModels);
+                                } else {
+                                    this.mag = new PVE(scene3D, this.ballO, this.isSingle, modelTemplates, _racket, roleModels);
                                 }
-                                console.log(`[badm] 角色动画状态机已挂: ${_ctrl.layers.length} 层`);
-                                this.ui.setProgress("加载角色...", 80);
+                            } catch (error) {
+                                console.error("[badm] 参赛角色实例化失败", error);
+                                this._stopProg();
+                                this.ui.setProgress("角色初始化失败");
+                                return;
                             }
-                            // 角色选择(用户规格): head 头像列表 index%2 → girl1/boy
-                            const headFiles = Res.getList("ui")?.files || {};
-                            const heads: string[] = [];
-                            for (const pf in headFiles) if (pf.indexOf("head/") === 0 && /\.(png|jpe?g|webp|bmp)$/i.test(pf)) heads.push(pf);
-                            heads.sort();
-                            const cu = Cloud.getUser();
-                            // 归一再取序号: 旧账号的 head 可能不在当前包里(→ indexOf=-1, 永远落到同一个角色)
-                            const head = Res.headKey(cu && cu.head);
-                            const hIdx = heads.indexOf(head);
-                            // index 偶数 → girl1, 奇数 → boy; clone 出干净实例(引擎 Animator.cloneTo
-                            // 深拷 layers → 每实例独立状态机, 不共享污染; 模板保持干净)
-                            const src1 = hIdx % 2 === 1 ? _boy : _girl1;
-                            const src2 = hIdx % 2 === 1 ? _girl1 : _boy;
-                            const p1 = src1.clone() as Laya.Sprite3D;
-                            const p2 = src2.clone() as Laya.Sprite3D;
-                            scene3D.addChild(p1);  // 仅 p1 进场景; p2 纯 clone 源不挂(防隐藏失效多显一个角色)
-                            console.log(`[badm] 角色选择: head=${head} index=${hIdx} → ${hIdx % 2 === 1 ? 'boy' : 'girl1'}`);
-                            // 读取玩家数量和模式
-                            const playerCount: number = (window as any).gamePlayerCount || 4;
-                            this.isSingle = playerCount === 2;
-                            this.isPvp = (window as any).gameMode === "pvp";
-                            console.log(`[NewScript] 模式: ${this.isSingle ? '单打' : '双打'}, isPvp=${this.isPvp}`);
-
-                            
                             this.ui.setProgress("加载完成...", 100);
-
-                            // ----- 创建 Mag（根据模式选择子类，内部完成角色初始化） -----
-                            if (this.isPvp) {
-                                this.mag = new PVP(p1, this.ballO, this.isSingle, p2, _racket);
-                            } else {
-                                this.mag = new PVE(p1, this.ballO, this.isSingle, p2, _racket);
-                            }
+                            this.ui.setProgress();
 
 
                             // 绑定 UI 回调
@@ -207,6 +297,41 @@ export class NewScript extends Laya.Script {
                             this.mag.onScoreChanged = (l: number, r: number) => {
                                 const info = this.mag.getDisplayInfo();
                                 this.ui.setScore(info.left, info.right, info.status, info.reason);
+                            };
+                            // 局/场结束反馈: 旧版这两个回调没有任何接线, 权威端打完最后一分
+                            // 阶段进入 ENDED 但界面毫无变化(联机客机也一样), 玩家只能自己发现"打完了"。
+                            this.mag.onGameEnded = (winner: TeamSide) => {
+                                const info = this.mag.getDisplayInfo();
+                                this.ui.setScore(info.left, info.right, info.status, info.reason);
+                                const mySide = this.localCha ? this.mag.teamMap.get(this.localCha) : undefined;
+                                Dialog.toast(mySide === undefined ? "本局结束" : (winner === mySide ? "本局获胜" : "本局失利"), 2500);
+                            };
+                            this.mag.onMatchEnded = (winner: TeamSide) => {
+                                const mySide = this.localCha ? this.mag.teamMap.get(this.localCha) : undefined;
+                                this.ui.setCountdown(0);
+                                Dialog.toast(mySide === undefined ? "比赛结束" : (winner === mySide ? "比赛结束：你赢了" : "比赛结束：你输了"), 4000);
+                                // 战绩落库(社交排行前置): 每局一次, PVE/PVP 两端各自上报, 失败不阻塞
+                                if (!this._scoreReported && mySide !== undefined) {
+                                    this._scoreReported = true;
+                                    Social.reportResult(winner === mySide, this.isPvp ? "pvp" : "pve");
+                                    // 对局详情仅存本地(不经过服务器), 供个人页战绩列表/详情
+                                    try {
+                                        const info = this.mag.getDisplayInfo();
+                                        const players: MatchPlayer[] = [];
+                                        const me = Cloud.getUser();
+                                        for (const cha of this.mag.players) {
+                                            const side = this.mag.teamMap.get(cha);
+                                            if (side === undefined) continue;
+                                            const isSelf = cha === this.localCha;
+                                            let uid: string | undefined;
+                                            if (isSelf) uid = me ? me.userid : undefined;
+                                            else if (this.isPvp && typeof (this.mag as any)._pidForCha === "function") uid = String((this.mag as any)._pidForCha(cha.id) || "") || undefined;
+                                            const prof = uid ? Social.profile(uid) : null;
+                                            players.push({ userid: uid, name: isSelf ? (me ? me.name : "我") : (prof ? prof.name : (this.isPvp ? "玩家" + String(uid || cha.id).slice(-4) : "AI")), head: prof ? prof.head : (isSelf && me ? me.head : undefined), side: side as number, self: isSelf });
+                                        }
+                                        LocalMatch.save({ id: Date.now() + ":" + Math.random().toString(36).slice(2, 8), ts: Date.now(), mode: this.isPvp ? "pvp" : "pve", win: winner === mySide, score: [info.left || 0, info.right || 0], players: players });
+                                    } catch (e) { console.warn("[badm] 本地对局详情保存失败:", e); }
+                                }
                             };
                             // 联机无法继续(对端离开/房间解散/进场景后始终拿不到房间玩家表):
                             // 明确告诉玩家这局不是联机, 否则会各自打完一整局才发现比分对不上
@@ -367,19 +492,19 @@ export class NewScript extends Laya.Script {
                             });
 
 
+                            // LC=剩余件数(首次 emit 为总数): 真实完成比映射到角色阶段 [80,100]
+                            let lcTotal = 0;
                             this.localCha.on("load", (LC: number) => {
                                 console.log("资源加载：", LC)
-                                if (LC <= 0)
+                                if (LC > lcTotal) lcTotal = LC;
+                                if (LC <= 0) {
                                     this.ui.setProgress();
-                                else
-                                    this.ui.setProgress("加载角色：" + LC, (100 - LC) * 100);
+                                    return;
+                                }
+                                const frac = lcTotal > 0 ? Math.min(1, (lcTotal - LC) / lcTotal) : 0;
+                                this.ui.setProgress("加载角色：" + LC, 80 + frac * 20);
                             })
-                        };  // onReady 闭合
-                        Res.get("nor/girl1@0.lh", (p: any) => { _girl1 = p; onReady(); });
-                        Res.get("nor/boy@0.lh", (p: any) => { _boy = p; onReady(); });
-                        Res.get("nor/racket@0.lh", (p: any) => { _racket = p; onReady(); });
-                        Res.get("nor/ani.controller", (c: any) => { _ctrl = c; onReady(); });
-                    })      // ensureCourtBall 闭合
+                    });  // _ensureCourtBall: 角色模板按 roleModels 加载完毕后进入比赛初始化
                 })
         })
 
@@ -470,6 +595,8 @@ export class NewScript extends Laya.Script {
     private _eagleWin = false;
     /** 联机对端已离场(只提示一次) */
     private _peerGone = false;
+    /** 本局战绩已上报(每局一次; 服务端 30s 冷却兜底防刷) */
+    private _scoreReported = false;
     /** 窗口提示刷新定时器(每秒 3→2→1) */
     private _eagleTipTid: string | null = null;
     /** 鹰眼临时相机 + 被让位的原相机(退出时按原样恢复) */
@@ -635,12 +762,83 @@ export class NewScript extends Laya.Script {
         this.ui.setPlayerInfo(myUserId || leftId, oppUserId);
     }
 
+    /** 取某房间玩家的 customPlayerProperties(昵称/头像等; 解析失败按空) */
+    private _propsOf(pid: string): any {
+        const players: any[] = Gnet.getPlayers() || [];
+        const p = players.find((x: any) => String(x.playerId).trim() === String(pid).trim());
+        if (!p) return null;
+        try {
+            return typeof p.customPlayerProperties === "string"
+                ? JSON.parse(p.customPlayerProperties)
+                : (p.customPlayerProperties || null);
+        } catch (e) { return null; }
+    }
+
+    /**
+     * 每个 roleId 的角色模型(0=girl1, 1=boy)。唯一事实来源 = 该角色自己的头像。
+     * PVP: 分配表 + 房间 props(head) 双端同源 → 同一 roleId 必得同一模型；不能用本机头像
+     *      推导（否则角色 0 在两端各显一套模型）。空头像=未选头像, 按默认头像(headKey 回落的
+     *      包内首张, 新 4 头像包即 head/0→girl1)决定模型, 不再按 roleId 奇偶另造——头像与模型同源。
+     * PVE: role 0 用本机头像; 人机的展示头像由 _pveRoleHead 显式配对交替模型。
+     */
+    private _buildRoleModels(): number[] {
+        const out: number[] = [];
+        const heads: string[] = [];
+        const isPvp = (window as any).gameMode === "pvp";
+        if (!isPvp) {
+            for (let i = 0; i < 4; i++) {
+                heads[i] = this._pveRoleHead(i);
+                out[i] = Res.headModel(heads[i]);
+            }
+        } else {
+            const assignments: { playerId: string, roleId: number }[] = (window as any).gamePlayerAssignments || [];
+            const players: any[] = Gnet.getPlayers() || [];
+            const list = assignments.length > 0
+                ? assignments
+                : players.map((p: any, i: number) => ({ playerId: p.playerId, roleId: i }));
+            for (const a of list) {
+                const roleId = Number(a.roleId);
+                if (!Number.isInteger(roleId) || roleId < 0 || roleId >= 4) continue;
+                const props = this._propsOf(String(a.playerId));
+                heads[roleId] = props && props.head ? String(props.head) : "";
+                out[roleId] = Res.headModel(heads[roleId]);
+            }
+        }
+        // 角色分配表偶发缺项时统一回落 girl1；所有客户端对同一缺失 roleId 得到相同结果。
+        for (let roleId = 0; roleId < 4; roleId++) {
+            if (out[roleId] !== 0 && out[roleId] !== 1) out[roleId] = 0;
+        }
+        // 头像与模型必须成对：这行直接暴露"头像全 girl、模型却 boy"的错配
+        console.log(`[badm] 角色头像映射: ${out.map((m, i) => `${i}:${Res.headKey(heads[i])}→${m === 1 ? 'boy' : 'girl1'}`).join(', ')}`);
+        return out;
+    }
+
+    /**
+     * PVE 每个 roleId 的展示头像(唯一口径): role 0 = 本机云端头像; 人机角色给与交替模型
+     * 配对的头像(Res.headForModel 从当前包反查, 兼容新 4 头像包与旧 30 头像包)。
+     * 列表头像与 3D 模型都从这里来, 避免"头像全一样、场上模型却不一样"。
+     */
+    private _pveRoleHead(roleId: number): string {
+        const cu = Cloud.getUser();
+        const localHead = (cu && cu.head) || "";
+        if (roleId === 0) return localHead;
+        const m = Res.headModel(localHead);
+        return Res.headForModel(roleId % 2 === 0 ? m : 1 - m);
+    }
+
     /**
      * 构建玩家列表数据。
      * PVP: 房间所有玩家(gamePlayerAssignments 的 roleId 排序, customPlayerProperties 取昵称/头像);
      * PVE: 本地玩家(Cloud 用户数据) + 人机。
      * 队伍按 roleId: 单打 0=红方 1=蓝方; 双打 0/1=红方 2/3=蓝方(与 Mag.teamMap 一致)。
      */
+    /** 点击对局头像 → 直接发好友申请(身价是个人设置, 不在申请时支付金币) */
+    private onHeadClick(info: any): void {
+        Social.request(String(info.id), (ok: boolean) => {
+            Dialog.toast(ok ? "好友申请已发送" : (Social.lastMsg || "申请失败"));
+        });
+    }
+
     private _buildPlayerInfos(): any[] {
         const playerCount: number = (window as any).gamePlayerCount || 4;
         const isSingle = playerCount === 2;
@@ -651,15 +849,7 @@ export class NewScript extends Laya.Script {
         if (isPvp) {
             const assignments: { playerId: string, roleId: number }[] = (window as any).gamePlayerAssignments || [];
             const players: any[] = Gnet.getPlayers();
-            const propsOf = (pid: string): any => {
-                const p = players.find((x: any) => String(x.playerId).trim() === String(pid).trim());
-                if (!p) return null;
-                try {
-                    return typeof p.customPlayerProperties === "string"
-                        ? JSON.parse(p.customPlayerProperties)
-                        : (p.customPlayerProperties || null);
-                } catch (e) { return null; }
-            };
+            const propsOf = (pid: string): any => this._propsOf(pid);
             // roleId 协商表(洗牌后乱序)按 roleId 升序 = 红方在前; 空表回退 room players 顺序
             const sorted = assignments.length > 0
                 ? assignments.slice().sort((a: any, b: any) => a.roleId - b.roleId)
@@ -689,7 +879,7 @@ export class NewScript extends Laya.Script {
                 infos.push({
                     name: "人机" + i,
                     id: "AI" + i,
-                    head: "",
+                    head: this._pveRoleHead(i),
                     team: i < redCount ? "红方" : "蓝方"
                 });
             }
@@ -720,11 +910,21 @@ export class NewScript extends Laya.Script {
             const idT: any = UI.findNode(item, "id");
             const teamT: any = UI.findNode(item, "id_1");
             if (nT) nT.text = info.name;
-            if (idT) idT.text = String(info.id);
+            // 屏蔽自己ID: 仅显示掩码, info.id 仍为真实 userid(服务器操作/身份识别照用)
+            const myUid = (Cloud.getUser() || {}).userid || "";
+            const hideMy = (() => { try { return localStorage.getItem("hideMyId") === "1"; } catch (e) { return false; } })();
+            const isSelf = !!info.id && info.id === myUid;
+            if (idT) idT.text = (hideMy && isSelf) ? "****" : String(info.id);
             if (teamT) teamT.text = info.team;
 
             const img: any = UI.findNode(item, "img");
             if (!img) return;
+            // 点击头像加好友(真实玩家且非自己): 弹金币档次选择
+            img.mouseEnabled = true;
+            img.off(Laya.Event.CLICK, this, this.onHeadClick);
+            if (info.id && !isSelf && String(info.id).indexOf("AI") !== 0) {
+                img.on(Laya.Event.CLICK, this, this.onHeadClick, [info]);
+            }
             // 头像就是头像: 队色已经由 id_1 文字给出, 再给贴图乘一层红/蓝(旧值)会把脸染成色块
             img.color = "#FFFFFF";
             img.alpha = 1;
@@ -792,6 +992,7 @@ export class NewScript extends Laya.Script {
     }
 
     onDestroy(): void {
+        this._stopProg();
         // 鹰眼资源清理: 回放接管(球驱动/轨迹线)、临时相机、本回合记录。
         // 这里不走 _stopEagleEye——那还会推 rule 转段, 场景正在销毁, 不该再动比赛状态机
         if (this.ballO) {

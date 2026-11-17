@@ -2,15 +2,15 @@
   "out": "nor.br",
   "magic": "BRP1",
   "version": "1.0",
-  "fileCount": 49,
-  "rawSize": 4671248,
-  "containerSize": 4672718,
-  "brSize": 3862788,
-  "ratio": 0.8267,
+  "fileCount": 55,
+  "rawSize": 4690531,
+  "containerSize": 4692153,
+  "brSize": 3861856,
+  "ratio": 0.823,
   "files": [
     {
       "path": "ani.controller",
-      "size": 1786
+      "size": 1856
     },
     {
       "path": "ball/ball.001.lm",
@@ -125,20 +125,40 @@
       "size": 2796
     },
     {
+      "path": "game/badm.ls",
+      "size": 8449
+    },
+    {
+      "path": "game/BagList.lh",
+      "size": 2227
+    },
+    {
+      "path": "game/card.ls",
+      "size": 128
+    },
+    {
+      "path": "game/Material.lmat",
+      "size": 472
+    },
+    {
+      "path": "game/ride.ls",
+      "size": 3044
+    },
+    {
+      "path": "game/select.ls",
+      "size": 4069
+    },
+    {
+      "path": "game/trace.ls",
+      "size": 3041
+    },
+    {
       "path": "gan.lmat",
       "size": 200
     },
     {
       "path": "gcolor.png",
       "size": 377018
-    },
-    {
-      "path": "girl/au/hit.MP3",
-      "size": 3811
-    },
-    {
-      "path": "girl/au/hitF.MP3",
-      "size": 2557
     },
     {
       "path": "girl1/node_0.004.lm",
@@ -155,6 +175,10 @@
     {
       "path": "head.lmat",
       "size": 220
+    },
+    {
+      "path": "load.ls",
+      "size": 4151
     },
     {
       "path": "match/bg.jpg",

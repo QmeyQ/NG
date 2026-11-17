@@ -27,6 +27,10 @@ window.__DOC_FILES["nodes/pmenu.js"]={
     {
       "name": "其他游戏",
       "type": "Event"
+    },
+    {
+      "name": "版本检查",
+      "type": "Any"
     }
   ],
   "use_custom_color": true,
@@ -35,7 +39,7 @@ window.__DOC_FILES["nodes/pmenu.js"]={
     0.62,
     0.78
   ],
-  "height": 198,
+  "height": 220,
   "node_tree": {
     "name": "主菜单 子树",
     "nodes": {
@@ -117,9 +121,9 @@ window.__DOC_FILES["nodes/pmenu.js"]={
         ],
         "width": 240,
         "name": "m4",
-        "label": "社交页（占位）",
+        "label": "社交页（已实施）",
         "type": "流程",
-        "desc": "item2 仅有『暂未开放，敬请期待』文案，无好友/排行/分享逻辑。",
+        "desc": "item2 嵌套 Panel 预制体: socHome 微信式对话列表+右上\"+\"(菜单:加好友/创建群聊)/socChat/socAdd(身价)/socGroup; 屏蔽词红字; 消息转交+ack。浏览器 9/9。",
         "inputs": [
           {
             "name": "页面切换",
@@ -143,7 +147,7 @@ window.__DOC_FILES["nodes/pmenu.js"]={
         "name": "m5",
         "label": "我的页",
         "type": "流程",
-        "desc": "昵称/签名编辑（各 1 金币）、头像选择、背包；Cloud.update / setHead / loadBag。",
+        "desc": "item3 个人页改造: 左竖向 pTabs(背包/战绩)+右 pRight; 背包表格 bagTable/战绩单列 recList(本地)/点战绩右 panel 切 pDetail 对局详情(仅本地)+玩家加号加好友。昵称/签名/头像编辑保留(gbox)。",
         "inputs": [
           {
             "name": "页面切换",

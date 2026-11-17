@@ -1,66 +1,64 @@
 /**
- * Rule - 羽毛球规则引擎（自治）
- * 接收 Mag 引用，通过 this._mag.xxx 操作所有共享状态
- * 自己注册 Ball 事件，处理所有判罚
+ * Rule - 比赛规则引擎（唯一状态机推进者）
+ *
+ * 只依赖 RuleHost 接口，不 import Mag：状态读写全部落在 host.state(MatchState)上，
+ * 比赛对象/角色/球/回调由 host 提供。这样 PVE/PVP/测试替身都能驱动同一套规则。
  */
 import { Cha, StrokeParams } from "../obj/cha";
 import { Ball } from "../obj/ball";
 import { NetHitInfo } from "../engine/phyCfg";
 import { Timer } from "../../libs/time";
-import { Mag } from "./mag";
+import { MatchMode, MatchPhase, TeamSide, MatchState } from "./matchState";
+import type { CourtCfg, MatchCfg } from "./matchState";
 
-// ==================== 枚举定义 ====================
+// 旧导入路径兼容：MatchMode/MatchPhase/TeamSide/CourtCfg/MatchCfg 仍可从 rule 取
+export { MatchMode, MatchPhase, TeamSide } from "./matchState";
+export type { CourtCfg, MatchCfg } from "./matchState";
 
-/** 比赛模式：单打 / 双打 */
-export enum MatchMode {
-    /** 单打*/
-    SINGLE = 1,
-    DOUBLE = 2
-}
+// ==================== RuleHost ====================
 
-/** 比赛阶段状态机 */
-export enum MatchPhase {
-    WAITING_START = 0,
-    COUNTDOWN = 1,
-    SERVING = 2,
-    RALLYING = 3,
-    SCORING = 4,
-    ENDED = 5,
-    EAGLE_CONFIRM = 6,
-    /** 鹰眼挑战阶段(用户规格: 双击确认后进入, 5 秒回放阶段; 未确认跳过) */
-    EAGLE_CHALLENGE = 7
-}
+/**
+ * Rule 对宿主的全部依赖面。
+ * 纪律：宿主只提供对象与回调，比赛状态一律经 host.state 读写；
+ * 阶段/比分/发球权/局数只能由 Rule 推进（PVP.applyState 是远端覆盖的唯一例外）。
+ */
+export interface RuleHost {
+    readonly state: MatchState;
 
-/** 队伍边：左队 / 右队 */
-export enum TeamSide {
-    LEFT = -1,
-    RIGHT = 1
-}
+    readonly players: Cha[];
+    readonly ball: Ball;
+    readonly teamMap: Map<Cha, TeamSide>;
+    readonly court: CourtCfg;
+    readonly cfg: MatchCfg;
+    readonly mode: MatchMode;
+    readonly isPvpMode: boolean;
+    readonly isAuthoritative: boolean;
 
-// ==================== 接口定义 ====================
+    /** 权威状态声明的持球角色 id(-1 = 无人持球) */
+    authBallHolderId: number;
+    lastHitCha: Cha | null;
+    currentServer: Cha | null;
+    currentReceiver: Cha | null;
 
-/** 场地尺寸配置 */
-export interface CourtCfg {
-    halfLength: number;
-    halfWidth: number;
-    serveLineX: number;
-    serveHalfZ: number;
-}
+    onScoreChanged?: (left: number, right: number) => void;
+    onGameEnded?: (winner: TeamSide) => void;
+    onMatchEnded?: (winner: TeamSide) => void;
+    onSideSwitch?: () => void;
+    onCountdown?: (count: number, redAt?: number) => void;
+    onStateChange?: () => void;
+    onTeleport?: () => void;
+    onHit?: (info?: { chaId: number; stroke: StrokeParams; time: number }) => void;
+    onServeStart?: () => void;
+    onEagleChallengeWindow?: (open: boolean) => void;
 
-/** 比赛规则配置 */
-export interface MatchCfg {
-    maxScore: number;
-    bestOf: number;
-    serveTimeLimit: number;
-    countdownDuration: number;
-    ballAssignDelay: number;
+    parkBallAt(cha: Cha | null): void;
 }
 
 // ==================== Rule 类 ====================
 
 export class Rule {
-    /** Mag 引用，通过它读写所有共享状态 */
-    private _mag: Mag;
+    /** 宿主依赖面（Mag / 测试替身），状态读写走 host.state */
+    private _host: RuleHost;
     /** 触网事件已处理标记（防止重复判罚） */
     private _isNetHitProcessed: boolean = false;
     /** 落地事件已处理标记（防止重复判罚） */
@@ -85,19 +83,19 @@ export class Rule {
 
     /** 当前阶段挂在哪根计时线上(无计时线=返回 null) */
     private _clockKey(): string | null {
-        const m = this._mag;
-        if (m.phase === MatchPhase.COUNTDOWN) return Rule.COUNTDOWN_KEY;
-        if (m.phase === MatchPhase.SERVING) return Rule.SERVE_KEY;
-        if (m.phase === MatchPhase.EAGLE_CONFIRM || m.phase === MatchPhase.EAGLE_CHALLENGE) return Rule.EAGLE_KEY;
+        const m = this._host;
+        if (m.state.phase === MatchPhase.COUNTDOWN) return Rule.COUNTDOWN_KEY;
+        if (m.state.phase === MatchPhase.SERVING) return Rule.SERVE_KEY;
+        if (m.state.phase === MatchPhase.EAGLE_CONFIRM || m.state.phase === MatchPhase.EAGLE_CHALLENGE) return Rule.EAGLE_KEY;
         return null;
     }
 
     /** 当前阶段的计时线总长(ms), 与 remainMs() 同一套口径 */
     private _clockSpan(): number {
-        const m = this._mag;
-        if (m.phase === MatchPhase.COUNTDOWN) return m.cfg.countdownDuration;
-        if (m.phase === MatchPhase.SERVING) return m.cfg.serveTimeLimit;
-        return m.phase === MatchPhase.EAGLE_CONFIRM ? Rule.EAGLE_CONFIRM_MS : Rule.EAGLE_CHALLENGE_MS;
+        const m = this._host;
+        if (m.state.phase === MatchPhase.COUNTDOWN) return m.cfg.countdownDuration;
+        if (m.state.phase === MatchPhase.SERVING) return m.cfg.serveTimeLimit;
+        return m.state.phase === MatchPhase.EAGLE_CONFIRM ? Rule.EAGLE_CONFIRM_MS : Rule.EAGLE_CHALLENGE_MS;
     }
 
     /**
@@ -109,7 +107,7 @@ export class Rule {
      * 按变小判断会漏播, HUD 冻在旧数字上。
      */
     public syncClock(remainMs: number): void {
-        const m = this._mag;
+        const m = this._host;
         const key = this._clockKey();
         if (!key) return;
         const span = this._clockSpan();
@@ -118,7 +116,7 @@ export class Rule {
         const sec = Math.max(0, Math.ceil(remain / 1000));
         if (sec === this._lastCountdownNum) return;
         this._lastCountdownNum = sec;
-        m.onCountdown?.(sec, m.phase === MatchPhase.SERVING ? 5 : 3);
+        m.onCountdown?.(sec, m.state.phase === MatchPhase.SERVING ? 5 : 3);
     }
 
     /** 倒计时定时器键 */
@@ -133,11 +131,11 @@ export class Rule {
     private static readonly EAGLE_CHALLENGE_MS = 5000;
 
     /**
-     * 构造函数：保存 Mag 引用并注册球事件监听
-     * @param mag 比赛管理器引用
+     * 构造函数：保存宿主引用并注册球事件监听
+     * @param host RuleHost（生产环境是 Mag）
      */
-    constructor(mag: Mag) {
-        this._mag = mag;
+    constructor(host: RuleHost) {
+        this._host = host;
         this._registerEvents();
     }
 
@@ -151,14 +149,14 @@ export class Rule {
      * 非权威端直接跳过（仅权威端执行判罚）
      */
     private _registerEvents(): void {
-        const ball = this._mag.ball;
+        const ball = this._host.ball;
 
         ball.on('hit', (info: { hitterId: number, stroke: StrokeParams, time?: number }) => {
-            const m = this._mag;
+            const m = this._host;
             if (!m.isAuthoritative) return;
             const hitter = m.players.find(p => p.id === info.hitterId);
             if (!hitter) return;
-            if (m.phase === MatchPhase.COUNTDOWN && !m.isBallAssigned) return;
+            if (m.state.phase === MatchPhase.COUNTDOWN && !m.state.isBallAssigned) return;
 
             for (const p of m.players) p.isP = false;
             this._isNetHitProcessed = false;
@@ -171,27 +169,27 @@ export class Rule {
             }
             const hitterTeam = m.teamMap.get(hitter)!;
 
-            if (m.phase === MatchPhase.SERVING || m.phase === MatchPhase.COUNTDOWN) {
+            if (m.state.phase === MatchPhase.SERVING || m.state.phase === MatchPhase.COUNTDOWN) {
                 if (m.mode === MatchMode.DOUBLE && m.currentServer !== hitter) {
-                    this.score(m.servingTeam === TeamSide.LEFT ? TeamSide.RIGHT : TeamSide.LEFT, "非发球员击球");
+                    this.score(m.state.servingTeam === TeamSide.LEFT ? TeamSide.RIGHT : TeamSide.LEFT, "非发球员击球");
                     return;
                 }
                 if (!this.checkServePosition(hitter)) {
-                    this.score(m.servingTeam === TeamSide.LEFT ? TeamSide.RIGHT : TeamSide.LEFT, "发球站位违规");
+                    this.score(m.state.servingTeam === TeamSide.LEFT ? TeamSide.RIGHT : TeamSide.LEFT, "发球站位违规");
                     return;
                 }
-                m.phase = MatchPhase.RALLYING;
+                m.state.phase = MatchPhase.RALLYING;
                 m.lastHitCha = hitter;
-                m.isServeShot = true;
-                m.currentHitTeam = hitterTeam;
+                m.state.isServeShot = true;
+                m.state.currentHitTeam = hitterTeam;
 
                 m.onCountdown?.(0);
                 m.onHit?.();
                 return;
             }
 
-            if (m.phase === MatchPhase.RALLYING) {
-                if (m.mode === MatchMode.DOUBLE && m.isServeShot && m.currentReceiver !== hitter) {
+            if (m.state.phase === MatchPhase.RALLYING) {
+                if (m.mode === MatchMode.DOUBLE && m.state.isServeShot && m.currentReceiver !== hitter) {
                     this.score(hitterTeam === TeamSide.LEFT ? TeamSide.RIGHT : TeamSide.LEFT, "非接球员击球");
                     return;
                 }
@@ -199,13 +197,13 @@ export class Rule {
                     this.score(hitterTeam === TeamSide.LEFT ? TeamSide.RIGHT : TeamSide.LEFT, "连击");
                     return;
                 }
-                if (m.mode === MatchMode.DOUBLE && m.currentHitTeam === hitterTeam) {
+                if (m.mode === MatchMode.DOUBLE && m.state.currentHitTeam === hitterTeam) {
                     this.score(hitterTeam === TeamSide.LEFT ? TeamSide.RIGHT : TeamSide.LEFT, "同队连击");
                     return;
                 }
-                m.currentHitTeam = hitterTeam;
+                m.state.currentHitTeam = hitterTeam;
                 m.lastHitCha = hitter;
-                m.isServeShot = false;
+                m.state.isServeShot = false;
 
                 m.onHit?.();
             }
@@ -233,9 +231,9 @@ export class Rule {
      * @param pos 落地位置
      */
     private _scheduleSettle(pos: { x: number, y: number, z: number }): void {
-        if (!this._mag.isAuthoritative) return;
+        if (!this._host.isAuthoritative) return;
         if (this._pendingSettle) return;
-        const m = this._mag;
+        const m = this._host;
         // 落地时刻(物理时轴): 与击球消息 time 同系, 救起判定 tHit < tLand 用
         const tLand = m.ball ? m.ball.snapshot().time : Timer.now();
         const delay = m.isPvpMode ? Rule.SETTLE_DELAY : 0;
@@ -265,32 +263,18 @@ export class Rule {
         }
     }
 
-    /** 鹰眼窗口开合状态(提示层): EAGLE_CONFIRM 阶段=开; 供 badm 显示双击提示与 PVP 同步 */
+    /**
+     * 鹰眼窗口开合状态(提示层): 生命周期完全挂在 EAGLE_CONFIRM/EAGLE_CHALLENGE 阶段上。
+     * 旧实现另排一个 3s 窗口定时器与阶段计时并行——两个时钟独立收尾，
+     * 回放延长/确认跳过时窗口与阶段不同步(用户看到"提示关了但阶段还在")。
+     */
     private _eagleWinOpen = false;
-    private _eagleTid: string | null = null;
-
-    private _offerEagleChallenge(): void {
-        const m = this._mag;
-        if (!m.isAuthoritative || !m.onEagleChallengeWindow) return;
-        if (m.phase === MatchPhase.ENDED) return; // 比赛结束不开(挡结束流程)
-        // 无回放记录不开窗(用户规格: 没有存储记录则跳过鹰眼确认阶段)
-        if (m.ball && !m.ball.hasTrack()) return;
-        this.closeEagleWindow(); // 防重: 先关旧窗再开新窗
-        this._eagleWinOpen = true;
-        m.onEagleChallengeWindow?.(true);
-        this._eagleTid = Timer.setTimeout(3000, () => {
-            this._eagleTid = null;
-            this._eagleWinOpen = false;
-            m.onEagleChallengeWindow?.(false);
-        });
-    }
 
     /** 关闭鹰眼挑战窗口(双击进入回放/回合重置; 幂等) */
     public closeEagleWindow(): void {
-        if (this._eagleTid != null) { Timer.clear(this._eagleTid); this._eagleTid = null; }
         if (this._eagleWinOpen) {
             this._eagleWinOpen = false;
-            this._mag.onEagleChallengeWindow?.(false);
+            this._host.onEagleChallengeWindow?.(false);
         }
     }
 
@@ -302,7 +286,7 @@ export class Rule {
     public openEagleWindowSync(): void {
         if (this._eagleWinOpen) return;
         this._eagleWinOpen = true;
-        this._mag.onEagleChallengeWindow?.(true);
+        this._host.onEagleChallengeWindow?.(true);
     }
 
     /** 鹰眼挑战窗口当前开合状态(PVP state 同步: 非权威端据此开关本地窗口提示) */
@@ -310,17 +294,17 @@ export class Rule {
 
     /** 当前阶段倒计时剩余毫秒(PVP _buildStatus 相对化同步用; 非倒计时阶段返回 -1) */
     public remainMs(): number {
-        const m = this._mag;
-        if (m.phase === MatchPhase.COUNTDOWN) {
+        const m = this._host;
+        if (m.state.phase === MatchPhase.COUNTDOWN) {
             return Math.max(0, m.cfg.countdownDuration - this._elapsed(Rule.COUNTDOWN_KEY));
         }
-        if (m.phase === MatchPhase.SERVING) {
+        if (m.state.phase === MatchPhase.SERVING) {
             return Math.max(0, m.cfg.serveTimeLimit - this._elapsed(Rule.SERVE_KEY));
         }
-        if (m.phase === MatchPhase.EAGLE_CONFIRM) {
+        if (m.state.phase === MatchPhase.EAGLE_CONFIRM) {
             return Math.max(0, Rule.EAGLE_CONFIRM_MS - this._elapsed(Rule.EAGLE_KEY));
         }
-        if (m.phase === MatchPhase.EAGLE_CHALLENGE) {
+        if (m.state.phase === MatchPhase.EAGLE_CHALLENGE) {
             return Math.max(0, Rule.EAGLE_CHALLENGE_MS - this._elapsed(Rule.EAGLE_KEY));
         }
         return -1;
@@ -333,25 +317,25 @@ export class Rule {
      * 界内/界外/发球区判定 + score。浮空兜底(badm.ts 检测球低速悬停未结算)直接调本方法。
      */
     public settleGroundHit(pos: { x: number, y: number, z: number }): void {
-        const m = this._mag;
+        const m = this._host;
         if (!m.isAuthoritative) return;
         if (this._isGroundHitProcessed) return;
         // 仅 RALLYING 结算(用户规格: 球落结算后分配球权前不结算)——SERVING 期合法发球
         // 击出瞬间即转 RALLYING(hit 事件 SERVING 分支), 球钉手上不会落地; SERVING 期落地
         // 只能是死球残留(COUNTDOWN 期被打飞的球拖到 SERVING 才落) = 凭空误判分通道, 收紧
-        if (m.phase !== MatchPhase.RALLYING) return;
+        if (m.state.phase !== MatchPhase.RALLYING) return;
         this._isGroundHitProcessed = true;
 
             const landX = pos.x, landZ = pos.z;
             const landingTeam = landX > 0 ? TeamSide.RIGHT : TeamSide.LEFT;
 
-            if (landingTeam === m.currentHitTeam) {
-                this.score(m.currentHitTeam === TeamSide.LEFT ? TeamSide.RIGHT : TeamSide.LEFT, "球落己方场地");
+            if (landingTeam === m.state.currentHitTeam) {
+                this.score(m.state.currentHitTeam === TeamSide.LEFT ? TeamSide.RIGHT : TeamSide.LEFT, "球落己方场地");
                 return;
             }
 
             let isIn: boolean;
-            if (m.isServeShot) {
+            if (m.state.isServeShot) {
                 isIn = this._isServeIn(landX, landZ);
             } else {
                 isIn = this._isRallyIn(landX, landZ);
@@ -360,10 +344,10 @@ export class Rule {
             if (isIn) {
                 this.score(landingTeam === TeamSide.LEFT ? TeamSide.RIGHT : TeamSide.LEFT, "IN得分");
             } else {
-                if (m.isServeShot && Math.abs(landX) <= m.court.serveLineX) {
-                    this.score(m.currentHitTeam === TeamSide.LEFT ? TeamSide.RIGHT : TeamSide.LEFT, "发球未过发球线");
+                if (m.state.isServeShot && Math.abs(landX) <= m.court.serveLineX) {
+                    this.score(m.state.currentHitTeam === TeamSide.LEFT ? TeamSide.RIGHT : TeamSide.LEFT, "发球未过发球线");
                 } else {
-                    this.score(m.currentHitTeam === TeamSide.LEFT ? TeamSide.RIGHT : TeamSide.LEFT, "OUT！！！");
+                    this.score(m.state.currentHitTeam === TeamSide.LEFT ? TeamSide.RIGHT : TeamSide.LEFT, "OUT！！！");
                 }
             }
 
@@ -375,18 +359,11 @@ export class Rule {
      * 初始化/重置比赛：清零比分、设置初始发球方、传送玩家到站位、启动倒计时
      */
     public initMatch(): void {
-        const m = this._mag;
-        m.phase = MatchPhase.COUNTDOWN;
-        m.scores = { [TeamSide.LEFT]: 0, [TeamSide.RIGHT]: 0 };
-        m.servingTeam = TeamSide.LEFT;
-        m.gamesWon = { [TeamSide.LEFT]: 0, [TeamSide.RIGHT]: 0 };
-        m.gameEnded = false;
-        m.matchEnded = false;
-        m.isBallAssigned = false;
-        m.isServeShot = false;
+        const m = this._host;
+        m.state.resetMatch();
         m.lastHitCha = null;
         this._lastCountdownNum = 5;
-        m.currentHitTeam = m.servingTeam;
+        m.state.currentHitTeam = m.state.servingTeam;
         this._updateServerAndReceiver();
         this._forceTeleportAll();
         this._resetBallForServe();
@@ -405,20 +382,20 @@ export class Rule {
      * 由 Mag.update() 调用
      */
     public update(): void {
-        const m = this._mag;
+        const m = this._host;
         // PVP 非权威端禁止本地推进(根因: 本地 _updateCountdown 到点自切 SERVING+分球,
         // 又被权威端 state 帧覆盖回 COUNTDOWN → 倒计时卡状态/阶段错乱; 阶段/倒计时/
         // 鹰眼窗口全部由 applyState 驱动, 本地只做显示)
         if (m.isPvpMode && !m.isAuthoritative) return;
-        if (m.phase === MatchPhase.COUNTDOWN) {
+        if (m.state.phase === MatchPhase.COUNTDOWN) {
             this._updateCountdown();
-        } else if (m.phase === MatchPhase.SERVING) {
+        } else if (m.state.phase === MatchPhase.SERVING) {
             this._updateServing();
-        } else if (m.phase === MatchPhase.RALLYING) {
+        } else if (m.state.phase === MatchPhase.RALLYING) {
             this._updateRally();
-        } else if (m.phase === MatchPhase.EAGLE_CONFIRM) {
+        } else if (m.state.phase === MatchPhase.EAGLE_CONFIRM) {
             this._updateEagleConfirm();
-        } else if (m.phase === MatchPhase.EAGLE_CHALLENGE) {
+        } else if (m.state.phase === MatchPhase.EAGLE_CHALLENGE) {
             this._updateEagleChallenge();
         }
     }
@@ -430,7 +407,7 @@ export class Rule {
      * - 超时 → 清窗 + 转下一回合(换边传送消费暂存标志)
      */
     private _updateEagleConfirm(): void {
-        const m = this._mag;
+        const m = this._host;
         if (m.ball && m.ball.playing) return;
         const remain = Math.max(0, Rule.EAGLE_CONFIRM_MS - this._elapsed(Rule.EAGLE_KEY));
         if (remain <= 0) {
@@ -452,7 +429,7 @@ export class Rule {
      * - 超时 → endEagleConfirm 转下一回合
      */
     private _updateEagleChallenge(): void {
-        const m = this._mag;
+        const m = this._host;
         const remain = Math.max(0, Rule.EAGLE_CHALLENGE_MS - this._elapsed(Rule.EAGLE_KEY));
         if (remain <= 0) {
             this.endEagleConfirm();
@@ -471,9 +448,9 @@ export class Rule {
      * 回放 5s 到点结束/双击提前退出/本阶段 5s 兜底 → endEagleConfirm 转下一回合。
      */
     public beginEagleChallenge(): void {
-        const m = this._mag;
-        if (m.phase !== MatchPhase.EAGLE_CONFIRM) return;
-        m.phase = MatchPhase.EAGLE_CHALLENGE;
+        const m = this._host;
+        if (m.state.phase !== MatchPhase.EAGLE_CONFIRM) return;
+        m.state.phase = MatchPhase.EAGLE_CHALLENGE;
         this._lastCountdownNum = 6;
         Timer.start(Rule.EAGLE_KEY);  // 重计 5s(确认期已耗部分作废)
         m.onCountdown?.(5, 3);
@@ -485,13 +462,13 @@ export class Rule {
      * 权威端转下一回合; PVP 非权威端轻转本地 phase(重置由权威端 state 帧同步驱动)。
      */
     public endEagleConfirm(): void {
-        const m = this._mag;
-        if (m.phase !== MatchPhase.EAGLE_CONFIRM && m.phase !== MatchPhase.EAGLE_CHALLENGE) return;
+        const m = this._host;
+        if (m.state.phase !== MatchPhase.EAGLE_CONFIRM && m.state.phase !== MatchPhase.EAGLE_CHALLENGE) return;
         this.closeEagleWindow();
         const tp = this._eagleTeleport;
         this._eagleTeleport = false;
         if (m.isPvpMode && !m.isAuthoritative) {
-            m.phase = MatchPhase.COUNTDOWN;
+            m.state.phase = MatchPhase.COUNTDOWN;
             return;
         }
         this._beginNextRound(tp);
@@ -505,7 +482,7 @@ export class Rule {
      * - 倒计时结束转入发球阶段
      */
     private _updateCountdown(): void {
-        const m = this._mag;
+        const m = this._host;
         const elapsed = this._elapsed(Rule.COUNTDOWN_KEY);
         const remainingMs = Math.max(0, m.cfg.countdownDuration - elapsed);
         const remainingSeconds = Math.ceil(remainingMs / 1000);
@@ -517,11 +494,11 @@ export class Rule {
         }
         if (remainingMs <= 0) {
             // 准备结束 → 分配球权(此时才有人持球) + 启动发球计时 → 转发球阶段
-            m.isBallAssigned = true;
+            m.state.isBallAssigned = true;
             this._assignBall();
             Timer.start(Rule.SERVE_KEY);
             this._lastCountdownNum = Math.ceil(m.cfg.serveTimeLimit / 1000) + 1;
-            m.phase = MatchPhase.SERVING;
+            m.state.phase = MatchPhase.SERVING;
             m.onCountdown?.(0, 3);
             m.onStateChange?.();
             // 发球阶段开始(用户规格: 鹰眼记录每次发球阶段才清——旧回合记录作废,
@@ -531,7 +508,7 @@ export class Rule {
     }
 
     private _updateServing(): void {
-        const m = this._mag;
+        const m = this._host;
         // 发球阶段倒计时广播(用户规格: 10s 发球, 5s 起红字)
         const remainMs = Math.max(0, m.cfg.serveTimeLimit - this._elapsed(Rule.SERVE_KEY));
         const sec = Math.ceil(remainMs / 1000);
@@ -540,12 +517,12 @@ export class Rule {
             m.onCountdown?.(sec, 5);
         }
         if (remainMs <= 0) {
-            this.score(m.servingTeam === TeamSide.LEFT ? TeamSide.RIGHT : TeamSide.LEFT, "发球超时");
+            this.score(m.state.servingTeam === TeamSide.LEFT ? TeamSide.RIGHT : TeamSide.LEFT, "发球超时");
         }
     }
 
     private _updateRally(): void {
-        const m = this._mag;
+        const m = this._host;
         for (const p of m.players) {
             const t = m.teamMap.get(p)!;
             if (t === TeamSide.LEFT && p.x > 0.2) {
@@ -571,51 +548,50 @@ export class Rule {
      * @param reason 判定原因（用于 UI 显示）
      */
     public score(team: TeamSide, reason?: string): void {
-        const m = this._mag;
-        if (m.phase === MatchPhase.SCORING || m.phase === MatchPhase.ENDED) return;
+        const m = this._host;
+        if (m.state.phase === MatchPhase.SCORING || m.state.phase === MatchPhase.ENDED) return;
 
-        m.scores[team]++;
-        m.servingTeam = team;
-        m.lastScoreReason = reason || "";
+        m.state.scores[team]++;
+        m.state.servingTeam = team;
+        m.state.lastScoreReason = reason || "";
         this._isNetHitProcessed = false;
         this._isGroundHitProcessed = false;
-        m.isServeShot = false;
-        m.onScoreChanged?.(m.scores[TeamSide.LEFT], m.scores[TeamSide.RIGHT]);
+        m.state.isServeShot = false;
+        m.onScoreChanged?.(m.state.scores[TeamSide.LEFT], m.state.scores[TeamSide.RIGHT]);
 
 
         const winner = this._getGameWinner();
         if (winner !== null) {
-            m.gamesWon[winner]++;
+            m.state.gamesWon[winner]++;
             m.onGameEnded?.(winner);
             const matchWinner = this._getMatchWinner();
             if (matchWinner !== null) {
-                m.matchEnded = true;
-                m.phase = MatchPhase.ENDED;
+                m.state.matchEnded = true;
+                m.state.phase = MatchPhase.ENDED;
                 m.onMatchEnded?.(matchWinner);
                 m.onStateChange?.();
                 return;
             } else {
-                m.gameEnded = true;
+                m.state.gameEnded = true;
             }
         }
 
         let needTeleport = false;
-        if (m.gameEnded) {
+        if (m.state.gameEnded) {
             this._switchSides();
-            m.scores[TeamSide.LEFT] = 0;
-            m.scores[TeamSide.RIGHT] = 0;
-            m.gameEnded = false;
+            m.state.scores[TeamSide.LEFT] = 0;
+            m.state.scores[TeamSide.RIGHT] = 0;
+            m.state.gameEnded = false;
             needTeleport = true;
         }else{
             //if(!/超时/.test(String(reason ?? '')))
             
         }
-        this._offerEagleChallenge()
         // 鹰眼确认阶段(用户规格: 结算后正式计时阶段, 只设 3 秒)——有回放记录才进,
         // 期间双击进回放(ball.playing 时计时挂起), 超时/回放结束 → _beginNextRound 转回合;
-        // 无记录跳过确认阶段直接转回合(旧 _offerEagleChallenge 窗口机制废除, 阶段化取代)
-        if (m.ball && m.ball.hasTrack() && !m.matchEnded) {
-            m.phase = MatchPhase.EAGLE_CONFIRM;
+        // 无记录跳过确认阶段直接转回合(窗口生命周期跟随阶段, 不再有并行定时器)
+        if (m.ball && m.ball.hasTrack() && !m.state.matchEnded) {
+            m.state.phase = MatchPhase.EAGLE_CONFIRM;
             this._eagleTeleport = needTeleport;  // 换边传送暂存(确认期结束转段时消费)
             Timer.start(Rule.EAGLE_KEY);
             this._lastCountdownNum = 4;
@@ -636,13 +612,13 @@ export class Rule {
      * 无记录跳过时调用——原 score 内联的回合重置段整体迁此(球权/持球/计时/换边传送)。
      */
     private _beginNextRound(needTeleport: boolean = false): void {
-        const m = this._mag;
-        m.phase = MatchPhase.COUNTDOWN;
-        m.isBallAssigned = false;
+        const m = this._host;
+        m.state.phase = MatchPhase.COUNTDOWN;
+        m.state.isBallAssigned = false;
         this._lastCountdownNum = 5;
         m.lastHitCha = null;
-        m.isServeShot = false;
-        m.currentHitTeam = m.servingTeam;
+        m.state.isServeShot = false;
+        m.state.currentHitTeam = m.state.servingTeam;
         this._resetBallForServe();
         this.closeEagleWindow();
         this._updateServerAndReceiver();
@@ -661,7 +637,7 @@ export class Rule {
      * 球由 mag._updateBallHolding 兜底钉回发球员(isP 空窗自动钉 currentServer)。
      */
     private _resetBallForServe(): void {
-        const m = this._mag;
+        const m = this._host;
         if (!m.ball) return;
         m.authBallHolderId = -1;
         m.ball.halt();
@@ -675,7 +651,7 @@ export class Rule {
      * cha 不再持有 Ball 对象，持球通过 isP 标记和 Mag 的持球跟随逻辑处理
      */
     private _assignBall(): void {
-        const m = this._mag;
+        const m = this._host;
         const server = m.currentServer;
         if (server && m.ball) {
             for (const p of m.players) p.isP = false;
@@ -693,27 +669,27 @@ export class Rule {
      * - 双打：按"左单右双"原则，偶数分站右区(odd=false)，奇数分站左区(odd=true)
      */
     private _updateServerAndReceiver(): void {
-    const m = this._mag;
+    const m = this._host;
     if (m.mode === MatchMode.SINGLE) {
         const left = m.players.find(p => m.teamMap.get(p) === TeamSide.LEFT);
         const right = m.players.find(p => m.teamMap.get(p) === TeamSide.RIGHT);
-        m.currentServer = m.servingTeam === TeamSide.LEFT ? left! : right!;
-        m.currentReceiver = m.servingTeam === TeamSide.LEFT ? right! : left!;
+        m.currentServer = m.state.servingTeam === TeamSide.LEFT ? left! : right!;
+        m.currentReceiver = m.state.servingTeam === TeamSide.LEFT ? right! : left!;
         return;
     }
     // 双打
-    const srvPlayers = m.players.filter(p => m.teamMap.get(p) === m.servingTeam);
-    const recvPlayers = m.players.filter(p => m.teamMap.get(p) !== m.servingTeam);
+    const srvPlayers = m.players.filter(p => m.teamMap.get(p) === m.state.servingTeam);
+    const recvPlayers = m.players.filter(p => m.teamMap.get(p) !== m.state.servingTeam);
     if (srvPlayers.length === 0 || recvPlayers.length === 0) {
         // 保护：如果队伍分配错误，使用前两个球员
         console.warn("[Rule] 队伍分配异常，使用前两个球员作为发球方和接发球方");
         const left = m.players[0];
         const right = m.players[1];
-        m.currentServer = m.servingTeam === TeamSide.LEFT ? left : right;
-        m.currentReceiver = m.servingTeam === TeamSide.LEFT ? right : left;
+        m.currentServer = m.state.servingTeam === TeamSide.LEFT ? left : right;
+        m.currentReceiver = m.state.servingTeam === TeamSide.LEFT ? right : left;
         return;
     }
-    const isEven = m.scores[m.servingTeam] % 2 === 0;
+    const isEven = m.state.scores[m.state.servingTeam] % 2 === 0;
     // 发球员：偶数分时 odd=false（右区），奇数分时 odd=true（左区）
     m.currentServer = srvPlayers.find(p => p.odd === !isEven) ?? srvPlayers[0];
     // 接发球员：odd 与发球员相反
@@ -727,7 +703,7 @@ export class Rule {
      * 仅在开局和换边时调用
      */
     private _forceTeleportAll(): void {
-        const m = this._mag;
+        const m = this._host;
         for (const p of m.players) {
             const pos = this.getPlayerServePosition(p);
             p.move(pos);
@@ -741,7 +717,7 @@ export class Rule {
      * 不直接传送，由调用方决定是否传送
      */
     private _switchSides(): void {
-        const m = this._mag;
+        const m = this._host;
         const newMap = new Map<Cha, TeamSide>();
         for (const [cha, team] of m.teamMap) {
             const newTeam = team === TeamSide.LEFT ? TeamSide.RIGHT : TeamSide.LEFT;
@@ -750,7 +726,12 @@ export class Rule {
         }
         m.teamMap.clear();
         for (const [cha, team] of newMap) m.teamMap.set(cha, team);
-        m.servingTeam = m.servingTeam === TeamSide.LEFT ? TeamSide.RIGHT : TeamSide.LEFT;
+        m.state.servingTeam = m.state.servingTeam === TeamSide.LEFT ? TeamSide.RIGHT : TeamSide.LEFT;
+        // gamesWon 记的是"队伍赢了几局", 键却挂在场地边上: 队伍换边后必须跟着交换,
+        // 否则下一局赢家会把冠军判给对面(比赛级 P0)。
+        const leftGames = m.state.gamesWon[TeamSide.LEFT];
+        m.state.gamesWon[TeamSide.LEFT] = m.state.gamesWon[TeamSide.RIGHT];
+        m.state.gamesWon[TeamSide.RIGHT] = leftGames;
         m.onSideSwitch?.();
     }
 
@@ -758,7 +739,7 @@ export class Rule {
      * 对齐所有玩家朝向：左队朝 +90°，右队朝 -90°
      */
     private _alignAllFacing(): void {
-        const m = this._mag;
+        const m = this._host;
         for (const p of m.players) {
             const side = m.teamMap.get(p);
             if (side === undefined) continue;
@@ -776,11 +757,11 @@ export class Rule {
      * @returns true 表示站位合规
      */
     public checkServePosition(hitter: Cha): boolean {
-        const m = this._mag;
-        const isSrvEven = m.scores[m.servingTeam] % 2 === 0;
-        const srvSign = m.servingTeam === TeamSide.LEFT ? 1 : -1;
+        const m = this._host;
+        const isSrvEven = m.state.scores[m.state.servingTeam] % 2 === 0;
+        const srvSign = m.state.servingTeam === TeamSide.LEFT ? 1 : -1;
         const zSign = (isSrvEven ? 1 : -1) * srvSign;
-        const inMySide = m.servingTeam === TeamSide.RIGHT
+        const inMySide = m.state.servingTeam === TeamSide.RIGHT
             ? hitter.x > 0 && hitter.x < m.court.halfLength
             : hitter.x < 0 && hitter.x > -m.court.halfLength;
         const inCorrectZone = zSign > 0
@@ -799,9 +780,9 @@ export class Rule {
      * @returns true 表示发球界内
      */
     private _isServeIn(landX: number, landZ: number): boolean {
-        const m = this._mag;
-        const recvTeam = m.servingTeam === TeamSide.LEFT ? TeamSide.RIGHT : TeamSide.LEFT;
-        const isSrvEven = m.scores[m.servingTeam] % 2 === 0;
+        const m = this._host;
+        const recvTeam = m.state.servingTeam === TeamSide.LEFT ? TeamSide.RIGHT : TeamSide.LEFT;
+        const isSrvEven = m.state.scores[m.state.servingTeam] % 2 === 0;
         const rcvSign = recvTeam === TeamSide.LEFT ? 1 : -1;
         const zSign = (isSrvEven ? 1 : -1) * rcvSign;
         const zMin = zSign > 0 ? 0 : -m.court.serveHalfZ;
@@ -820,7 +801,7 @@ export class Rule {
      * @returns true 表示界内
      */
     private _isRallyIn(landX: number, landZ: number): boolean {
-        const m = this._mag;
+        const m = this._host;
         return Math.abs(landX) < m.court.halfLength && Math.abs(landZ) < m.court.halfWidth;
     }
 
@@ -831,8 +812,8 @@ export class Rule {
      * @returns 赢家队伍，null 表示本局未结束
      */
     private _getGameWinner(): TeamSide | null {
-        const m = this._mag;
-        const left = m.scores[TeamSide.LEFT], right = m.scores[TeamSide.RIGHT];
+        const m = this._host;
+        const left = m.state.scores[TeamSide.LEFT], right = m.state.scores[TeamSide.RIGHT];
         const max = Math.max(left, right), diff = Math.abs(left - right);
         if (max >= 30) return left > right ? TeamSide.LEFT : TeamSide.RIGHT;
         if (max >= m.cfg.maxScore && diff >= 2) return left > right ? TeamSide.LEFT : TeamSide.RIGHT;
@@ -844,10 +825,10 @@ export class Rule {
      * @returns 赢家队伍，null 表示比赛未结束
      */
     private _getMatchWinner(): TeamSide | null {
-        const m = this._mag;
+        const m = this._host;
         const winReq = Math.ceil(m.cfg.bestOf / 2);
-        if (m.gamesWon[TeamSide.LEFT] >= winReq) return TeamSide.LEFT;
-        if (m.gamesWon[TeamSide.RIGHT] >= winReq) return TeamSide.RIGHT;
+        if (m.state.gamesWon[TeamSide.LEFT] >= winReq) return TeamSide.LEFT;
+        if (m.state.gamesWon[TeamSide.RIGHT] >= winReq) return TeamSide.RIGHT;
         return null;
     }
 
@@ -862,21 +843,21 @@ export class Rule {
      * 双打时：发球员在底线，队友在前场发球线附近
      */
     public getPlayerServePosition(cha: Cha): { x: number, y: number, z: number } {
-        const m = this._mag;
+        const m = this._host;
         const team = m.teamMap.get(cha);
         if (team === undefined) return { x: 0, y: 0, z: 0 };
 
     // 统一计算发球员的 Z 方向（由发球方得分奇偶决定）
-        const isSrvEven = m.scores[m.servingTeam] % 2 === 0;
-        const srvSign = m.servingTeam === TeamSide.LEFT ? 1 : -1;
+        const isSrvEven = m.state.scores[m.state.servingTeam] % 2 === 0;
+        const srvSign = m.state.servingTeam === TeamSide.LEFT ? 1 : -1;
         const zSrv = (isSrvEven ? 1 : -1) * srvSign * m.court.serveHalfZ * 0.5;
 
-        const recvTeam = m.servingTeam === TeamSide.LEFT ? TeamSide.RIGHT : TeamSide.LEFT;
-        const isRcvEven = m.scores[recvTeam] % 2 === 0;
+        const recvTeam = m.state.servingTeam === TeamSide.LEFT ? TeamSide.RIGHT : TeamSide.LEFT;
+        const isRcvEven = m.state.scores[recvTeam] % 2 === 0;
         const rcvSign = recvTeam === TeamSide.LEFT ? 1 : -1;
         const zRcv = (isRcvEven ? 1 : -1) * rcvSign * m.court.serveHalfZ * 0.5;
 
-        const isServerTeam = team === m.servingTeam;
+        const isServerTeam = team === m.state.servingTeam;
         const isServer = cha === m.currentServer;
         const isReceiver = cha === m.currentReceiver;
     // 接球员的 Z 方向与发球员相反（对角线）

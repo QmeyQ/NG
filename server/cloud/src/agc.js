@@ -1,5 +1,5 @@
 /**
- * Worker 侧 CloudDB 直连（不经云函数），用于用户风控查询。
+ * Worker 侧 CloudDB 直连（不经云函数），用于用户风控查询(主键点查用户行 history 行内审计)。
  * 协议与 Huawei CloudDB Server SDK 一致：
  *   POST https://connect-api.cloud.huawei.com/api/clouddb/clouddbservice/v4/objects/queries
  *   Bearer token + clientid/productid 标识头，body 含 objectTypeName / cloudDBZoneName / queryConditions
@@ -77,21 +77,24 @@ async function postQuery(cred, body) {
 }
 
 /**
- * 读取某用户近 24h 的操作审计记录（shield 独立记录行）。
- * 只按 id 前缀查询，避免全表扫描。
+ * 读取某用户近 24h 的操作审计记录(行内 history 字段)。
+ * 最小写入契约: 审计已合并进用户行(te/shield.js 纯函数追加), 不再写独立 __shield__ 行。
+ * 这里按主键 EqualTo 点查单行(替代旧前缀扫描 ≤500 行), 解析 history 为 [{record}]。
+ * 行不存在(已注销/未注册) → 返回 [](闸门放行, 后续 te 分支自会回 code 1)。
+ * 查询/解析失败 → 抛错, 由调用方 fail-open 记录放行(与旧行为一致)。
  */
 export async function getUserCallHistory(cred, env, userid) {
   if (userid === undefined || userid === null || String(userid) === '') {
     throw new Error('CloudDB 风控查询缺少 userid');
   }
-  const prefix = `__shield__${encodeURIComponent(String(userid))}__`;
+  const id = String(userid);
   const body = {
     objectTypeName: CLOUDDB_OBJECT_TYPE,
     cloudDBZoneName: CLOUDDB_ZONE,
     isQueryDelete: false,
     queryConditions: [
-      { conditionType: 'BeginsWith', fieldName: 'id', value: prefix },
-      { conditionType: 'Limit', fieldName: null, value: { offset: 0, number: QUERY_LIMIT } }
+      { conditionType: 'EqualTo', fieldName: 'id', value: id },
+      { conditionType: 'Limit', fieldName: null, value: { offset: 0, number: 1 } }
     ]
   };
 
@@ -100,15 +103,16 @@ export async function getUserCallHistory(cred, env, userid) {
   if (!Array.isArray(rows)) {
     throw new Error('CloudDB 查询结果 data.data 不是数组');
   }
+  if (!rows.length) return [];
 
   const cutoff = Date.now() - RETENTION_MS;
-  return rows.filter(row => {
-    if (!row || typeof row.id !== 'string' || !row.id.startsWith(prefix)) return false;
-    const value = String(row.record || '');
+  const history = String(rows[0].history || '');
+  const out = [];
+  for (const part of history.split(',')) {
+    const value = part.trim();
+    if (!/^\d{13}\d+$/.test(value)) continue;
     const timestamp = value.slice(0, 13);
-    return /^\d{13}$/.test(timestamp) && Number(timestamp) >= cutoff;
-  }).map(row => ({
-    id: row.id,
-    record: String(row.record || '')
-  }));
+    if (Number(timestamp) >= cutoff) out.push({ id: id, record: value });
+  }
+  return out;
 }

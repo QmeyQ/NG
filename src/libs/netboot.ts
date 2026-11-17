@@ -9,7 +9,7 @@
  * 失败/过期时才带 force 再进来。
  */
 import { Gnet } from "./gobe/net";
-import { Cloud } from "./cloud";
+import { Cloud } from "./server/cloud";
 import { gobeToken, gobeFresh, AGC_PROXY } from "./agcCore";
 
 type Done = (ok: boolean, msg?: string) => void;

@@ -42,7 +42,8 @@ export class Ball extends Obj {
 
     // 【新增】事件系统与击球记录
     private _events: { [key: string]: ((...args: any[]) => void)[] } = {};
-    public lastHitInfo: { hitterId: number, stroke: StrokeParams, time?: number } | null = null;
+    /** time=弹道锚点(远端重放落在过去); appliedAt=本机真正落弹道的墙钟时刻(传播窗口判据) */
+    public lastHitInfo: { hitterId: number, stroke: StrokeParams, time?: number, appliedAt?: number } | null = null;
 
     constructor(root: Laya.Sprite3D) {
         super(root);
@@ -320,7 +321,10 @@ private _createHeadArrow(): void {
         // strike 内部含"回退→施加参数→按补算上限推进到现在", 这里只负责把结果落到节点并发事件
         this.phy.strike(stroke, t, ballPos);
         this.applyPose();
-        this.lastHitInfo = { hitterId: hitterId ?? -1, stroke, time: t ?? this.phy.snapshot().time };
+        this.lastHitInfo = {
+            hitterId: hitterId ?? -1, stroke, time: t ?? this.phy.snapshot().time,
+            appliedAt: Timer.now()
+        };
         this.emit('hit', this.lastHitInfo);
     }
 
@@ -332,6 +336,14 @@ private _createHeadArrow(): void {
     public restrike(stroke: { power: number, angH: number, angV: number, spi?: Laya.Vector3 }, at?: number): void {
         this.phy.strike(stroke, at);
         this.applyPose();
+        // 锚点必须跟着重锚一起更新: 走到这里的"自己这一拍"拿到的是【权威端】的击球时刻,
+        // 与本地出手时的墙钟相差一个前摇(实测 420ms)。不更新的话, lastHitInfo 还停在旧锚点,
+        // 随后一份"击球前生成"的静止球位会被判成新事实, 把刚重锚的球钉回手上。
+        this.lastHitInfo = {
+            hitterId: this.lastHitInfo ? this.lastHitInfo.hitterId : -1,
+            stroke: { power: stroke.power, angH: stroke.angH, angV: stroke.angV, spi: stroke.spi || new Laya.Vector3() },
+            time: at ?? this.phy.snapshot().time, appliedAt: Timer.now()
+        };
     }
 
     move(pos: { x: number; y: number; z: number }): void;

@@ -492,7 +492,7 @@
             "",
             ""
           ],
-          "_editingIndex": 3
+          "_editingIndex": 2
         }
       },
       "_startPages": {
@@ -798,7 +798,7 @@
               "name": "gameShow",
               "x": 285,
               "width": 364,
-              "height": 69,
+              "height": 71,
               "text": "健康游戏忠告",
               "fontSize": 60,
               "fitContent": 1
@@ -808,9 +808,9 @@
               "_$type": "GTextField",
               "name": "gameShow_1",
               "x": 10,
-              "y": 104,
+              "y": 106,
               "width": 914,
-              "height": 294,
+              "height": 302,
               "text": "抵制不良游戏，拒绝盗版游戏。\n注意自我保护，谨防受骗上当。\n适度游戏益脑，沉迷游戏伤身。\n合理安排时间，享受健康生活。",
               "fontSize": 65,
               "fitContent": 1
@@ -1027,6 +1027,8 @@
                 "_$ref": "2j8mr0ac"
               },
               "data": [
+                1,
+                1,
                 6,
                 0,
                 23,
@@ -1177,20 +1179,18 @@
             "_$ref": "qelj0un4"
           },
           "data": [
-            21,
+            23,
             0
           ]
         }
       ],
       "_$child": [
         {
-          "_$id": "l9u7pttn",
-          "_$type": "GTextField",
-          "name": "social",
-          "x": 329,
-          "y": 903,
-          "width": 526,
-          "height": 124,
+          "_$id": "soc00000",
+          "_$type": "GBox",
+          "name": "socHome",
+          "width": 1175,
+          "height": 2034,
           "relations": [
             {
               "_$type": "Relation",
@@ -1198,27 +1198,2310 @@
                 "_$ref": "ng6b6usl"
               },
               "data": [
-                6,
-                0,
-                13,
+                1,
+                0
+              ]
+            },
+            {
+              "_$type": "Relation",
+              "target": {
+                "_$ref": "ng6b6usl"
+              },
+              "data": [
+                2,
+                0
+              ]
+            },
+            {
+              "_$type": "Relation",
+              "target": {
+                "_$ref": "ng6b6usl"
+              },
+              "data": [
+                3,
+                0
+              ]
+            },
+            {
+              "_$type": "Relation",
+              "target": {
+                "_$ref": "ng6b6usl"
+              },
+              "data": [
+                10,
                 0
               ]
             }
           ],
-          "text": "暂未开放",
-          "font": "STZhongsong",
-          "fontSize": 80,
-          "color": "#474747",
-          "bold": true,
-          "align": "center",
-          "valign": "middle",
-          "padding": [
-            0,
-            0,
-            0,
-            0
+          "_$child": [
+            {
+              "_$id": "soc00001",
+              "_$type": "GBox",
+              "name": "socTop",
+              "width": 1175,
+              "height": 140,
+              "background": {
+                "_$type": "DrawRectCmd",
+                "fillColor": "#ededed"
+              },
+              "relations": [
+                {
+                  "_$type": "Relation",
+                  "target": {
+                    "_$ref": "soc00000"
+                  },
+                  "data": [
+                    1,
+                    0
+                  ]
+                },
+                {
+                  "_$type": "Relation",
+                  "target": {
+                    "_$ref": "soc00000"
+                  },
+                  "data": [
+                    3,
+                    0
+                  ]
+                },
+                {
+                  "_$type": "Relation",
+                  "target": {
+                    "_$ref": "soc00000"
+                  },
+                  "data": [
+                    10,
+                    0
+                  ]
+                }
+              ],
+              "_$child": [
+                {
+                  "_$id": "soc00002",
+                  "_$type": "GTextField",
+                  "name": "socTitle",
+                  "x": 40,
+                  "width": 400,
+                  "height": 140,
+                  "_mouseState": 1,
+                  "text": "消息",
+                  "font": "STZhongsong",
+                  "fontSize": 64,
+                  "color": "#191919",
+                  "bold": true,
+                  "valign": "middle"
+                },
+                {
+                  "_$id": "soc00003",
+                  "_$type": "GTextField",
+                  "name": "socAddBtn",
+                  "x": 1035,
+                  "y": 20,
+                  "width": 100,
+                  "height": 100,
+                  "_mouseState": 2,
+                  "background": {
+                    "_$type": "DrawRoundRectCmd",
+                    "lt": 8,
+                    "rt": 8,
+                    "lb": 8,
+                    "rb": 8,
+                    "fillColor": "#ffffff"
+                  },
+                  "text": "+",
+                  "font": "STZhongsong",
+                  "fontSize": 64,
+                  "color": "#07c160",
+                  "bold": true,
+                  "align": "center",
+                  "valign": "middle"
+                },
+                {
+                  "_$id": "socx0000",
+                  "_$type": "GTextField",
+                  "name": "badgePlus",
+                  "x": 1105,
+                  "y": 10,
+                  "width": 60,
+                  "height": 60,
+                  "visible": false,
+                  "_mouseState": 1,
+                  "background": {
+                    "_$type": "DrawRoundRectCmd",
+                    "lt": 30,
+                    "rt": 30,
+                    "lb": 30,
+                    "rb": 30,
+                    "fillColor": "#fa5151"
+                  },
+                  "text": "0",
+                  "font": "STZhongsong",
+                  "fontSize": 32,
+                  "color": "#ffffff",
+                  "bold": true,
+                  "align": "center",
+                  "valign": "middle"
+                }
+              ]
+            },
+            {
+              "_$id": "soc0000a",
+              "_$type": "GList",
+              "name": "convList",
+              "y": 140,
+              "width": 1175,
+              "height": 1894,
+              "mouseThrough": true,
+              "relations": [
+                {
+                  "_$type": "Relation",
+                  "target": {
+                    "_$ref": "soc00000"
+                  },
+                  "data": [
+                    1,
+                    0
+                  ]
+                },
+                {
+                  "_$type": "Relation",
+                  "target": {
+                    "_$ref": "soc00000"
+                  },
+                  "data": [
+                    3,
+                    0
+                  ]
+                },
+                {
+                  "_$type": "Relation",
+                  "target": {
+                    "_$ref": "soc00001"
+                  },
+                  "data": [
+                    12,
+                    0
+                  ]
+                },
+                {
+                  "_$type": "Relation",
+                  "target": {
+                    "_$ref": "soc00000"
+                  },
+                  "data": [
+                    24,
+                    0
+                  ]
+                }
+              ],
+              "layout": {
+                "type": 1
+              },
+              "scroller": {
+                "_$type": "Scroller",
+                "barDisplay": 3,
+                "barFloating": true
+              },
+              "_templateNode": {
+                "_$ref": "soc00004",
+                "_$tmpl": "itemTemplate"
+              },
+              "_initItemNum": null,
+              "_$child": [
+                {
+                  "_$id": "soc00004",
+                  "_$type": "GBox",
+                  "name": "convItem",
+                  "width": 1175,
+                  "height": 180,
+                  "background": {
+                    "_$type": "DrawRectCmd",
+                    "lineWidth": 1,
+                    "lineColor": "#e6e6e6",
+                    "fillColor": "#ffffff"
+                  },
+                  "_$child": [
+                    {
+                      "_$id": "soc00005",
+                      "_$type": "GImage",
+                      "name": "head",
+                      "x": 30,
+                      "y": 30,
+                      "width": 120,
+                      "height": 120,
+                      "_mouseState": 1,
+                      "background": {
+                        "_$type": "DrawRoundRectCmd",
+                        "lt": 8,
+                        "rt": 8,
+                        "lb": 8,
+                        "rb": 8,
+                        "fillColor": "#e0e0e0"
+                      },
+                      "src": ""
+                    },
+                    {
+                      "_$id": "soc00006",
+                      "_$type": "GTextField",
+                      "name": "name",
+                      "x": 180,
+                      "y": 28,
+                      "width": 700,
+                      "height": 64,
+                      "_mouseState": 1,
+                      "text": "名字",
+                      "font": "STZhongsong",
+                      "fontSize": 48,
+                      "color": "#191919",
+                      "valign": "middle"
+                    },
+                    {
+                      "_$id": "soc00007",
+                      "_$type": "GTextField",
+                      "name": "last",
+                      "x": 180,
+                      "y": 100,
+                      "width": 760,
+                      "height": 56,
+                      "_mouseState": 1,
+                      "text": "最后一条消息",
+                      "font": "STZhongsong",
+                      "fontSize": 36,
+                      "color": "#999999",
+                      "valign": "middle"
+                    },
+                    {
+                      "_$id": "soc00008",
+                      "_$type": "GTextField",
+                      "name": "time",
+                      "x": 960,
+                      "y": 30,
+                      "width": 180,
+                      "height": 50,
+                      "_mouseState": 1,
+                      "text": "",
+                      "font": "STZhongsong",
+                      "fontSize": 30,
+                      "color": "#b2b2b2",
+                      "align": "right",
+                      "valign": "middle"
+                    },
+                    {
+                      "_$id": "soc00009",
+                      "_$type": "GTextField",
+                      "name": "badge",
+                      "x": 1080,
+                      "y": 95,
+                      "width": 70,
+                      "height": 70,
+                      "visible": false,
+                      "_mouseState": 1,
+                      "background": {
+                        "_$type": "DrawRoundRectCmd",
+                        "lt": 35,
+                        "rt": 35,
+                        "lb": 35,
+                        "rb": 35,
+                        "fillColor": "#fa5151"
+                      },
+                      "text": "0",
+                      "font": "STZhongsong",
+                      "fontSize": 32,
+                      "color": "#ffffff",
+                      "align": "center",
+                      "valign": "middle"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "_$id": "soc0000b",
+              "_$type": "GTextField",
+              "name": "convEmpty",
+              "y": 600,
+              "width": 1175,
+              "height": 120,
+              "visible": false,
+              "_mouseState": 1,
+              "text": "暂无会话，点右上角「加好友」",
+              "font": "STZhongsong",
+              "fontSize": 40,
+              "color": "#b2b2b2",
+              "align": "center",
+              "valign": "middle"
+            },
+            {
+              "_$id": "sox00000",
+              "_$type": "GBox",
+              "name": "socPlusMenu",
+              "x": 830,
+              "y": 150,
+              "width": 320,
+              "height": 300,
+              "visible": false,
+              "background": {
+                "_$type": "DrawRoundRectCmd",
+                "lt": 8,
+                "rt": 8,
+                "lb": 8,
+                "rb": 8,
+                "lineWidth": 1,
+                "lineColor": "#d0d0d0",
+                "fillColor": "#ffffff"
+              },
+              "_$child": [
+                {
+                  "_$id": "sox00001",
+                  "_$type": "GTextField",
+                  "name": "pmAddFriend",
+                  "x": 10,
+                  "y": 10,
+                  "width": 300,
+                  "height": 85,
+                  "_mouseState": 2,
+                  "background": {
+                    "_$type": "DrawRoundRectCmd",
+                    "lt": 8,
+                    "rt": 8,
+                    "lb": 8,
+                    "rb": 8,
+                    "fillColor": "#07c160"
+                  },
+                  "text": "加好友",
+                  "font": "STZhongsong",
+                  "fontSize": 40,
+                  "color": "#fff",
+                  "bold": true,
+                  "align": "center",
+                  "valign": "middle"
+                },
+                {
+                  "_$id": "sox00002",
+                  "_$type": "GTextField",
+                  "name": "pmCreateGroup",
+                  "x": 10,
+                  "y": 105,
+                  "width": 300,
+                  "height": 85,
+                  "_mouseState": 2,
+                  "background": {
+                    "_$type": "DrawRoundRectCmd",
+                    "lt": 8,
+                    "rt": 8,
+                    "lb": 8,
+                    "rb": 8,
+                    "fillColor": "#07c160"
+                  },
+                  "text": "创建群聊",
+                  "font": "STZhongsong",
+                  "fontSize": 40,
+                  "color": "#fff",
+                  "bold": true,
+                  "align": "center",
+                  "valign": "middle"
+                },
+                {
+                  "_$id": "socx0001",
+                  "_$type": "GTextField",
+                  "name": "pmNewChat",
+                  "x": 10,
+                  "y": 200,
+                  "width": 300,
+                  "height": 85,
+                  "_mouseState": 2,
+                  "background": {
+                    "_$type": "DrawRoundRectCmd",
+                    "lt": 8,
+                    "rt": 8,
+                    "lb": 8,
+                    "rb": 8,
+                    "fillColor": "#07c160"
+                  },
+                  "text": "创建新聊天",
+                  "font": "STZhongsong",
+                  "fontSize": 40,
+                  "color": "#ffffff",
+                  "bold": true,
+                  "align": "center",
+                  "valign": "middle"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "_$id": "soc0000c",
+          "_$type": "GBox",
+          "name": "socChat",
+          "width": 1175,
+          "height": 2034,
+          "visible": false,
+          "relations": [
+            {
+              "_$type": "Relation",
+              "target": {
+                "_$ref": "ng6b6usl"
+              },
+              "data": [
+                1,
+                0
+              ]
+            },
+            {
+              "_$type": "Relation",
+              "target": {
+                "_$ref": "ng6b6usl"
+              },
+              "data": [
+                2,
+                0
+              ]
+            },
+            {
+              "_$type": "Relation",
+              "target": {
+                "_$ref": "ng6b6usl"
+              },
+              "data": [
+                3,
+                0
+              ]
+            },
+            {
+              "_$type": "Relation",
+              "target": {
+                "_$ref": "ng6b6usl"
+              },
+              "data": [
+                10,
+                0
+              ]
+            }
           ],
-          "strokeColor": "#ffffff"
+          "_$child": [
+            {
+              "_$id": "soc0000d",
+              "_$type": "GBox",
+              "name": "chatTop",
+              "width": 1175,
+              "height": 140,
+              "background": {
+                "_$type": "DrawRectCmd",
+                "fillColor": "#ededed"
+              },
+              "relations": [
+                {
+                  "_$type": "Relation",
+                  "target": {
+                    "_$ref": "soc0000c"
+                  },
+                  "data": [
+                    1,
+                    0
+                  ]
+                },
+                {
+                  "_$type": "Relation",
+                  "target": {
+                    "_$ref": "soc0000c"
+                  },
+                  "data": [
+                    3,
+                    0
+                  ]
+                },
+                {
+                  "_$type": "Relation",
+                  "target": {
+                    "_$ref": "soc0000c"
+                  },
+                  "data": [
+                    10,
+                    0
+                  ]
+                }
+              ],
+              "_$child": [
+                {
+                  "_$id": "soc0000e",
+                  "_$type": "GTextField",
+                  "name": "chatBack",
+                  "x": 20,
+                  "y": 20,
+                  "width": 160,
+                  "height": 100,
+                  "_mouseState": 2,
+                  "background": {
+                    "_$type": "DrawRoundRectCmd",
+                    "lt": 8,
+                    "rt": 8,
+                    "lb": 8,
+                    "rb": 8,
+                    "fillColor": "#ffffff"
+                  },
+                  "text": "‹ 返回",
+                  "font": "STZhongsong",
+                  "fontSize": 44,
+                  "color": "#191919",
+                  "bold": true,
+                  "align": "center",
+                  "valign": "middle"
+                },
+                {
+                  "_$id": "soc0000f",
+                  "_$type": "GTextField",
+                  "name": "chatTitle",
+                  "x": 200,
+                  "width": 900,
+                  "height": 140,
+                  "_mouseState": 1,
+                  "text": "会话",
+                  "font": "STZhongsong",
+                  "fontSize": 56,
+                  "color": "#191919",
+                  "bold": true,
+                  "valign": "middle"
+                },
+                {
+                  "_$id": "socx0002",
+                  "_$type": "GTextField",
+                  "name": "chatMenuBtn",
+                  "x": 1055,
+                  "y": 20,
+                  "width": 100,
+                  "height": 100,
+                  "_mouseState": 2,
+                  "background": {
+                    "_$type": "DrawRoundRectCmd",
+                    "lt": 8,
+                    "rt": 8,
+                    "lb": 8,
+                    "rb": 8,
+                    "lineWidth": 1,
+                    "lineColor": "#d0d0d0",
+                    "fillColor": "#ffffff"
+                  },
+                  "text": "≡",
+                  "font": "STZhongsong",
+                  "fontSize": 60,
+                  "color": "#191919",
+                  "bold": true,
+                  "align": "center",
+                  "valign": "middle"
+                }
+              ]
+            },
+            {
+              "_$id": "soc0000j",
+              "_$type": "GList",
+              "name": "msgList",
+              "y": 140,
+              "width": 1175,
+              "height": 1744,
+              "mouseThrough": true,
+              "relations": [
+                {
+                  "_$type": "Relation",
+                  "target": {
+                    "_$ref": "soc0000c"
+                  },
+                  "data": [
+                    1,
+                    0
+                  ]
+                },
+                {
+                  "_$type": "Relation",
+                  "target": {
+                    "_$ref": "soc0000c"
+                  },
+                  "data": [
+                    3,
+                    0
+                  ]
+                },
+                {
+                  "_$type": "Relation",
+                  "target": {
+                    "_$ref": "soc0000d"
+                  },
+                  "data": [
+                    12,
+                    0
+                  ]
+                },
+                {
+                  "_$type": "Relation",
+                  "target": {
+                    "_$ref": "soc0000c"
+                  },
+                  "data": [
+                    24,
+                    0
+                  ]
+                }
+              ],
+              "layout": {
+                "type": 1
+              },
+              "scroller": {
+                "_$type": "Scroller",
+                "barDisplay": 3,
+                "barFloating": true
+              },
+              "_templateNode": {
+                "_$ref": "soc0000g",
+                "_$tmpl": "itemTemplate"
+              },
+              "_initItemNum": null,
+              "_$child": [
+                {
+                  "_$id": "soc0000g",
+                  "_$type": "GBox",
+                  "name": "msgItem",
+                  "width": 1175,
+                  "height": 150,
+                  "background": {
+                    "_$type": "DrawRectCmd",
+                    "lineWidth": 1,
+                    "lineColor": "#e6e6e6",
+                    "fillColor": "#ffffff"
+                  },
+                  "_$child": [
+                    {
+                      "_$id": "soc0000h",
+                      "_$type": "GTextField",
+                      "name": "mname",
+                      "x": 30,
+                      "y": 8,
+                      "width": 700,
+                      "height": 44,
+                      "_mouseState": 1,
+                      "text": "",
+                      "font": "STZhongsong",
+                      "fontSize": 32,
+                      "color": "#999999",
+                      "valign": "middle"
+                    },
+                    {
+                      "_$id": "soc0000i",
+                      "_$type": "GTextField",
+                      "name": "mtext",
+                      "x": 30,
+                      "y": 52,
+                      "width": 1115,
+                      "height": 90,
+                      "_mouseState": 1,
+                      "text": "",
+                      "font": "STZhongsong",
+                      "fontSize": 40,
+                      "color": "#191919",
+                      "valign": "middle"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "_$id": "soc0000k",
+              "_$type": "GTextField",
+              "name": "msgEmpty",
+              "y": 600,
+              "width": 1175,
+              "height": 120,
+              "visible": false,
+              "_mouseState": 1,
+              "text": "还没有消息，说点什么吧",
+              "font": "STZhongsong",
+              "fontSize": 40,
+              "color": "#b2b2b2",
+              "align": "center",
+              "valign": "middle"
+            },
+            {
+              "_$id": "2ejat9mh",
+              "_$type": "GBox",
+              "name": "mmbox",
+              "x": 7,
+              "y": 1848,
+              "width": 1157,
+              "height": 239,
+              "relations": [
+                {
+                  "_$type": "Relation",
+                  "target": {
+                    "_$ref": "soc0000c"
+                  },
+                  "data": [
+                    3,
+                    0
+                  ]
+                },
+                {
+                  "_$type": "Relation",
+                  "target": {
+                    "_$ref": "soc0000c"
+                  },
+                  "data": [
+                    16,
+                    0
+                  ]
+                }
+              ],
+              "_$child": [
+                {
+                  "_$id": "soc0000l",
+                  "_$type": "GTextInput",
+                  "name": "chatInp",
+                  "x": 133,
+                  "y": 56,
+                  "width": 760,
+                  "height": 110,
+                  "background": {
+                    "_$type": "DrawRoundRectCmd",
+                    "lt": 8,
+                    "rt": 8,
+                    "lb": 8,
+                    "rb": 8,
+                    "lineWidth": 1,
+                    "lineColor": "#d0d0d0",
+                    "fillColor": "#ffffff"
+                  },
+                  "relations": [
+                    {
+                      "_$type": "Relation",
+                      "target": {
+                        "_$ref": "2ejat9mh"
+                      },
+                      "data": [
+                        1,
+                        1,
+                        6,
+                        0
+                      ]
+                    }
+                  ],
+                  "text": "",
+                  "font": "STZhongsong",
+                  "fontSize": 44,
+                  "color": "#191919",
+                  "valign": "middle",
+                  "padding": [
+                    16,
+                    8,
+                    16,
+                    8
+                  ],
+                  "prompt": "输入消息…",
+                  "promptColor": "#b2b2b2"
+                },
+                {
+                  "_$id": "soc0000m",
+                  "_$type": "GTextField",
+                  "name": "chatSend",
+                  "x": 913,
+                  "y": 56,
+                  "width": 235,
+                  "height": 110,
+                  "_mouseState": 2,
+                  "background": {
+                    "_$type": "DrawRoundRectCmd",
+                    "lt": 8,
+                    "rt": 8,
+                    "lb": 8,
+                    "rb": 8,
+                    "fillColor": "#07c160"
+                  },
+                  "relations": [
+                    {
+                      "_$type": "Relation",
+                      "target": {
+                        "_$ref": "2ejat9mh"
+                      },
+                      "data": [
+                        6,
+                        0
+                      ]
+                    }
+                  ],
+                  "text": "发送",
+                  "font": "STZhongsong",
+                  "fontSize": 44,
+                  "color": "#ffffff",
+                  "bold": true,
+                  "align": "center",
+                  "valign": "middle"
+                },
+                {
+                  "_$id": "cfp00000",
+                  "_$type": "GTextField",
+                  "name": "chatFuncBtn",
+                  "x": 13,
+                  "y": 56,
+                  "width": 100,
+                  "height": 110,
+                  "_mouseState": 2,
+                  "background": {
+                    "_$type": "DrawRectCmd",
+                    "lineWidth": 1,
+                    "lineColor": "#d0d0d0",
+                    "fillColor": "#ffffff"
+                  },
+                  "relations": [
+                    {
+                      "_$type": "Relation",
+                      "target": {
+                        "_$ref": "2ejat9mh"
+                      },
+                      "data": [
+                        6,
+                        0
+                      ]
+                    }
+                  ],
+                  "text": "＋",
+                  "font": "STZhongsong",
+                  "fontSize": 60,
+                  "color": "#191919",
+                  "bold": true,
+                  "align": "center",
+                  "valign": "middle"
+                }
+              ]
+            },
+            {
+              "_$id": "socx0003",
+              "_$type": "GBox",
+              "name": "chatMenuPanel",
+              "x": 700,
+              "y": 150,
+              "width": 460,
+              "height": 900,
+              "visible": false,
+              "background": {
+                "_$type": "DrawRoundRectCmd",
+                "lt": 8,
+                "rt": 8,
+                "lb": 8,
+                "rb": 8,
+                "lineWidth": 1,
+                "lineColor": "#d0d0d0",
+                "fillColor": "#ffffff"
+              },
+              "_$child": [
+                {
+                  "_$id": "socx0007",
+                  "_$type": "GTextField",
+                  "name": "memTitle",
+                  "x": 10,
+                  "y": 10,
+                  "width": 440,
+                  "height": 60,
+                  "_mouseState": 1,
+                  "text": "成员",
+                  "font": "STZhongsong",
+                  "fontSize": 36,
+                  "color": "#191919",
+                  "bold": true,
+                  "valign": "middle"
+                },
+                {
+                  "_$id": "socx0008",
+                  "_$type": "GList",
+                  "name": "memList",
+                  "x": 10,
+                  "y": 80,
+                  "width": 440,
+                  "height": 560,
+                  "mouseThrough": true,
+                  "layout": {
+                    "type": 1
+                  },
+                  "scroller": {
+                    "_$type": "Scroller",
+                    "barDisplay": 3,
+                    "barFloating": true
+                  },
+                  "_templateNode": {
+                    "_$ref": "socx0004",
+                    "_$tmpl": "itemTemplate"
+                  },
+                  "_initItemNum": null,
+                  "_$child": [
+                    {
+                      "_$id": "socx0004",
+                      "_$type": "GBox",
+                      "name": "memItem",
+                      "width": 440,
+                      "height": 90,
+                      "background": {
+                        "_$type": "DrawRectCmd",
+                        "lineWidth": 1,
+                        "lineColor": "#e6e6e6",
+                        "fillColor": "#f7f7f7"
+                      },
+                      "_$child": [
+                        {
+                          "_$id": "socx0005",
+                          "_$type": "GTextField",
+                          "name": "mName",
+                          "x": 10,
+                          "width": 300,
+                          "height": 90,
+                          "_mouseState": 1,
+                          "text": "",
+                          "font": "STZhongsong",
+                          "fontSize": 36,
+                          "color": "#191919",
+                          "valign": "middle"
+                        },
+                        {
+                          "_$id": "socx0006",
+                          "_$type": "GTextField",
+                          "name": "mDel",
+                          "x": 330,
+                          "y": 10,
+                          "width": 100,
+                          "height": 70,
+                          "_mouseState": 2,
+                          "background": {
+                            "_$type": "DrawRoundRectCmd",
+                            "lt": 8,
+                            "rt": 8,
+                            "lb": 8,
+                            "rb": 8,
+                            "lineWidth": 1,
+                            "lineColor": "#fa5151",
+                            "fillColor": "#ffffff"
+                          },
+                          "text": "删除",
+                          "font": "STZhongsong",
+                          "fontSize": 32,
+                          "color": "#fa5151",
+                          "align": "center",
+                          "valign": "middle"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "_$id": "socx0009",
+                  "_$type": "GTextField",
+                  "name": "grpInfo",
+                  "x": 10,
+                  "y": 650,
+                  "width": 440,
+                  "height": 80,
+                  "_mouseState": 1,
+                  "text": "",
+                  "font": "STZhongsong",
+                  "fontSize": 30,
+                  "color": "#999999",
+                  "valign": "middle"
+                },
+                {
+                  "_$id": "socx000a",
+                  "_$type": "GTextField",
+                  "name": "btnLeaveGroup",
+                  "x": 10,
+                  "y": 760,
+                  "width": 440,
+                  "height": 90,
+                  "_mouseState": 2,
+                  "background": {
+                    "_$type": "DrawRoundRectCmd",
+                    "lt": 8,
+                    "rt": 8,
+                    "lb": 8,
+                    "rb": 8,
+                    "fillColor": "#fa5151"
+                  },
+                  "text": "退出群聊",
+                  "font": "STZhongsong",
+                  "fontSize": 36,
+                  "color": "#ffffff",
+                  "bold": true,
+                  "align": "center",
+                  "valign": "middle"
+                }
+              ]
+            },
+            {
+              "_$id": "cfp00003",
+              "_$type": "GBox",
+              "name": "chatFuncPanel",
+              "y": 1620,
+              "width": 1175,
+              "height": 270,
+              "visible": false,
+              "background": {
+                "_$type": "DrawRectCmd",
+                "fillColor": "#ededed"
+              },
+              "_$child": [
+                {
+                  "_$id": "cfp00004",
+                  "_$type": "GList",
+                  "name": "funcList",
+                  "x": 10,
+                  "y": 5,
+                  "width": 1155,
+                  "height": 260,
+                  "mouseThrough": true,
+                  "layout": {
+                    "type": 3,
+                    "rows": 2
+                  },
+                  "scroller": {
+                    "_$type": "Scroller",
+                    "direction": 1,
+                    "barDisplay": 3,
+                    "barFloating": true
+                  },
+                  "_templateNode": {
+                    "_$ref": "cfp00001",
+                    "_$tmpl": "itemTemplate"
+                  },
+                  "_initItemNum": null,
+                  "_$child": [
+                    {
+                      "_$id": "cfp00001",
+                      "_$type": "GBox",
+                      "name": "funcItem",
+                      "width": 260,
+                      "height": 130,
+                      "background": {
+                        "_$type": "DrawRectCmd",
+                        "lineWidth": 1,
+                        "lineColor": "#e0e0e0",
+                        "fillColor": "#f7f7f7"
+                      },
+                      "_$child": [
+                        {
+                          "_$id": "cfp00002",
+                          "_$type": "GTextField",
+                          "name": "fLabel",
+                          "width": 260,
+                          "height": 130,
+                          "_mouseState": 1,
+                          "text": "",
+                          "font": "STZhongsong",
+                          "fontSize": 36,
+                          "color": "#191919",
+                          "align": "center",
+                          "valign": "middle"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "_$id": "cfp00007",
+              "_$type": "GBox",
+              "name": "fwdPanel",
+              "width": 1175,
+              "height": 2034,
+              "visible": false,
+              "background": {
+                "_$type": "DrawRectCmd",
+                "fillColor": "#ffffff"
+              },
+              "relations": [
+                {
+                  "_$type": "Relation",
+                  "target": {
+                    "_$ref": "ng6b6usl"
+                  },
+                  "data": [
+                    1,
+                    0,
+                    2,
+                    0,
+                    3,
+                    0,
+                    10,
+                    0
+                  ]
+                }
+              ],
+              "_$child": [
+                {
+                  "_$id": "cfp00008",
+                  "_$type": "GBox",
+                  "name": "fwdTop",
+                  "width": 1175,
+                  "height": 140,
+                  "background": {
+                    "_$type": "DrawRectCmd",
+                    "fillColor": "#ededed"
+                  },
+                  "_$child": [
+                    {
+                      "_$id": "cfp00009",
+                      "_$type": "GTextField",
+                      "name": "fwdBack",
+                      "x": 20,
+                      "y": 20,
+                      "width": 160,
+                      "height": 100,
+                      "_mouseState": 2,
+                      "background": {
+                        "_$type": "DrawRectCmd",
+                        "lineWidth": 1,
+                        "lineColor": "#d0d0d0",
+                        "fillColor": "#ffffff"
+                      },
+                      "text": "‹ 返回",
+                      "font": "STZhongsong",
+                      "fontSize": 44,
+                      "color": "#191919",
+                      "bold": true,
+                      "align": "center",
+                      "valign": "middle"
+                    },
+                    {
+                      "_$id": "cfp0000a",
+                      "_$type": "GTextField",
+                      "name": "fwdTitle",
+                      "x": 200,
+                      "width": 900,
+                      "height": 140,
+                      "_mouseState": 1,
+                      "text": "转发到",
+                      "font": "STZhongsong",
+                      "fontSize": 56,
+                      "color": "#191919",
+                      "bold": true,
+                      "valign": "middle"
+                    }
+                  ]
+                },
+                {
+                  "_$id": "cfp0000b",
+                  "_$type": "GList",
+                  "name": "fwdList",
+                  "y": 140,
+                  "width": 1175,
+                  "height": 1894,
+                  "mouseThrough": true,
+                  "layout": {
+                    "type": 1
+                  },
+                  "scroller": {
+                    "_$type": "Scroller",
+                    "barDisplay": 3,
+                    "barFloating": true
+                  },
+                  "_templateNode": {
+                    "_$ref": "cfp00005",
+                    "_$tmpl": "itemTemplate"
+                  },
+                  "_initItemNum": null,
+                  "_$child": [
+                    {
+                      "_$id": "cfp00005",
+                      "_$type": "GBox",
+                      "name": "fwdItem",
+                      "width": 1175,
+                      "height": 120,
+                      "background": {
+                        "_$type": "DrawRectCmd",
+                        "lineWidth": 1,
+                        "lineColor": "#e6e6e6",
+                        "fillColor": "#ffffff"
+                      },
+                      "_$child": [
+                        {
+                          "_$id": "cfp00006",
+                          "_$type": "GTextField",
+                          "name": "fwdName",
+                          "x": 20,
+                          "width": 1000,
+                          "height": 120,
+                          "_mouseState": 1,
+                          "text": "",
+                          "font": "STZhongsong",
+                          "fontSize": 40,
+                          "color": "#191919",
+                          "valign": "middle"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "_$id": "soc0000n",
+          "_$type": "GBox",
+          "name": "socAdd",
+          "width": 1175,
+          "height": 2034,
+          "visible": false,
+          "relations": [
+            {
+              "_$type": "Relation",
+              "target": {
+                "_$ref": "ng6b6usl"
+              },
+              "data": [
+                1,
+                0
+              ]
+            },
+            {
+              "_$type": "Relation",
+              "target": {
+                "_$ref": "ng6b6usl"
+              },
+              "data": [
+                2,
+                0
+              ]
+            },
+            {
+              "_$type": "Relation",
+              "target": {
+                "_$ref": "ng6b6usl"
+              },
+              "data": [
+                3,
+                0
+              ]
+            },
+            {
+              "_$type": "Relation",
+              "target": {
+                "_$ref": "ng6b6usl"
+              },
+              "data": [
+                10,
+                0
+              ]
+            }
+          ],
+          "_$child": [
+            {
+              "_$id": "soc0000o",
+              "_$type": "GBox",
+              "name": "addTop",
+              "width": 1175,
+              "height": 140,
+              "background": {
+                "_$type": "DrawRectCmd",
+                "fillColor": "#ededed"
+              },
+              "relations": [
+                {
+                  "_$type": "Relation",
+                  "target": {
+                    "_$ref": "soc0000n"
+                  },
+                  "data": [
+                    1,
+                    0
+                  ]
+                },
+                {
+                  "_$type": "Relation",
+                  "target": {
+                    "_$ref": "soc0000n"
+                  },
+                  "data": [
+                    3,
+                    0
+                  ]
+                },
+                {
+                  "_$type": "Relation",
+                  "target": {
+                    "_$ref": "soc0000n"
+                  },
+                  "data": [
+                    10,
+                    0
+                  ]
+                }
+              ],
+              "_$child": [
+                {
+                  "_$id": "soc0000p",
+                  "_$type": "GTextField",
+                  "name": "addBack",
+                  "x": 20,
+                  "y": 20,
+                  "width": 160,
+                  "height": 100,
+                  "_mouseState": 2,
+                  "background": {
+                    "_$type": "DrawRoundRectCmd",
+                    "lt": 8,
+                    "rt": 8,
+                    "lb": 8,
+                    "rb": 8,
+                    "fillColor": "#ffffff"
+                  },
+                  "text": "‹ 返回",
+                  "font": "STZhongsong",
+                  "fontSize": 44,
+                  "color": "#191919",
+                  "bold": true,
+                  "align": "center",
+                  "valign": "middle"
+                },
+                {
+                  "_$id": "soc0000q",
+                  "_$type": "GTextField",
+                  "name": "addTitle",
+                  "x": 200,
+                  "width": 900,
+                  "height": 140,
+                  "_mouseState": 1,
+                  "text": "加好友",
+                  "font": "STZhongsong",
+                  "fontSize": 56,
+                  "color": "#191919",
+                  "bold": true,
+                  "valign": "middle"
+                }
+              ]
+            },
+            {
+              "_$id": "soc0000r",
+              "_$type": "GTextInput",
+              "name": "addInp",
+              "x": 20,
+              "y": 170,
+              "width": 880,
+              "height": 110,
+              "background": {
+                "_$type": "DrawRoundRectCmd",
+                "lt": 8,
+                "rt": 8,
+                "lb": 8,
+                "rb": 8,
+                "lineWidth": 1,
+                "lineColor": "#d0d0d0",
+                "fillColor": "#ffffff"
+              },
+              "relations": [
+                {
+                  "_$type": "Relation",
+                  "target": {
+                    "_$ref": "soc0000n"
+                  },
+                  "data": [
+                    3,
+                    0
+                  ]
+                },
+                {
+                  "_$type": "Relation",
+                  "target": {
+                    "_$ref": "soc0000n"
+                  },
+                  "data": [
+                    10,
+                    0
+                  ]
+                }
+              ],
+              "text": "",
+              "font": "STZhongsong",
+              "fontSize": 44,
+              "color": "#191919",
+              "valign": "middle",
+              "padding": [
+                16,
+                8,
+                16,
+                8
+              ],
+              "prompt": "输入用户ID",
+              "promptColor": "#b2b2b2"
+            },
+            {
+              "_$id": "soc0000s",
+              "_$type": "GTextField",
+              "name": "addSearch",
+              "x": 920,
+              "y": 170,
+              "width": 235,
+              "height": 110,
+              "_mouseState": 2,
+              "background": {
+                "_$type": "DrawRoundRectCmd",
+                "lt": 8,
+                "rt": 8,
+                "lb": 8,
+                "rb": 8,
+                "fillColor": "#07c160"
+              },
+              "relations": [
+                {
+                  "_$type": "Relation",
+                  "target": {
+                    "_$ref": "soc0000n"
+                  },
+                  "data": [
+                    9,
+                    0
+                  ]
+                },
+                {
+                  "_$type": "Relation",
+                  "target": {
+                    "_$ref": "soc0000n"
+                  },
+                  "data": [
+                    10,
+                    0
+                  ]
+                }
+              ],
+              "text": "搜索",
+              "font": "STZhongsong",
+              "fontSize": 44,
+              "color": "#ffffff",
+              "bold": true,
+              "align": "center",
+              "valign": "middle"
+            },
+            {
+              "_$id": "soc0000t",
+              "_$type": "GBox",
+              "name": "addResult",
+              "x": 20,
+              "y": 410,
+              "width": 1135,
+              "height": 180,
+              "visible": false,
+              "background": {
+                "_$type": "DrawRoundRectCmd",
+                "lt": 8,
+                "rt": 8,
+                "lb": 8,
+                "rb": 8,
+                "lineWidth": 1,
+                "lineColor": "#e0e0e0",
+                "fillColor": "#ffffff"
+              },
+              "_$child": [
+                {
+                  "_$id": "soc0000u",
+                  "_$type": "GImage",
+                  "name": "rHead",
+                  "x": 20,
+                  "y": 30,
+                  "width": 120,
+                  "height": 120,
+                  "_mouseState": 1,
+                  "background": {
+                    "_$type": "DrawRoundRectCmd",
+                    "lt": 8,
+                    "rt": 8,
+                    "lb": 8,
+                    "rb": 8,
+                    "fillColor": "#e0e0e0"
+                  },
+                  "src": ""
+                },
+                {
+                  "_$id": "soc0000v",
+                  "_$type": "GTextField",
+                  "name": "rName",
+                  "x": 170,
+                  "y": 28,
+                  "width": 600,
+                  "height": 64,
+                  "_mouseState": 1,
+                  "text": "",
+                  "font": "STZhongsong",
+                  "fontSize": 48,
+                  "color": "#191919",
+                  "valign": "middle"
+                },
+                {
+                  "_$id": "soc0000w",
+                  "_$type": "GTextField",
+                  "name": "rSub",
+                  "x": 170,
+                  "y": 100,
+                  "width": 600,
+                  "height": 56,
+                  "_mouseState": 1,
+                  "text": "",
+                  "font": "STZhongsong",
+                  "fontSize": 36,
+                  "color": "#999999",
+                  "valign": "middle"
+                },
+                {
+                  "_$id": "soc0000x",
+                  "_$type": "GTextField",
+                  "name": "rReq",
+                  "x": 900,
+                  "y": 40,
+                  "width": 215,
+                  "height": 100,
+                  "_mouseState": 2,
+                  "background": {
+                    "_$type": "DrawRoundRectCmd",
+                    "lt": 8,
+                    "rt": 8,
+                    "lb": 8,
+                    "rb": 8,
+                    "fillColor": "#07c160"
+                  },
+                  "text": "发申请",
+                  "font": "STZhongsong",
+                  "fontSize": 44,
+                  "color": "#ffffff",
+                  "bold": true,
+                  "align": "center",
+                  "valign": "middle"
+                }
+              ]
+            },
+            {
+              "_$id": "soc0000y",
+              "_$type": "GTextField",
+              "name": "reqTitle",
+              "x": 20,
+              "y": 620,
+              "width": 600,
+              "height": 64,
+              "_mouseState": 1,
+              "text": "新的朋友",
+              "font": "STZhongsong",
+              "fontSize": 44,
+              "color": "#191919",
+              "bold": true,
+              "valign": "middle"
+            },
+            {
+              "_$id": "soc00015",
+              "_$type": "GList",
+              "name": "reqList",
+              "y": 700,
+              "width": 1175,
+              "height": 1334,
+              "mouseThrough": true,
+              "relations": [
+                {
+                  "_$type": "Relation",
+                  "target": {
+                    "_$ref": "soc0000n"
+                  },
+                  "data": [
+                    1,
+                    0
+                  ]
+                },
+                {
+                  "_$type": "Relation",
+                  "target": {
+                    "_$ref": "soc0000n"
+                  },
+                  "data": [
+                    3,
+                    0
+                  ]
+                },
+                {
+                  "_$type": "Relation",
+                  "target": {
+                    "_$ref": "soc0000y"
+                  },
+                  "data": [
+                    12,
+                    0
+                  ]
+                },
+                {
+                  "_$type": "Relation",
+                  "target": {
+                    "_$ref": "soc0000n"
+                  },
+                  "data": [
+                    24,
+                    0
+                  ]
+                }
+              ],
+              "layout": {
+                "type": 1
+              },
+              "scroller": {
+                "_$type": "Scroller",
+                "barDisplay": 3,
+                "barFloating": true
+              },
+              "_templateNode": {
+                "_$ref": "soc0000z",
+                "_$tmpl": "itemTemplate"
+              },
+              "_initItemNum": null,
+              "_$child": [
+                {
+                  "_$id": "soc0000z",
+                  "_$type": "GBox",
+                  "name": "reqItem",
+                  "width": 1175,
+                  "height": 150,
+                  "background": {
+                    "_$type": "DrawRectCmd",
+                    "lineWidth": 1,
+                    "lineColor": "#e6e6e6",
+                    "fillColor": "#ffffff"
+                  },
+                  "_$child": [
+                    {
+                      "_$id": "soc00010",
+                      "_$type": "GImage",
+                      "name": "qHead",
+                      "x": 30,
+                      "y": 15,
+                      "width": 120,
+                      "height": 120,
+                      "_mouseState": 1,
+                      "background": {
+                        "_$type": "DrawRoundRectCmd",
+                        "lt": 8,
+                        "rt": 8,
+                        "lb": 8,
+                        "rb": 8,
+                        "fillColor": "#e0e0e0"
+                      },
+                      "src": "",
+                      "autoSize": false
+                    },
+                    {
+                      "_$id": "soc00011",
+                      "_$type": "GTextField",
+                      "name": "qName",
+                      "x": 180,
+                      "y": 20,
+                      "width": 560,
+                      "height": 60,
+                      "_mouseState": 1,
+                      "text": "",
+                      "font": "STZhongsong",
+                      "fontSize": 44,
+                      "color": "#191919",
+                      "valign": "middle"
+                    },
+                    {
+                      "_$id": "soc00012",
+                      "_$type": "GTextField",
+                      "name": "qSub",
+                      "x": 180,
+                      "y": 84,
+                      "width": 560,
+                      "height": 50,
+                      "_mouseState": 1,
+                      "text": "请求加为好友",
+                      "font": "STZhongsong",
+                      "fontSize": 32,
+                      "color": "#999999",
+                      "valign": "middle"
+                    },
+                    {
+                      "_$id": "soc00013",
+                      "_$type": "GTextField",
+                      "name": "qOk",
+                      "x": 880,
+                      "y": 30,
+                      "width": 130,
+                      "height": 90,
+                      "_mouseState": 2,
+                      "background": {
+                        "_$type": "DrawRoundRectCmd",
+                        "lt": 8,
+                        "rt": 8,
+                        "lb": 8,
+                        "rb": 8,
+                        "fillColor": "#07c160"
+                      },
+                      "text": "同意",
+                      "font": "STZhongsong",
+                      "fontSize": 40,
+                      "color": "#ffffff",
+                      "bold": true,
+                      "align": "center",
+                      "valign": "middle"
+                    },
+                    {
+                      "_$id": "soc00014",
+                      "_$type": "GTextField",
+                      "name": "qNo",
+                      "x": 1025,
+                      "y": 30,
+                      "width": 130,
+                      "height": 90,
+                      "_mouseState": 2,
+                      "background": {
+                        "_$type": "DrawRoundRectCmd",
+                        "lt": 8,
+                        "rt": 8,
+                        "lb": 8,
+                        "rb": 8,
+                        "fillColor": "#e8e8e8"
+                      },
+                      "text": "拒绝",
+                      "font": "STZhongsong",
+                      "fontSize": 40,
+                      "color": "#191919",
+                      "bold": true,
+                      "align": "center",
+                      "valign": "middle"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "_$id": "soc00016",
+              "_$type": "GTextField",
+              "name": "reqEmpty",
+              "y": 800,
+              "width": 1175,
+              "height": 120,
+              "visible": false,
+              "_mouseState": 1,
+              "text": "暂无好友申请",
+              "font": "STZhongsong",
+              "fontSize": 40,
+              "color": "#b2b2b2",
+              "align": "center",
+              "valign": "middle"
+            },
+            {
+              "_$id": "sox00003",
+              "_$type": "GTextField",
+              "name": "priceLabel",
+              "x": 20,
+              "y": 300,
+              "width": 160,
+              "height": 90,
+              "_mouseState": 1,
+              "text": "身价",
+              "font": "STZhongsong",
+              "fontSize": 40,
+              "color": "#191919",
+              "bold": true,
+              "valign": "middle"
+            },
+            {
+              "_$id": "sox00004",
+              "_$type": "GTextInput",
+              "name": "addPrice",
+              "x": 180,
+              "y": 300,
+              "width": 200,
+              "height": 90,
+              "background": {
+                "_$type": "DrawRoundRectCmd",
+                "lt": 8,
+                "rt": 8,
+                "lb": 8,
+                "rb": 8,
+                "lineWidth": 1,
+                "lineColor": "#d0d0d0",
+                "fillColor": "#fff"
+              },
+              "text": "",
+              "font": "STZhongsong",
+              "fontSize": 44,
+              "color": "#191919",
+              "valign": "middle",
+              "padding": [
+                16,
+                8,
+                16,
+                8
+              ],
+              "prompt": "1",
+              "promptColor": "#b2b2b2"
+            },
+            {
+              "_$id": "sox00005",
+              "_$type": "GTextField",
+              "name": "priceHint",
+              "x": 400,
+              "y": 300,
+              "width": 740,
+              "height": 90,
+              "_mouseState": 1,
+              "text": "金币(0-500, 默认1)",
+              "font": "STZhongsong",
+              "fontSize": 32,
+              "color": "#999",
+              "valign": "middle"
+            }
+          ]
+        },
+        {
+          "_$id": "sox00006",
+          "_$type": "GBox",
+          "name": "socGroup",
+          "width": 1175,
+          "height": 2034,
+          "visible": false,
+          "relations": [
+            {
+              "_$type": "Relation",
+              "target": {
+                "_$ref": "ng6b6usl"
+              },
+              "data": [
+                1,
+                0
+              ]
+            },
+            {
+              "_$type": "Relation",
+              "target": {
+                "_$ref": "ng6b6usl"
+              },
+              "data": [
+                2,
+                0
+              ]
+            },
+            {
+              "_$type": "Relation",
+              "target": {
+                "_$ref": "ng6b6usl"
+              },
+              "data": [
+                3,
+                0
+              ]
+            },
+            {
+              "_$type": "Relation",
+              "target": {
+                "_$ref": "ng6b6usl"
+              },
+              "data": [
+                10,
+                0
+              ]
+            }
+          ],
+          "_$child": [
+            {
+              "_$id": "sox00007",
+              "_$type": "GBox",
+              "name": "gTop",
+              "width": 1175,
+              "height": 140,
+              "background": {
+                "_$type": "DrawRectCmd",
+                "fillColor": "#ededed"
+              },
+              "relations": [
+                {
+                  "_$type": "Relation",
+                  "target": {
+                    "_$ref": "sox00006"
+                  },
+                  "data": [
+                    1,
+                    0
+                  ]
+                },
+                {
+                  "_$type": "Relation",
+                  "target": {
+                    "_$ref": "sox00006"
+                  },
+                  "data": [
+                    3,
+                    0
+                  ]
+                },
+                {
+                  "_$type": "Relation",
+                  "target": {
+                    "_$ref": "sox00006"
+                  },
+                  "data": [
+                    10,
+                    0
+                  ]
+                }
+              ],
+              "_$child": [
+                {
+                  "_$id": "sox00008",
+                  "_$type": "GTextField",
+                  "name": "gBack",
+                  "x": 20,
+                  "y": 20,
+                  "width": 160,
+                  "height": 100,
+                  "_mouseState": 2,
+                  "background": {
+                    "_$type": "DrawRoundRectCmd",
+                    "lt": 8,
+                    "rt": 8,
+                    "lb": 8,
+                    "rb": 8,
+                    "fillColor": "#fff"
+                  },
+                  "text": "‹ 返回",
+                  "font": "STZhongsong",
+                  "fontSize": 44,
+                  "color": "#191919",
+                  "bold": true,
+                  "align": "center",
+                  "valign": "middle"
+                },
+                {
+                  "_$id": "sox00009",
+                  "_$type": "GTextField",
+                  "name": "gTitle",
+                  "x": 200,
+                  "width": 488,
+                  "height": 140,
+                  "_mouseState": 1,
+                  "text": "创建群聊",
+                  "font": "STZhongsong",
+                  "fontSize": 56,
+                  "color": "#191919",
+                  "bold": true,
+                  "valign": "middle"
+                },
+                {
+                  "_$id": "sox0000h",
+                  "_$type": "GTextField",
+                  "name": "gCreate",
+                  "x": 728,
+                  "y": 16,
+                  "width": 411,
+                  "height": 110,
+                  "_mouseState": 2,
+                  "background": {
+                    "_$type": "DrawRoundRectCmd",
+                    "lt": 8,
+                    "rt": 8,
+                    "lb": 8,
+                    "rb": 8,
+                    "fillColor": "#a3caca"
+                  },
+                  "text": "创建群聊",
+                  "font": "STZhongsong",
+                  "fontSize": 48,
+                  "color": "#fff",
+                  "bold": true,
+                  "align": "center",
+                  "valign": "middle"
+                }
+              ]
+            },
+            {
+              "_$id": "sox0000a",
+              "_$type": "GTextInput",
+              "name": "gName",
+              "x": 20,
+              "y": 170,
+              "width": 1135,
+              "height": 100,
+              "background": {
+                "_$type": "DrawRoundRectCmd",
+                "lt": 8,
+                "rt": 8,
+                "lb": 8,
+                "rb": 8,
+                "lineWidth": 1,
+                "lineColor": "#d0d0d0",
+                "fillColor": "#fff"
+              },
+              "text": "",
+              "font": "STZhongsong",
+              "fontSize": 44,
+              "color": "#191919",
+              "valign": "middle",
+              "padding": [
+                16,
+                8,
+                16,
+                8
+              ],
+              "prompt": "群名称(1-20字)",
+              "promptColor": "#b2b2b2"
+            },
+            {
+              "_$id": "sox0000b",
+              "_$type": "GTextField",
+              "name": "gMemTitle",
+              "x": 20,
+              "y": 300,
+              "width": 600,
+              "height": 60,
+              "_mouseState": 1,
+              "text": "选择好友(至少1人)",
+              "font": "STZhongsong",
+              "fontSize": 40,
+              "color": "#191919",
+              "bold": true,
+              "valign": "middle"
+            },
+            {
+              "_$id": "sox0000g",
+              "_$type": "GList",
+              "name": "gMemList",
+              "y": 380,
+              "width": 1175,
+              "height": 1400,
+              "mouseThrough": true,
+              "layout": {
+                "type": 1
+              },
+              "scroller": {
+                "_$type": "Scroller",
+                "barDisplay": 3,
+                "barFloating": true
+              },
+              "_templateNode": {
+                "_$ref": "sox0000c",
+                "_$tmpl": "itemTemplate"
+              },
+              "_initItemNum": null,
+              "_$child": [
+                {
+                  "_$id": "sox0000c",
+                  "_$type": "GBox",
+                  "name": "gMemItem",
+                  "width": 1175,
+                  "height": 120,
+                  "background": {
+                    "_$type": "DrawRectCmd",
+                    "lineWidth": 1,
+                    "lineColor": "#e6e6e6",
+                    "fillColor": "#fff"
+                  },
+                  "_$child": [
+                    {
+                      "_$id": "sox0000d",
+                      "_$type": "GImage",
+                      "name": "mHead",
+                      "x": 20,
+                      "y": 10,
+                      "width": 100,
+                      "height": 100,
+                      "_mouseState": 1,
+                      "background": {
+                        "_$type": "DrawRoundRectCmd",
+                        "lt": 8,
+                        "rt": 8,
+                        "lb": 8,
+                        "rb": 8,
+                        "fillColor": "#e0e0e0"
+                      },
+                      "src": ""
+                    },
+                    {
+                      "_$id": "sox0000e",
+                      "_$type": "GTextField",
+                      "name": "mName",
+                      "x": 140,
+                      "y": 10,
+                      "width": 700,
+                      "height": 100,
+                      "_mouseState": 1,
+                      "text": "",
+                      "font": "STZhongsong",
+                      "fontSize": 44,
+                      "color": "#191919",
+                      "valign": "middle"
+                    },
+                    {
+                      "_$id": "sox0000f",
+                      "_$type": "GTextField",
+                      "name": "mToggle",
+                      "x": 1000,
+                      "y": 20,
+                      "width": 150,
+                      "height": 80,
+                      "_mouseState": 2,
+                      "background": {
+                        "_$type": "DrawRoundRectCmd",
+                        "lt": 8,
+                        "rt": 8,
+                        "lb": 8,
+                        "rb": 8,
+                        "fillColor": "#e8e8e8"
+                      },
+                      "text": "选",
+                      "font": "STZhongsong",
+                      "fontSize": 40,
+                      "color": "#191919",
+                      "bold": true,
+                      "align": "center",
+                      "valign": "middle"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "_$id": "ncx00000",
+          "_$type": "GBox",
+          "name": "socNewChat",
+          "width": 1175,
+          "height": 2034,
+          "visible": false,
+          "relations": [
+            {
+              "_$type": "Relation",
+              "target": {
+                "_$ref": "ng6b6usl"
+              },
+              "data": [
+                1,
+                0,
+                2,
+                0,
+                3,
+                0,
+                10,
+                0
+              ]
+            }
+          ],
+          "_$child": [
+            {
+              "_$id": "ncx00001",
+              "_$type": "GBox",
+              "name": "ncTop",
+              "width": 1175,
+              "height": 140,
+              "background": {
+                "_$type": "DrawRectCmd",
+                "fillColor": "#ededed"
+              },
+              "_$child": [
+                {
+                  "_$id": "ncx00002",
+                  "_$type": "GTextField",
+                  "name": "ncBack",
+                  "x": 20,
+                  "y": 20,
+                  "width": 160,
+                  "height": 100,
+                  "_mouseState": 2,
+                  "background": {
+                    "_$type": "DrawRectCmd",
+                    "lineWidth": 1,
+                    "lineColor": "#d0d0d0",
+                    "fillColor": "#ffffff"
+                  },
+                  "text": "‹ 返回",
+                  "font": "STZhongsong",
+                  "fontSize": 44,
+                  "color": "#191919",
+                  "bold": true,
+                  "align": "center",
+                  "valign": "middle"
+                },
+                {
+                  "_$id": "ncx00003",
+                  "_$type": "GTextField",
+                  "name": "ncTitle",
+                  "x": 200,
+                  "width": 900,
+                  "height": 140,
+                  "_mouseState": 1,
+                  "text": "创建新聊天(选好友)",
+                  "font": "STZhongsong",
+                  "fontSize": 56,
+                  "color": "#191919",
+                  "bold": true,
+                  "valign": "middle"
+                }
+              ]
+            },
+            {
+              "_$id": "ncx00007",
+              "_$type": "GList",
+              "name": "ncList",
+              "y": 140,
+              "width": 1175,
+              "height": 1894,
+              "mouseThrough": true,
+              "layout": {
+                "type": 1
+              },
+              "scroller": {
+                "_$type": "Scroller",
+                "barDisplay": 3,
+                "barFloating": true
+              },
+              "_templateNode": {
+                "_$ref": "ncx00004",
+                "_$tmpl": "itemTemplate"
+              },
+              "_initItemNum": null,
+              "_$child": [
+                {
+                  "_$id": "ncx00004",
+                  "_$type": "GBox",
+                  "name": "ncItem",
+                  "width": 1175,
+                  "height": 130,
+                  "background": {
+                    "_$type": "DrawRectCmd",
+                    "lineWidth": 1,
+                    "lineColor": "#e6e6e6",
+                    "fillColor": "#ffffff"
+                  },
+                  "_$child": [
+                    {
+                      "_$id": "ncx00005",
+                      "_$type": "GImage",
+                      "name": "ncHead",
+                      "x": 20,
+                      "y": 15,
+                      "width": 100,
+                      "height": 100,
+                      "_mouseState": 1,
+                      "background": {
+                        "_$type": "DrawRectCmd",
+                        "fillColor": "#e0e0e0"
+                      },
+                      "src": ""
+                    },
+                    {
+                      "_$id": "ncx00006",
+                      "_$type": "GTextField",
+                      "name": "ncName",
+                      "x": 140,
+                      "width": 900,
+                      "height": 130,
+                      "_mouseState": 1,
+                      "text": "",
+                      "font": "STZhongsong",
+                      "fontSize": 44,
+                      "color": "#191919",
+                      "valign": "middle"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
         }
       ]
     },
@@ -1270,43 +3553,6 @@
         }
       ],
       "_$child": [
-        {
-          "_$id": "44oghk4d",
-          "_$type": "GTextField",
-          "name": "me",
-          "x": 51,
-          "y": 677,
-          "width": 297,
-          "height": 124,
-          "relations": [
-            {
-              "_$type": "Relation",
-              "target": {
-                "_$ref": "1eb8h2kj"
-              },
-              "data": [
-                3,
-                0,
-                12,
-                0
-              ]
-            }
-          ],
-          "text": "背包:",
-          "font": "STXinwei",
-          "fontSize": 60,
-          "color": "#474747",
-          "bold": true,
-          "align": "center",
-          "valign": "middle",
-          "padding": [
-            0,
-            0,
-            0,
-            0
-          ],
-          "strokeColor": "#ffffff"
-        },
         {
           "_$id": "5rnceryk",
           "_$type": "GBox",
@@ -1375,31 +3621,21 @@
           ]
         },
         {
-          "_$id": "04506o2y",
-          "_$var": true,
-          "_$type": "GList",
-          "name": "gList",
-          "x": 31,
-          "y": 816,
-          "width": 1112,
-          "height": 921,
-          "mouseThrough": true,
-          "zIndex": 1,
-          "background": {
-            "_$type": "DrawRoundRectCmd",
-            "lineWidth": 1,
-            "lineColor": "#000000"
-          },
+          "_$id": "9vq6pfhg",
+          "_$type": "GBox",
+          "name": "listbox",
+          "x": 28,
+          "y": 588,
+          "width": 1104,
+          "height": 1436,
           "relations": [
             {
               "_$type": "Relation",
               "target": {
-                "_$ref": "8dcxrzg6"
+                "_$ref": "5rnceryk"
               },
               "data": [
-                1,
-                1,
-                6,
+                12,
                 0,
                 24,
                 0
@@ -1408,76 +3644,1312 @@
             {
               "_$type": "Relation",
               "target": {
-                "_$ref": "5rnceryk"
+                "_$ref": "2wk6ott4"
               },
               "data": [
-                12,
-                1
+                1,
+                0,
+                6,
+                0,
+                24,
+                0
               ]
             }
           ],
-          "layout": {
-            "type": 3,
-            "rows": 6,
-            "columns": 4
-          },
-          "scroller": {
-            "_$type": "Scroller",
-            "barDisplay": 4,
-            "barOnLeft": true,
-            "barFloating": true,
-            "pageMode": true
-          },
-          "_templateNode": {
-            "_$ref": "yzatw2fp",
-            "_$tmpl": "itemTemplate"
-          },
-          "_initItemNum": 50,
           "_$child": [
             {
-              "_$id": "yzatw2fp",
-              "_$type": "GBox",
-              "name": "item",
-              "width": 286,
-              "height": 232,
-              "mouseThrough": true,
+              "_$id": "ptr00000",
+              "_$type": "GButton",
+              "name": "tabBag",
+              "width": 220,
+              "height": 130,
+              "_mouseState": 2,
+              "controllers": {
+                "_$type": "Record",
+                "button": {
+                  "_$type": "Controller",
+                  "pages": [
+                    "up",
+                    "down",
+                    "over",
+                    "selectedOver",
+                    "disabled",
+                    "selectedDisabled"
+                  ],
+                  "_editingIndex": 1
+                }
+              },
+              "relations": [
+                {
+                  "_$type": "Relation",
+                  "target": {
+                    "_$ref": "9vq6pfhg"
+                  },
+                  "data": [
+                    3,
+                    0
+                  ]
+                }
+              ],
+              "title": "背包",
+              "selectedTitle": "背包",
+              "mode": 2,
+              "selected": true,
               "_$child": [
                 {
-                  "_$id": "9hwux1y5",
-                  "_$type": "GImage",
-                  "name": "img",
-                  "x": 28,
-                  "y": 13,
-                  "width": 200,
-                  "height": 200,
+                  "_$id": "ptr00001",
+                  "_$type": "GBox",
+                  "name": "bgNormal",
+                  "width": 220,
+                  "height": 130,
+                  "_mouseState": 1,
+                  "background": {
+                    "_$type": "DrawRectCmd",
+                    "lineWidth": 1,
+                    "lineColor": "#e0e0e0",
+                    "fillColor": "#f2f2f2"
+                  },
+                  "gears": [
+                    {
+                      "_$type": "GearDisplay",
+                      "controller": {
+                        "_$ref": "ptr00000",
+                        "_$ctrl": "button"
+                      },
+                      "pages": [
+                        0,
+                        2,
+                        4
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "_$id": "ptr00002",
+                  "_$type": "GBox",
+                  "name": "bgSel",
+                  "width": 220,
+                  "height": 130,
+                  "_mouseState": 1,
+                  "background": {
+                    "_$type": "DrawRectCmd",
+                    "lineWidth": 1,
+                    "lineColor": "#e0e0e0",
+                    "fillColor": "#07c160"
+                  },
+                  "gears": [
+                    {
+                      "_$type": "GearDisplay",
+                      "controller": {
+                        "_$ref": "ptr00000",
+                        "_$ctrl": "button"
+                      },
+                      "pages": [
+                        1,
+                        3,
+                        5
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "_$id": "ptr00003",
+                  "_$type": "GTextField",
+                  "name": "t",
+                  "width": 220,
+                  "height": 130,
+                  "_mouseState": 1,
+                  "text": "背包",
+                  "font": "STZhongsong",
+                  "fontSize": 44,
+                  "color": "#191919",
+                  "bold": true,
+                  "align": "center",
+                  "valign": "middle"
+                }
+              ]
+            },
+            {
+              "_$id": "ptr00004",
+              "_$type": "GButton",
+              "name": "tabRec",
+              "y": 130,
+              "width": 220,
+              "height": 130,
+              "_mouseState": 2,
+              "controllers": {
+                "_$type": "Record",
+                "button": {
+                  "_$type": "Controller",
+                  "pages": [
+                    "up",
+                    "down",
+                    "over",
+                    "selectedOver",
+                    "disabled",
+                    "selectedDisabled"
+                  ]
+                }
+              },
+              "relations": [
+                {
+                  "_$type": "Relation",
+                  "target": {
+                    "_$ref": "9vq6pfhg"
+                  },
+                  "data": [
+                    3,
+                    0
+                  ]
+                }
+              ],
+              "title": "战绩",
+              "selectedTitle": "战绩",
+              "mode": 2,
+              "_$child": [
+                {
+                  "_$id": "ptr00005",
+                  "_$type": "GBox",
+                  "name": "bgNormal",
+                  "width": 220,
+                  "height": 130,
+                  "_mouseState": 1,
+                  "background": {
+                    "_$type": "DrawRectCmd",
+                    "lineWidth": 1,
+                    "lineColor": "#e0e0e0",
+                    "fillColor": "#f2f2f2"
+                  },
+                  "gears": [
+                    {
+                      "_$type": "GearDisplay",
+                      "controller": {
+                        "_$ref": "ptr00004",
+                        "_$ctrl": "button"
+                      },
+                      "pages": [
+                        0,
+                        2,
+                        4
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "_$id": "ptr00006",
+                  "_$type": "GBox",
+                  "name": "bgSel",
+                  "width": 220,
+                  "height": 130,
+                  "_mouseState": 1,
+                  "background": {
+                    "_$type": "DrawRectCmd",
+                    "lineWidth": 1,
+                    "lineColor": "#e0e0e0",
+                    "fillColor": "#07c160"
+                  },
+                  "gears": [
+                    {
+                      "_$type": "GearDisplay",
+                      "controller": {
+                        "_$ref": "ptr00004",
+                        "_$ctrl": "button"
+                      },
+                      "pages": [
+                        1,
+                        3,
+                        5
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "_$id": "ptr00007",
+                  "_$type": "GTextField",
+                  "name": "t",
+                  "width": 220,
+                  "height": 130,
+                  "_mouseState": 1,
+                  "text": "战绩",
+                  "font": "STZhongsong",
+                  "fontSize": 44,
+                  "color": "#191919",
+                  "bold": true,
+                  "align": "center",
+                  "valign": "middle"
+                }
+              ]
+            },
+            {
+              "_$id": "sox0000l",
+              "_$type": "GBox",
+              "name": "pRight",
+              "x": 220,
+              "width": 900,
+              "height": 1436,
+              "background": {
+                "_$type": "DrawRectCmd",
+                "lineWidth": 1,
+                "lineColor": "#000000"
+              },
+              "relations": [
+                {
+                  "_$type": "Relation",
+                  "target": {
+                    "_$ref": "ptr00000"
+                  },
+                  "data": [
+                    5,
+                    0
+                  ]
+                },
+                {
+                  "_$type": "Relation",
+                  "target": {
+                    "_$ref": "9vq6pfhg"
+                  },
+                  "data": [
+                    20,
+                    1
+                  ]
+                },
+                {
+                  "_$type": "Relation",
+                  "target": {
+                    "_$ref": "9vq6pfhg"
+                  },
+                  "data": [
+                    10,
+                    0
+                  ]
+                },
+                {
+                  "_$type": "Relation",
+                  "target": {
+                    "_$ref": "9vq6pfhg"
+                  },
+                  "data": [
+                    24,
+                    0
+                  ]
+                }
+              ],
+              "_$child": [
+                {
+                  "_$id": "sox0000m",
+                  "_$type": "GBox",
+                  "name": "pBag",
+                  "x": -40,
+                  "width": 951,
+                  "height": 1462,
                   "relations": [
                     {
                       "_$type": "Relation",
                       "target": {
-                        "_$ref": "yzatw2fp"
+                        "_$ref": "sox0000l"
                       },
                       "data": [
-                        6,
-                        0,
-                        13,
+                        1,
+                        0
+                      ]
+                    },
+                    {
+                      "_$type": "Relation",
+                      "target": {
+                        "_$ref": "sox0000l"
+                      },
+                      "data": [
+                        2,
+                        0
+                      ]
+                    },
+                    {
+                      "_$type": "Relation",
+                      "target": {
+                        "_$ref": "sox0000l"
+                      },
+                      "data": [
+                        3,
+                        0
+                      ]
+                    },
+                    {
+                      "_$type": "Relation",
+                      "target": {
+                        "_$ref": "sox0000l"
+                      },
+                      "data": [
+                        10,
                         0
                       ]
                     }
                   ],
-                  "src": ""
+                  "_$child": [
+                    {
+                      "_$id": "sox0000r",
+                      "_$type": "GList",
+                      "name": "bagTable",
+                      "x": 46,
+                      "width": 915,
+                      "height": 1438,
+                      "mouseThrough": true,
+                      "relations": [
+                        {
+                          "_$type": "Relation",
+                          "target": {
+                            "_$ref": "sox0000m"
+                          },
+                          "data": [
+                            1,
+                            0,
+                            2,
+                            0,
+                            3,
+                            0,
+                            13,
+                            0
+                          ]
+                        }
+                      ],
+                      "layout": {
+                        "type": 4,
+                        "columns": 3
+                      },
+                      "scroller": {
+                        "_$type": "Scroller",
+                        "barDisplay": 3,
+                        "barFloating": true
+                      },
+                      "_templateNode": {
+                        "_$ref": "sox0000n",
+                        "_$tmpl": "itemTemplate"
+                      },
+                      "_initItemNum": null,
+                      "_$child": [
+                        {
+                          "_$id": "sox0000n",
+                          "_$type": "GBox",
+                          "name": "bagRow",
+                          "width": 294,
+                          "height": 287,
+                          "background": {
+                            "_$type": "DrawRectCmd",
+                            "lineWidth": 1,
+                            "lineColor": "#e6e6e6",
+                            "fillColor": "#fff"
+                          },
+                          "_$child": [
+                            {
+                              "_$id": "sox0000o",
+                              "_$type": "GImage",
+                              "name": "img",
+                              "x": 67,
+                              "y": 20,
+                              "width": 160,
+                              "height": 160,
+                              "_mouseState": 1,
+                              "background": {
+                                "_$type": "DrawRoundRectCmd",
+                                "lt": 8,
+                                "rt": 8,
+                                "lb": 8,
+                                "rb": 8,
+                                "fillColor": "#e0e0e0"
+                              },
+                              "src": ""
+                            },
+                            {
+                              "_$id": "sox0000q",
+                              "_$type": "GTextField",
+                              "name": "count",
+                              "y": 190,
+                              "width": 294,
+                              "height": 70,
+                              "_mouseState": 1,
+                              "text": "x1",
+                              "font": "STZhongsong",
+                              "fontSize": 44,
+                              "color": "#07c160",
+                              "bold": true,
+                              "align": "center",
+                              "valign": "middle"
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
                 },
                 {
-                  "_$id": "ygi7f9n9",
+                  "_$id": "sox0000s",
+                  "_$type": "GBox",
+                  "name": "pRec",
+                  "width": 907,
+                  "height": 1462,
+                  "visible": false,
+                  "relations": [
+                    {
+                      "_$type": "Relation",
+                      "target": {
+                        "_$ref": "sox0000l"
+                      },
+                      "data": [
+                        1,
+                        0
+                      ]
+                    },
+                    {
+                      "_$type": "Relation",
+                      "target": {
+                        "_$ref": "sox0000l"
+                      },
+                      "data": [
+                        2,
+                        0
+                      ]
+                    },
+                    {
+                      "_$type": "Relation",
+                      "target": {
+                        "_$ref": "sox0000l"
+                      },
+                      "data": [
+                        3,
+                        0
+                      ]
+                    },
+                    {
+                      "_$type": "Relation",
+                      "target": {
+                        "_$ref": "sox0000l"
+                      },
+                      "data": [
+                        10,
+                        0
+                      ]
+                    }
+                  ],
+                  "_$child": [
+                    {
+                      "_$id": "sox0000y",
+                      "_$type": "GList",
+                      "name": "recList",
+                      "width": 915,
+                      "height": 1426,
+                      "mouseThrough": true,
+                      "relations": [
+                        {
+                          "_$type": "Relation",
+                          "target": {
+                            "_$ref": "sox0000s"
+                          },
+                          "data": [
+                            1,
+                            0,
+                            3,
+                            0,
+                            10,
+                            0
+                          ]
+                        }
+                      ],
+                      "layout": {
+                        "type": 1
+                      },
+                      "scroller": {
+                        "_$type": "Scroller",
+                        "barDisplay": 3,
+                        "barFloating": true
+                      },
+                      "_templateNode": {
+                        "_$ref": "sox0000t",
+                        "_$tmpl": "itemTemplate"
+                      },
+                      "_initItemNum": null,
+                      "_$child": [
+                        {
+                          "_$id": "sox0000t",
+                          "_$type": "GBox",
+                          "name": "recRow",
+                          "width": 935,
+                          "height": 130,
+                          "background": {
+                            "_$type": "DrawRectCmd",
+                            "lineWidth": 1,
+                            "lineColor": "#e6e6e6",
+                            "fillColor": "#fff"
+                          },
+                          "_$child": [
+                            {
+                              "_$id": "sox0000u",
+                              "_$type": "GTextField",
+                              "name": "rMode",
+                              "x": 20,
+                              "y": 10,
+                              "width": 160,
+                              "height": 110,
+                              "_mouseState": 1,
+                              "text": "PVE",
+                              "font": "STZhongsong",
+                              "fontSize": 36,
+                              "color": "#999",
+                              "align": "center",
+                              "valign": "middle"
+                            },
+                            {
+                              "_$id": "sox0000v",
+                              "_$type": "GTextField",
+                              "name": "rWin",
+                              "x": 190,
+                              "y": 10,
+                              "width": 120,
+                              "height": 110,
+                              "_mouseState": 1,
+                              "text": "胜",
+                              "font": "STZhongsong",
+                              "fontSize": 44,
+                              "color": "#07c160",
+                              "bold": true,
+                              "align": "center",
+                              "valign": "middle"
+                            },
+                            {
+                              "_$id": "sox0000w",
+                              "_$type": "GTextField",
+                              "name": "rScore",
+                              "x": 320,
+                              "y": 10,
+                              "width": 260,
+                              "height": 110,
+                              "_mouseState": 1,
+                              "text": "0:0",
+                              "font": "STZhongsong",
+                              "fontSize": 40,
+                              "color": "#191919",
+                              "align": "center",
+                              "valign": "middle"
+                            },
+                            {
+                              "_$id": "sox0000x",
+                              "_$type": "GTextField",
+                              "name": "rTime",
+                              "x": 600,
+                              "y": 10,
+                              "width": 315,
+                              "height": 110,
+                              "_mouseState": 1,
+                              "text": "",
+                              "font": "STZhongsong",
+                              "fontSize": 32,
+                              "color": "#b2b2b2",
+                              "align": "right",
+                              "valign": "middle"
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "_$id": "sox0000z",
+                      "_$type": "GTextField",
+                      "name": "recEmpty",
+                      "y": 600,
+                      "width": 935,
+                      "height": 120,
+                      "visible": false,
+                      "_mouseState": 1,
+                      "text": "暂无对局记录",
+                      "font": "STZhongsong",
+                      "fontSize": 40,
+                      "color": "#b2b2b2",
+                      "align": "center",
+                      "valign": "middle"
+                    }
+                  ]
+                },
+                {
+                  "_$id": "sox00010",
+                  "_$type": "GBox",
+                  "name": "pDetail",
+                  "width": 915,
+                  "height": 1462,
+                  "visible": false,
+                  "relations": [
+                    {
+                      "_$type": "Relation",
+                      "target": {
+                        "_$ref": "sox0000l"
+                      },
+                      "data": [
+                        1,
+                        0
+                      ]
+                    },
+                    {
+                      "_$type": "Relation",
+                      "target": {
+                        "_$ref": "sox0000l"
+                      },
+                      "data": [
+                        2,
+                        0
+                      ]
+                    },
+                    {
+                      "_$type": "Relation",
+                      "target": {
+                        "_$ref": "sox0000l"
+                      },
+                      "data": [
+                        3,
+                        0
+                      ]
+                    },
+                    {
+                      "_$type": "Relation",
+                      "target": {
+                        "_$ref": "sox0000l"
+                      },
+                      "data": [
+                        10,
+                        0
+                      ]
+                    }
+                  ],
+                  "_$child": [
+                    {
+                      "_$id": "sox00011",
+                      "_$type": "GTextField",
+                      "name": "dBack",
+                      "width": 160,
+                      "height": 90,
+                      "_mouseState": 2,
+                      "background": {
+                        "_$type": "DrawRoundRectCmd",
+                        "lt": 8,
+                        "rt": 8,
+                        "lb": 8,
+                        "rb": 8,
+                        "fillColor": "#e8e8e8"
+                      },
+                      "text": "‹ 返回",
+                      "font": "STZhongsong",
+                      "fontSize": 40,
+                      "color": "#191919",
+                      "bold": true,
+                      "align": "center",
+                      "valign": "middle"
+                    },
+                    {
+                      "_$id": "sox00012",
+                      "_$type": "GTextField",
+                      "name": "dTitle",
+                      "x": 180,
+                      "width": 439,
+                      "height": 90,
+                      "_mouseState": 1,
+                      "text": "对局详情",
+                      "font": "STZhongsong",
+                      "fontSize": 44,
+                      "color": "#191919",
+                      "bold": true,
+                      "valign": "middle"
+                    },
+                    {
+                      "_$id": "sox00013",
+                      "_$type": "GTextField",
+                      "name": "dScore",
+                      "y": 100,
+                      "width": 847,
+                      "height": 90,
+                      "_mouseState": 1,
+                      "text": "",
+                      "font": "STZhongsong",
+                      "fontSize": 40,
+                      "color": "#191919",
+                      "align": "center",
+                      "valign": "middle"
+                    },
+                    {
+                      "_$id": "sox00019",
+                      "_$type": "GList",
+                      "name": "dPlayers",
+                      "y": 210,
+                      "width": 895,
+                      "height": 1228,
+                      "mouseThrough": true,
+                      "relations": [
+                        {
+                          "_$type": "Relation",
+                          "target": {
+                            "_$ref": "sox00010"
+                          },
+                          "data": [
+                            1,
+                            0,
+                            3,
+                            0
+                          ]
+                        },
+                        {
+                          "_$type": "Relation",
+                          "target": {
+                            "_$ref": "sox00010"
+                          },
+                          "data": [
+                            24,
+                            0
+                          ]
+                        }
+                      ],
+                      "layout": {
+                        "type": 1
+                      },
+                      "scroller": {
+                        "_$type": "Scroller",
+                        "barDisplay": 3,
+                        "barFloating": true
+                      },
+                      "_templateNode": {
+                        "_$ref": "sox00014",
+                        "_$tmpl": "itemTemplate"
+                      },
+                      "_initItemNum": null,
+                      "_$child": [
+                        {
+                          "_$id": "sox00014",
+                          "_$type": "GBox",
+                          "name": "dRow",
+                          "width": 935,
+                          "height": 120,
+                          "background": {
+                            "_$type": "DrawRectCmd",
+                            "lineWidth": 1,
+                            "lineColor": "#e6e6e6",
+                            "fillColor": "#fff"
+                          },
+                          "_$child": [
+                            {
+                              "_$id": "sox00015",
+                              "_$type": "GImage",
+                              "name": "pHead",
+                              "x": 20,
+                              "y": 10,
+                              "width": 100,
+                              "height": 100,
+                              "_mouseState": 1,
+                              "background": {
+                                "_$type": "DrawRoundRectCmd",
+                                "lt": 8,
+                                "rt": 8,
+                                "lb": 8,
+                                "rb": 8,
+                                "fillColor": "#e0e0e0"
+                              },
+                              "src": ""
+                            },
+                            {
+                              "_$id": "sox00016",
+                              "_$type": "GTextField",
+                              "name": "pName",
+                              "x": 140,
+                              "y": 10,
+                              "width": 560,
+                              "height": 100,
+                              "_mouseState": 1,
+                              "text": "",
+                              "font": "STZhongsong",
+                              "fontSize": 40,
+                              "color": "#191919",
+                              "valign": "middle"
+                            },
+                            {
+                              "_$id": "sox00017",
+                              "_$type": "GTextField",
+                              "name": "pSide",
+                              "x": 700,
+                              "y": 10,
+                              "width": 110,
+                              "height": 100,
+                              "_mouseState": 1,
+                              "text": "",
+                              "font": "STZhongsong",
+                              "fontSize": 36,
+                              "color": "#999",
+                              "align": "center",
+                              "valign": "middle"
+                            },
+                            {
+                              "_$id": "sox00018",
+                              "_$type": "GTextField",
+                              "name": "pAdd",
+                              "x": 820,
+                              "y": 20,
+                              "width": 100,
+                              "height": 80,
+                              "_mouseState": 2,
+                              "background": {
+                                "_$type": "DrawRoundRectCmd",
+                                "lt": 8,
+                                "rt": 8,
+                                "lb": 8,
+                                "rb": 8,
+                                "fillColor": "#07c160"
+                              },
+                              "text": "+",
+                              "font": "STZhongsong",
+                              "fontSize": 48,
+                              "color": "#fff",
+                              "bold": true,
+                              "align": "center",
+                              "valign": "middle"
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "_$id": "pts0000a",
+                  "_$type": "GPanel",
+                  "name": "pSet",
+                  "width": 900,
+                  "height": 1436,
+                  "visible": false,
+                  "relations": [
+                    {
+                      "_$type": "Relation",
+                      "target": {
+                        "_$ref": "sox0000l"
+                      },
+                      "data": [
+                        1,
+                        0,
+                        2,
+                        0,
+                        3,
+                        0,
+                        10,
+                        0
+                      ]
+                    }
+                  ],
+                  "scroller": {
+                    "_$type": "Scroller",
+                    "barDisplay": 3,
+                    "barFloating": true
+                  },
+                  "_$child": [
+                    {
+                      "_$id": "crbc0suw",
+                      "_$prefab": "c008a142-015d-42f3-abf0-bca3b44b3c12",
+                      "name": "au",
+                      "active": true,
+                      "x": 40,
+                      "y": 20,
+                      "width": 212,
+                      "height": 92,
+                      "scaleX": 2,
+                      "scaleY": 2,
+                      "visible": true,
+                      "title": "音乐已关闭",
+                      "selectedTitle": "音乐",
+                      "selected": true
+                    },
+                    {
+                      "_$id": "1k83rjh0",
+                      "_$prefab": "c008a142-015d-42f3-abf0-bca3b44b3c12",
+                      "name": "aue",
+                      "active": true,
+                      "x": 40,
+                      "y": 220,
+                      "width": 260,
+                      "height": 97,
+                      "scaleX": 2,
+                      "scaleY": 2,
+                      "visible": true,
+                      "title": "音效已关闭",
+                      "selectedTitle": "音效",
+                      "selected": true
+                    },
+                    {
+                      "_$id": "62qiee9i",
+                      "_$prefab": "c008a142-015d-42f3-abf0-bca3b44b3c12",
+                      "name": "show",
+                      "active": true,
+                      "x": 40,
+                      "y": 420,
+                      "width": 240,
+                      "height": 75,
+                      "scaleX": 2,
+                      "scaleY": 2,
+                      "visible": true,
+                      "title": "已关闭操作区域辅助",
+                      "selectedTitle": "显示游戏操作区域辅助",
+                      "selected": true
+                    },
+                    {
+                      "_$id": "yz6uf8q2",
+                      "_$prefab": "c008a142-015d-42f3-abf0-bca3b44b3c12",
+                      "name": "double",
+                      "active": true,
+                      "x": 40,
+                      "y": 620,
+                      "width": 234,
+                      "height": 93,
+                      "scaleX": 2,
+                      "scaleY": 2,
+                      "visible": true,
+                      "title": "已关闭双手模式",
+                      "selectedTitle": "开启游戏双手模式"
+                    }
+                  ]
+                },
+                {
+                  "_$id": "pts0000b",
+                  "_$type": "GBox",
+                  "name": "pPrivacy",
+                  "width": 900,
+                  "height": 1436,
+                  "visible": false,
+                  "relations": [
+                    {
+                      "_$type": "Relation",
+                      "target": {
+                        "_$ref": "sox0000l"
+                      },
+                      "data": [
+                        1,
+                        0,
+                        2,
+                        0,
+                        3,
+                        0,
+                        10,
+                        0
+                      ]
+                    }
+                  ],
+                  "_$child": [
+                    {
+                      "_$id": "pts0000c",
+                      "_$type": "GTextField",
+                      "name": "priceLabel",
+                      "x": 20,
+                      "y": 20,
+                      "width": 400,
+                      "height": 80,
+                      "_mouseState": 1,
+                      "text": "我的身价(金币)",
+                      "font": "STZhongsong",
+                      "fontSize": 40,
+                      "color": "#191919",
+                      "bold": true,
+                      "valign": "middle"
+                    },
+                    {
+                      "_$id": "pts0000d",
+                      "_$type": "GTextInput",
+                      "name": "priceInp",
+                      "x": 20,
+                      "y": 110,
+                      "width": 300,
+                      "height": 90,
+                      "background": {
+                        "_$type": "DrawRectCmd",
+                        "lineWidth": 1,
+                        "lineColor": "#d0d0d0",
+                        "fillColor": "#ffffff"
+                      },
+                      "text": "",
+                      "font": "STZhongsong",
+                      "fontSize": 44,
+                      "color": "#191919",
+                      "valign": "middle",
+                      "padding": [
+                        16,
+                        8,
+                        16,
+                        8
+                      ],
+                      "prompt": "1",
+                      "promptColor": "#b2b2b2"
+                    },
+                    {
+                      "_$id": "pts0000e",
+                      "_$type": "GTextField",
+                      "name": "priceSave",
+                      "x": 340,
+                      "y": 110,
+                      "width": 200,
+                      "height": 90,
+                      "_mouseState": 2,
+                      "background": {
+                        "_$type": "DrawRectCmd",
+                        "fillColor": "#07c160"
+                      },
+                      "text": "保存",
+                      "font": "STZhongsong",
+                      "fontSize": 40,
+                      "color": "#ffffff",
+                      "bold": true,
+                      "align": "center",
+                      "valign": "middle"
+                    },
+                    {
+                      "_$id": "pts0000f",
+                      "_$type": "GTextField",
+                      "name": "priceHint",
+                      "x": 20,
+                      "y": 210,
+                      "width": 824,
+                      "height": 60,
+                      "_mouseState": 1,
+                      "text": "身价是自己的展示设置(0-500), 加好友不转移金币",
+                      "font": "STZhongsong",
+                      "fontSize": 30,
+                      "color": "#999999",
+                      "valign": "middle"
+                    },
+                    {
+                      "_$id": "hidemyid01",
+                      "_$prefab": "c008a142-015d-42f3-abf0-bca3b44b3c12",
+                      "name": "hideId",
+                      "active": true,
+                      "x": 40,
+                      "y": 300,
+                      "width": 196,
+                      "height": 64,
+                      "scaleX": 2,
+                      "scaleY": 2,
+                      "visible": true,
+                      "title": "ID已屏蔽",
+                      "selectedTitle": "屏蔽ID"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "_$id": "pts00001",
+              "_$type": "GButton",
+              "name": "tabSet",
+              "y": 260,
+              "width": 220,
+              "height": 130,
+              "_mouseState": 2,
+              "controllers": {
+                "_$type": "Record",
+                "button": {
+                  "_$type": "Controller",
+                  "pages": [
+                    "up",
+                    "down",
+                    "over",
+                    "selectedOver",
+                    "disabled",
+                    "selectedDisabled"
+                  ]
+                }
+              },
+              "relations": [
+                {
+                  "_$type": "Relation",
+                  "target": {
+                    "_$ref": "9vq6pfhg"
+                  },
+                  "data": [
+                    3,
+                    0
+                  ]
+                }
+              ],
+              "title": "设置",
+              "selectedTitle": "设置",
+              "mode": 2,
+              "_$child": [
+                {
+                  "_$id": "pts00002",
+                  "_$type": "GBox",
+                  "name": "bgNormal",
+                  "width": 220,
+                  "height": 130,
+                  "_mouseState": 1,
+                  "background": {
+                    "_$type": "DrawRectCmd",
+                    "lineWidth": 1,
+                    "lineColor": "#e0e0e0",
+                    "fillColor": "#f2f2f2"
+                  },
+                  "gears": [
+                    {
+                      "_$type": "GearDisplay",
+                      "controller": {
+                        "_$ref": "pts00001",
+                        "_$ctrl": "button"
+                      },
+                      "pages": [
+                        0,
+                        2,
+                        4
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "_$id": "pts00003",
+                  "_$type": "GBox",
+                  "name": "bgSel",
+                  "width": 220,
+                  "height": 130,
+                  "_mouseState": 1,
+                  "background": {
+                    "_$type": "DrawRectCmd",
+                    "lineWidth": 1,
+                    "lineColor": "#e0e0e0",
+                    "fillColor": "#07c160"
+                  },
+                  "gears": [
+                    {
+                      "_$type": "GearDisplay",
+                      "controller": {
+                        "_$ref": "pts00001",
+                        "_$ctrl": "button"
+                      },
+                      "pages": [
+                        1,
+                        3,
+                        5
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "_$id": "pts00004",
                   "_$type": "GTextField",
-                  "name": "n",
-                  "x": 146,
-                  "y": 142,
-                  "width": 82,
-                  "height": 71,
-                  "text": "x1",
-                  "font": "STXinwei",
-                  "fontSize": 60,
-                  "overflow": "scroll"
+                  "name": "t",
+                  "width": 220,
+                  "height": 130,
+                  "_mouseState": 1,
+                  "text": "设置",
+                  "font": "STZhongsong",
+                  "fontSize": 44,
+                  "color": "#191919",
+                  "bold": true,
+                  "align": "center",
+                  "valign": "middle"
+                }
+              ]
+            },
+            {
+              "_$id": "pts00006",
+              "_$type": "GButton",
+              "name": "tabPrivacy",
+              "y": 390,
+              "width": 220,
+              "height": 130,
+              "_mouseState": 2,
+              "controllers": {
+                "_$type": "Record",
+                "button": {
+                  "_$type": "Controller",
+                  "pages": [
+                    "up",
+                    "down",
+                    "over",
+                    "selectedOver",
+                    "disabled",
+                    "selectedDisabled"
+                  ]
+                }
+              },
+              "relations": [
+                {
+                  "_$type": "Relation",
+                  "target": {
+                    "_$ref": "9vq6pfhg"
+                  },
+                  "data": [
+                    3,
+                    0
+                  ]
+                }
+              ],
+              "title": "隐私",
+              "selectedTitle": "隐私",
+              "mode": 2,
+              "_$child": [
+                {
+                  "_$id": "pts00007",
+                  "_$type": "GBox",
+                  "name": "bgNormal",
+                  "width": 220,
+                  "height": 130,
+                  "_mouseState": 1,
+                  "background": {
+                    "_$type": "DrawRectCmd",
+                    "lineWidth": 1,
+                    "lineColor": "#e0e0e0",
+                    "fillColor": "#f2f2f2"
+                  },
+                  "gears": [
+                    {
+                      "_$type": "GearDisplay",
+                      "controller": {
+                        "_$ref": "pts00006",
+                        "_$ctrl": "button"
+                      },
+                      "pages": [
+                        0,
+                        2,
+                        4
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "_$id": "pts00008",
+                  "_$type": "GBox",
+                  "name": "bgSel",
+                  "width": 220,
+                  "height": 130,
+                  "_mouseState": 1,
+                  "background": {
+                    "_$type": "DrawRectCmd",
+                    "lineWidth": 1,
+                    "lineColor": "#e0e0e0",
+                    "fillColor": "#07c160"
+                  },
+                  "gears": [
+                    {
+                      "_$type": "GearDisplay",
+                      "controller": {
+                        "_$ref": "pts00006",
+                        "_$ctrl": "button"
+                      },
+                      "pages": [
+                        1,
+                        3,
+                        5
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "_$id": "pts00009",
+                  "_$type": "GTextField",
+                  "name": "t",
+                  "width": 220,
+                  "height": 130,
+                  "_mouseState": 1,
+                  "text": "隐私",
+                  "font": "STZhongsong",
+                  "fontSize": 44,
+                  "color": "#191919",
+                  "bold": true,
+                  "align": "center",
+                  "valign": "middle"
                 }
               ]
             }
@@ -1533,69 +5005,6 @@
         }
       ],
       "_$child": [
-        {
-          "_$id": "crbc0suw",
-          "_$prefab": "c008a142-015d-42f3-abf0-bca3b44b3c12",
-          "name": "au",
-          "active": true,
-          "x": 436,
-          "y": 300,
-          "width": 288,
-          "height": 242,
-          "scaleX": 2,
-          "scaleY": 2,
-          "visible": true,
-          "title": "音乐已关闭",
-          "selectedTitle": "音乐",
-          "selected": true
-        },
-        {
-          "_$id": "1k83rjh0",
-          "_$prefab": "c008a142-015d-42f3-abf0-bca3b44b3c12",
-          "name": "aue",
-          "active": true,
-          "x": 436,
-          "y": 542,
-          "width": 288,
-          "height": 239,
-          "scaleX": 2,
-          "scaleY": 2,
-          "visible": true,
-          "title": "音效已关闭",
-          "selectedTitle": "音效",
-          "selected": true
-        },
-        {
-          "_$id": "62qiee9i",
-          "_$prefab": "c008a142-015d-42f3-abf0-bca3b44b3c12",
-          "name": "show",
-          "active": true,
-          "x": 436,
-          "y": 781,
-          "width": 288,
-          "height": 239,
-          "scaleX": 2,
-          "scaleY": 2,
-          "visible": true,
-          "title": "已关闭操作区域辅助",
-          "selectedTitle": "显示游戏操作区域辅助",
-          "selected": true
-        },
-        {
-          "_$id": "yz6uf8q2",
-          "_$prefab": "c008a142-015d-42f3-abf0-bca3b44b3c12",
-          "name": "double",
-          "active": true,
-          "x": 436,
-          "y": 1020,
-          "width": 288,
-          "height": 239,
-          "scaleX": 2,
-          "scaleY": 2,
-          "visible": true,
-          "title": "已关闭双手模式",
-          "selectedTitle": "开启游戏双手模式"
-        },
         {
           "_$id": "alit6m8q",
           "_$prefab": "b0c7f4b6-9a33-4cd8-897e-4888efe760fe",

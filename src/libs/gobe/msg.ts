@@ -11,8 +11,10 @@
  *   就是这么混进来的)。内嵌在帧载荷里的小对象(击球事件)可以不写 from, 它的发送者
  *   身份由外层帧的 from 负责。
  * - to: 只在定向发送时写入, 未被点名的一端直接吞掉。
- * - authTerm: 权威任期。比本机认定值小的整封丢弃(旧权威迟到的消息不能覆盖新权威状态);
- *   比本机大的【不】在这里采纳——任期是权威裁决的输入, 只有 pvp.ts 的裁决路径能改写它。
+ * - authTerm: 权威任期。权威状态类消息(kind 标记 termScoped)比本机认定值小的整封丢弃
+ *   (旧权威迟到的消息不能覆盖新权威状态); 非权威端上行不设此闸门, 否则新权威上任后
+ *   这些端的信封任期没跟上就会永久失声。比本机大的【不】在这里采纳——任期是权威裁决的输入,
+ *   只有 pvp.ts 的裁决路径能改写它。
  *
  * roomEpoch 没有进信封: GOBE 不提供跨重连的房间代次, 编一个假值比不写更坏。
  * 权威代次由 authTerm 承担, 房间身份由指派协议里的 roomId 字段承担(load.ts 用)。
@@ -77,6 +79,13 @@ interface KindSpec {
     maxAgeMs?: number;
     /** 结构校验器(pvpProto 提供), 返回拒绝原因; 失败原因在 accept 里加 check: 前缀 */
     check?: (data: any, ctx: CheckCtx) => string | null;
+    /**
+     * 是否受"陈旧任期"闸门约束。只有权威状态/裁决类消息该被旧任期挡下
+     * (帧、hit_event、ball_stop、state_*、recovery 响应、auth_declare);
+     * 非权威端的上行(action/event_ack/sync_recover/state_confirm...)必须放行——
+     * 新权威上任后这些端的信封任期可能还没跟上, 整封丢弃会让它们永久失声。
+     */
+    termScoped?: boolean;
     /** 必须可靠送达: 发送挂起待 event_ack, 未签收按 ACK_RETRY_MS 重传(仅 ch='msg' 有效) */
     reliable?: boolean;
     /** 可靠种类的业务主键(ack 按它销账/去重命中按它补签收); 返回 null = 本条不挂起 */
@@ -104,21 +113,21 @@ export const registry: Record<string, KindSpec> = {
     [K.Eagle]: { ch: 'msg', space: 'game' },
 
     // ---- 对局: 比分与阶段状态机三步确认 ----
-    [K.StatePropose]: { ch: 'msg', space: 'game', authOnly: true, dedupe: (d) => key(d.proposeId) },
+    [K.StatePropose]: { ch: 'msg', space: 'game', authOnly: true, termScoped: true, dedupe: (d) => key(d.proposeId) },
     [K.StateConfirm]: { ch: 'msg', space: 'game', dedupe: (d, from) => key(d.proposeId) + '@' + from },
-    [K.StateFinal]: { ch: 'msg', space: 'game', authOnly: true, dedupe: (d) => key(d.proposeId) },
+    [K.StateFinal]: { ch: 'msg', space: 'game', authOnly: true, termScoped: true, dedupe: (d) => key(d.proposeId) },
 
     // ---- 对局: 权威端选举 ----
-    [K.AuthDeclare]: { ch: 'msg', space: 'game' },
+    [K.AuthDeclare]: { ch: 'msg', space: 'game', termScoped: true },
     [K.AuthCandidate]: { ch: 'frame', space: 'game' },
     [K.NonAuthFrame]: { ch: 'frame', space: 'game' },
     // 权威快照帧: 由 pvp.ts 的帧入口拿 accept() 当任期/序号闸门(它是大载荷组装, 不参与路由)
-    [K.AuthFrame]: { ch: 'frame', space: 'game', authOnly: true, seqField: 'syncSeq' },
+    [K.AuthFrame]: { ch: 'frame', space: 'game', authOnly: true, termScoped: true, seqField: 'syncSeq' },
     // 击球事件走【可靠通道】: 球是绝对时间驱动的确定性模拟, 一次击球的(参数+进入时刻+入口状态)
     // 就是之后全部轨迹的唯一依据——这条丢了, 两端从那一刻起就是两段弹道, 后续任何时刻都对不上。
     // 以前它随 10Hz 权威帧(sendFrame, 有损)携带, 于是"丢一次击球"要靠整段轨迹重锚才能救回来。
     [K.HitEvent]: {
-        ch: 'msg', space: 'game', authOnly: true,
+        ch: 'msg', space: 'game', authOnly: true, termScoped: true,
         // 不设 maxAgeMs: 迟到也要落地(入口不落地=两端两段弹道, 之后再也对不上)。
         // 射程失控由 catchUpBall 的补算封顶挡住, 残余误差由 ball_stop 兜底对齐。
         reliable: true, ackId: (d) => key(d.eventId),
@@ -127,7 +136,7 @@ export const registry: Record<string, KindSpec> = {
     },
     // 球停止后权威端报一次自己的球位: 参数同步的兜底对齐点(只在"停了"这个时刻发一次)
     [K.BallStop]: {
-        ch: 'msg', space: 'game', authOnly: true,
+        ch: 'msg', space: 'game', authOnly: true, termScoped: true,
         reliable: true, ackId: (d) => key(d.stopId),
         dedupe: (d) => key(d.stopId)
     },
@@ -136,20 +145,23 @@ export const registry: Record<string, KindSpec> = {
 
     // ---- 对局: 异常恢复 ----
     [K.SyncRecover]: { ch: 'msg', space: 'game', dedupe: (d) => key(d.requestId) },
-    [K.BallRecovery]: { ch: 'msg', space: 'game', authOnly: true, forMe: true, dedupe: (d) => key(d.requestId) },
-    [K.RoleRecoverRequest]: { ch: 'msg', space: 'game', dedupe: (d) => key(d.requestId) },
-    [K.RoleRecover]: { ch: 'msg', space: 'game', authOnly: true, forMe: true, dedupe: (d) => key(d.requestId) },
+    [K.BallRecovery]: { ch: 'msg', space: 'game', authOnly: true, termScoped: true, forMe: true, dedupe: (d) => key(d.requestId) },
+    // 恢复请求/响应走可靠通道: 权威交接后对端的球还停在上一权威的模拟里, 这一次往返就是
+    // 把"球锚点"送过去的唯一常规路径; 丢了它两端会一直各滚一颗球(实测差 11m 不收敛)。
+    [K.RoleRecoverRequest]: { ch: 'msg', space: 'game', dedupe: (d) => key(d.requestId), reliable: true, ackId: (d) => key(d.requestId) },
+    [K.RoleRecover]: { ch: 'msg', space: 'game', authOnly: true, termScoped: true, forMe: true, dedupe: (d) => key(d.requestId), reliable: true, ackId: (d) => key(d.requestId) },
     [K.PlayerStateReport]: { ch: 'msg', space: 'game' },
     [K.AnimStateRequest]: { ch: 'msg', space: 'game' },
-    [K.AnimStateBroadcast]: { ch: 'msg', space: 'game', authOnly: true },
+    [K.AnimStateBroadcast]: { ch: 'msg', space: 'game', authOnly: true, termScoped: true },
 
-    // ---- 匹配页: 角色指派单源化 ----
+    // ---- 匹配页: 角色指派(权威广播 + 客户端索要, 协议见 pvpProto 文件头) ----
     [K.RoleAssign]: {
-        ch: 'msg', space: 'match', seqField: 'assignSeq', seqStrict: true,
+        // 非严格: 权威端按 400ms 重播同一 assignSeq 抗单包丢失, 等号必须放行(更旧的仍丢弃)。
+        // 不设 authOnly: 定向应答来自任何持表端(权威已进游戏时由它应答恢复), 发送者合法性在 roleSync 按广播/定向分别裁决。
+        ch: 'msg', space: 'match', seqField: 'assignSeq',
         check: (d, ctx) => Proto.checkAssign(d, ctx.selfId)
     },
-    [K.RoleAck]: { ch: 'msg', space: 'match' },
-    [K.MatchStart]: { ch: 'msg', space: 'match', check: (d, ctx) => Proto.checkAssign(d, ctx.selfId) }
+    [K.RoleSync]: { ch: 'msg', space: 'match' }
 };
 
 const ctxs: Partial<Record<Space, SpaceCtx>> = {};
@@ -357,7 +369,7 @@ function acceptRule(kind: string, data: any, senderId: string): string | null {
     if (sameId(senderId, ctx.selfId())) return 'self-echo';
     // from 缺省 = 发送者身份由外层载荷负责(帧内嵌对象); 带了就必须等于 GOBE 报的实收发送者
     if (data.from != null && !sameId(data.from, senderId)) return 'spoofed-from';
-    if (typeof data.authTerm === 'number' && data.authTerm < ctx.authTerm()) return 'stale-term';
+    if (spec.termScoped && typeof data.authTerm === 'number' && data.authTerm < ctx.authTerm()) return 'stale-term';
     if (spec.authOnly && !isFromAuthority(ctx, data, senderId)) return 'not-from-authority';
     if (spec.forMe && !sameId(data.to, ctx.selfId())) return 'not-for-me';
     if (spec.maxAgeMs != null && Proto.isNum(data.time) && Timer.now() - data.time > spec.maxAgeMs) return 'stale';
@@ -433,6 +445,21 @@ export function dispatchInfo(info: any): boolean {
     let data: any = null;
     try { data = JSON.parse(info.msg); } catch (e) { return false; }
     return dispatch(data, info.sendPlayerId);
+}
+
+// ==================== 常驻消息泵(全应用唯一) ====================
+
+/**
+ * 协议消息的唯一入口泵: 匹配页与游戏场景都靠它把 Gnet client 消息送进 dispatch。
+ * 为什么收口在这里: 旧架构 load/pvp 各自注册泵, pvp.bindNetwork 一句 Gnet.off('client')
+ * 把匹配页的泵全清掉, 而 load 的 _roomEventsBound 守卫又阻止重注册——从游戏回匹配页后
+ * 再也收不到任何协议消息(恢复房间/重匹配全灭)。MPM 是 Set 语义: 同引用重复 install 是无操作,
+ * Gnet.destroy() 清掉订阅后再 install 一次即可补回。
+ */
+const pumpCb = (info: any): void => { dispatchInfo(info); };
+
+export function installPump(): void {
+    Gnet.onClient(pumpCb);
 }
 
 /** 信封序号出现缺口 = 点对点通道真丢包了; 节流报警, 实测定位用 */

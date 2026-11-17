@@ -35,7 +35,7 @@
  */
 
 import { Timer } from "../libs/time";
-import { Res } from "../libs/res";
+import { Res } from "../libs/res/res";
 import { UI } from "./ui";
 import { Au } from "../libs/au";
 import { Sys } from "../libs/sys";

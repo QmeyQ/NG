@@ -119,6 +119,30 @@ class CloudDBZoneWrapper {
         return arr.map(objFromRow);
     }
 
+    /** 按字段降序取前 n 行(排行榜: level 零填充胜场, 控制台已建索引) */
+    async executeQueryTop(field, limit) {
+        const c = this.client;
+        if (!c) throw new Error("CloudDB 未初始化 zone=" + this.zone);
+        const query = clouddb.CloudDBZoneQuery.where(NG)
+            .orderByDesc(String(field))
+            .limit(Math.max(1, Math.min(1000, Number(limit) || 100)));
+        const resp = await c.executeQuery(query);
+        const arr = resp.getSnapshotObjects() || [];
+        return arr.map(objFromRow);
+    }
+
+    /** 主键批量查(in): 一次查询取回多行(好友资料), 空数组直接回 [] 不发请求 */
+    async executeQueryByIds(ids) {
+        const c = this.client;
+        if (!c) throw new Error("CloudDB 未初始化 zone=" + this.zone);
+        const list = (ids || []).map(String).slice(0, 1000);
+        if (!list.length) return [];
+        const query = clouddb.CloudDBZoneQuery.where(NG).in("id", list);
+        const resp = await c.executeQuery(query);
+        const arr = resp.getSnapshotObjects() || [];
+        return arr.map(objFromRow);
+    }
+
     /** 查询全部行 */
     async executeQueryAll() {
         const c = this.client;

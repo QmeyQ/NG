@@ -467,6 +467,11 @@ export class Gnet {
    * @returns 房间实例或null
    */
   static getRoom(): any {
+    // 房间可能在 joinRoom 回调【之后】才挂到 client 上: bindRoomEvents 只跑一次且只在
+    // 注册监听时顺带桥接, 晚到的 room 会一直没有任何事件桥接 —— 本端能发包(直接用
+    // room.sendToClient), 但收不到任何客户端消息, 对端怎么重发 role_assign/match_start
+    // 都进不来(实测配对时一端永久停在"仍未收到 role_assign")。任何一次取房都补一次桥接。
+    this._bridgeRoom();
     return this.client?.room || null;
   }
 
@@ -757,14 +762,33 @@ export class Gnet {
    * @param msg 消息内容
    * @param toPlayerId 指定接收玩家（可选，不指定则广播）
    */
+  /** 确保 room 事件桥接已挂(joinRoom 回调时 client.room 可能尚未挂载, 需事后重绑) */
+  static ensureBridge(): void { this._bridgeRoom(); }
+
+  /**
+   * 【GOBE 路由模式·实锤】sendToClient 的 type 不是自定义消息类型, 而是路由模式(见 GOBE.d.ts SendToClientInfo):
+   *   0=发给房内全部玩家(含自己); 1=发给房内除自己外所有玩家(广播); 2=发给 recvPlayerIdList 指定玩家(点对点)。
+   * 传其它值(如旧 chatType=190)服务器回 INVALID_MESSAGE(102016) 直接拒发。消息种类请放 JSON 载荷标签
+   * (社交 k=chat/invite/..., PVP kind=...), 接收侧走 onClient catch-all 解析( SDK 不回传 imType )。
+   */
+  static get ROUTE_ALL(): number { return 0; }
+  static get ROUTE_OTHERS(): number { return 1; }
+  static get ROUTE_TARGET(): number { return 2; }
+  /** @deprecated 仅为兼容保留; 切勿当作 sendToClient 的 type 使用(会 102016)。种类标签放载荷里。 */
+  static get chatType(): number { return MessageType.CUSTOM + 90; }
+
   static sendChatMessage(msg: string, toPlayerId?: string): void {
     const recvPlayerIdList = toPlayerId ? [toPlayerId] : undefined;
     this.sendToClient(MessageType.CHAT, msg, recvPlayerIdList);
   }
 
   /**
-   * 注册消息处理器
-   * @param type 消息类型
+   * 注册按 type 分发的消息处理器。
+   * 【重要·SDK 限制】华为 GOBE.js 的 room.onRecvFromClient 回调只携带 {roomId,sendPlayerId,msg},
+   * 并不回传发送时的 imType(见 GOBE.js instantMessageHandle)。因此 info.type 恒为 undefined,
+   * 本方法登记的 handler 永远不会被触发。需要收消息请改用 onClient(catch-all) 并在 JSON 载荷里
+   * 自带类型标签(社交用 k=chat/invite/..., PVP 用 kind=...), 与 msg.ts/lobby.ts 的现行做法一致。
+   * @param type 消息类型(当前 SDK 下无效, 仅保留接口兼容)
    * @param callback 回调函数
    */
   static onMessage(type: number, callback: MessageCallback): void {

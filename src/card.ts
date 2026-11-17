@@ -1,5 +1,5 @@
 import { Cha } from "./badm/obj/cha";
-import { Res } from "./libs/res";
+import { Res } from "./libs/res/res";
 import { AIControl, AIDifficulty } from "./badm/NPC/ai";
 import { Control } from "./badm/sys/control";
 import { UI } from "./ui/ui";
@@ -158,12 +158,17 @@ export class NewScript extends Laya.Script {
             });
 
 
+            // LC=剩余件数(首次 emit 为总数): 真实完成比映射到角色阶段 [80,100]
+            let lcTotal = 0;
             this.localCha.on("load", (LC:number) => {
                 console.log("资源加载：", LC)
-                if(LC <= 0)
-                this.ui.setProgress();
-            else
-                this.ui.setProgress("加载角色："+LC, (100-LC)*100);
+                if (LC > lcTotal) lcTotal = LC;
+                if (LC <= 0) {
+                    this.ui.setProgress();
+                    return;
+                }
+                const frac = lcTotal > 0 ? Math.min(1, (lcTotal - LC) / lcTotal) : 0;
+                this.ui.setProgress("加载角色：" + LC, 80 + frac * 20);
             })
         });
 
