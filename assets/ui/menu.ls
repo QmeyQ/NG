@@ -491,8 +491,7 @@
             "",
             "",
             ""
-          ],
-          "_editingIndex": 2
+          ]
         }
       },
       "_startPages": {
@@ -1924,10 +1923,10 @@
               "_$id": "2ejat9mh",
               "_$type": "GBox",
               "name": "mmbox",
-              "x": 7,
-              "y": 1848,
+              "x": 10,
+              "y": 1890,
               "width": 1157,
-              "height": 239,
+              "height": 149,
               "relations": [
                 {
                   "_$type": "Relation",
@@ -1935,6 +1934,8 @@
                     "_$ref": "soc0000c"
                   },
                   "data": [
+                    1,
+                    0,
                     3,
                     0
                   ]
@@ -1950,13 +1951,55 @@
                   ]
                 }
               ],
+              "layout": {
+                "type": 2,
+                "rowGap": 34,
+                "columnGap": 14,
+                "align": 1,
+                "valign": 1
+              },
               "_$child": [
+                {
+                  "_$id": "cfp00000",
+                  "_$type": "GTextField",
+                  "name": "chatFuncBtn",
+                  "x": 17,
+                  "y": 19,
+                  "width": 100,
+                  "height": 110,
+                  "_mouseState": 2,
+                  "background": {
+                    "_$type": "DrawRectCmd",
+                    "lineWidth": 1,
+                    "lineColor": "#d0d0d0",
+                    "fillColor": "#ffffff"
+                  },
+                  "relations": [
+                    {
+                      "_$type": "Relation",
+                      "target": {
+                        "_$ref": "2ejat9mh"
+                      },
+                      "data": [
+                        6,
+                        0
+                      ]
+                    }
+                  ],
+                  "text": "＋",
+                  "font": "STZhongsong",
+                  "fontSize": 60,
+                  "color": "#191919",
+                  "bold": true,
+                  "align": "center",
+                  "valign": "middle"
+                },
                 {
                   "_$id": "soc0000l",
                   "_$type": "GTextInput",
                   "name": "chatInp",
-                  "x": 133,
-                  "y": 56,
+                  "x": 131,
+                  "y": 19,
                   "width": 760,
                   "height": 110,
                   "background": {
@@ -2001,8 +2044,8 @@
                   "_$id": "soc0000m",
                   "_$type": "GTextField",
                   "name": "chatSend",
-                  "x": 913,
-                  "y": 56,
+                  "x": 905,
+                  "y": 19,
                   "width": 235,
                   "height": 110,
                   "_mouseState": 2,
@@ -2030,41 +2073,6 @@
                   "font": "STZhongsong",
                   "fontSize": 44,
                   "color": "#ffffff",
-                  "bold": true,
-                  "align": "center",
-                  "valign": "middle"
-                },
-                {
-                  "_$id": "cfp00000",
-                  "_$type": "GTextField",
-                  "name": "chatFuncBtn",
-                  "x": 13,
-                  "y": 56,
-                  "width": 100,
-                  "height": 110,
-                  "_mouseState": 2,
-                  "background": {
-                    "_$type": "DrawRectCmd",
-                    "lineWidth": 1,
-                    "lineColor": "#d0d0d0",
-                    "fillColor": "#ffffff"
-                  },
-                  "relations": [
-                    {
-                      "_$type": "Relation",
-                      "target": {
-                        "_$ref": "2ejat9mh"
-                      },
-                      "data": [
-                        6,
-                        0
-                      ]
-                    }
-                  ],
-                  "text": "＋",
-                  "font": "STZhongsong",
-                  "fontSize": 60,
-                  "color": "#191919",
                   "bold": true,
                   "align": "center",
                   "valign": "middle"
@@ -5086,6 +5094,17 @@
           ]
         }
       ]
+    },
+    {
+      "_$id": "ifaar1rr",
+      "_$type": "GImage",
+      "name": "img_1",
+      "x": 865,
+      "y": 1536,
+      "width": 86,
+      "height": 101,
+      "src": "res://829ed396-cd2f-4787-a8aa-f38a08fd3569",
+      "autoSize": false
     }
   ]
 }

@@ -172,19 +172,6 @@
           "strokeColor": "#ffffff"
         },
         {
-          "_$id": "zgebqhgp",
-          "_$type": "GImage",
-          "name": "img",
-          "x": 604,
-          "y": -487,
-          "width": 3439,
-          "height": 4318,
-          "scaleX": 0.03,
-          "scaleY": 0.03,
-          "src": "res://829ed396-cd2f-4787-a8aa-f38a08fd3569",
-          "autoSize": false
-        },
-        {
           "_$id": "uarvn8pd",
           "_$type": "GTextField",
           "name": "gameShow_1",

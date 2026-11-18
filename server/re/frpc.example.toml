@@ -1,0 +1,13 @@
+# re-relay 专用 frpc 配置(独立于 frp/frpc.toml 的远程控制 m-tcp 21118->5000)。
+# 本隧道: 本机 relay 21119 -> 服务器 5001, 服务器 /apim 反代到 127.0.0.1:5001。
+serverAddr = "47.119.120.119"
+serverPort = 7000
+auth.method = "token"
+auth.token = "REPLACE_WITH_FRP_TOKEN"
+
+[[proxies]]
+name = "re-api"
+type = "tcp"
+localIP = "127.0.0.1"
+localPort = 21119
+remotePort = 5001

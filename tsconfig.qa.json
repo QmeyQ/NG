@@ -1,4 +1,15 @@
 {
   "extends": "./tsconfig.json",
-  "compilerOptions": { "moduleResolution": "bundler", "module": "esnext", "lib": ["es2020", "dom"], "noEmit": true }
+  "compilerOptions": {
+    "moduleResolution": "bundler",
+    "module": "esnext",
+    "lib": [
+      "es2020",
+      "dom"
+    ],
+    "noEmit": true
+  },
+  "exclude": [
+    "src/g2"
+  ]
 }

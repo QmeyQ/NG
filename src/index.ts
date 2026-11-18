@@ -1,3 +1,4 @@
+import "./g2/register";
 /**
  * index - 启动页
  *

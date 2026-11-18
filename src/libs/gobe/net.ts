@@ -448,6 +448,7 @@ export class Gnet {
     room.onConnect((player: any) => this._mpm.emit("connect", player));
     room.onJoin((player: any) => this._mpm.emit("join", player));
     room.onLeave((player: any) => this._mpm.emit("leave", player));
+    if (typeof room.onDisconnect === "function") room.onDisconnect((info: any) => this._mpm.emit("disconnect", info));
     room.onDismiss(() => {
       const roomId = this.getRoom()?.id || '';
       this._mpm.emit("dismiss", roomId);
@@ -1274,6 +1275,21 @@ export class Gnet {
   static onClient(cb: (info: any) => any): void {
     this._mpm.on("client", cb);
     this._bridgeRoom();
+  }
+
+  static onDisconnect(cb: (info: any) => any): void {
+    this._mpm.on("disconnect", cb);
+    this._bridgeRoom();
+  }
+
+  static offDisconnect(cb?: (info: any) => any): void {
+    this._mpm.off("disconnect", cb);
+  }
+
+  static reconnect(callback: BaseCallback): void {
+    const room = this.getRoom();
+    if (!room || typeof room.reconnect !== "function") { callback(new Error("No room to reconnect")); return; }
+    room.reconnect().then(() => callback(null, room)).catch((err: any) => callback(err));
   }
 
   static onConnect(cb: (player: any) => any): void {

@@ -489,6 +489,32 @@ window.__DOC_FILES["index.js"]={
       ],
       "height": 160,
       "node_tree_file": "nodes/aihandover.js"
+    },
+    "prelay": {
+      "location": [
+        -905,
+        620
+      ],
+      "width": 260,
+      "name": "prelay",
+      "label": "远程中转接管(re-relay)",
+      "type": "Group",
+      "desc": "AI远程中转: 远端AI经服务器/apim(HTTP+HTTPS)全权处理本机Laya项目(文件/终端/LayaAir IDE MCP)。relay在server/re/, frp独立隧道21119→5001(不碰远程控制FRPC), 服务器nginx反代。含服务器CDP接管法/nginx+FTP配置/NSSM自启/扩展优化。详见 nodes/prelay.js r1→r7。",
+      "inputs": [
+        {
+          "name": "接管指令",
+          "type": "Event"
+        }
+      ],
+      "outputs": [],
+      "use_custom_color": true,
+      "color": [
+        0.85,
+        0.45,
+        0.2
+      ],
+      "height": 160,
+      "node_tree_file": "nodes/prelay.js"
     }
   },
   "links": [

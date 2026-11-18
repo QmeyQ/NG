@@ -13,7 +13,7 @@ const { execSync } = require('child_process');
 
 const ROOT = path.resolve(__dirname, '..');
 const WEB = path.join(ROOT, 'web');
-const TOP_EXCLUDE = ['nor', 'ui', 'internal']; // 顶层已分流目录
+const TOP_EXCLUDE = ['nor', 'ui', 'internal', 'g2']; // 顶层已分流目录
 
 function copyTree(src, dst) {
     fs.mkdirSync(path.dirname(dst), { recursive: true });
@@ -43,5 +43,13 @@ copyTree(path.join(WEB, 'ui'), T_UI); // 剥 ui/ 前缀
 copyTree(path.join(WEB, 'internal'), path.join(T_UI, 'internal'));
 execSync(`node tool/assetsBr.js .tmp_ui ui.br 11`, { cwd: ROOT, stdio: 'inherit' });
 cleanTmp(T_UI);
+
+
+// ---- g2 包 (第二游戏独立资源, 不混入羽毛球 nor) ----
+const T_G2 = path.join(ROOT, '.tmp_g2');
+cleanTmp(T_G2);
+copyTree(path.join(WEB, 'g2'), T_G2); // 剥 g2/ 前缀
+execSync(`node tool/assetsBr.js .tmp_g2 g2.br 11`, { cwd: ROOT, stdio: 'inherit' });
+cleanTmp(T_G2);
 
 console.log('[tmpPack] 双包组装打包完成');
