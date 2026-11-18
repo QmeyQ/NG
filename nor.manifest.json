@@ -2,11 +2,11 @@
   "out": "nor.br",
   "magic": "BRP1",
   "version": "1.0",
-  "fileCount": 55,
-  "rawSize": 4690531,
-  "containerSize": 4692153,
-  "brSize": 3861856,
-  "ratio": 0.823,
+  "fileCount": 54,
+  "rawSize": 6116783,
+  "containerSize": 6118378,
+  "brSize": 5294031,
+  "ratio": 0.8653,
   "files": [
     {
       "path": "ani.controller",
@@ -125,6 +125,10 @@
       "size": 2796
     },
     {
+      "path": "g2.br",
+      "size": 1433362
+    },
+    {
       "path": "game/badm.ls",
       "size": 8449
     },
@@ -143,14 +147,6 @@
     {
       "path": "game/ride.ls",
       "size": 3044
-    },
-    {
-      "path": "game/select.ls",
-      "size": 4069
-    },
-    {
-      "path": "game/trace.ls",
-      "size": 3041
     },
     {
       "path": "gan.lmat",

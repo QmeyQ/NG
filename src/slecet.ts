@@ -7,6 +7,7 @@ import { Cloud, CloudUser } from "./libs/server/cloud";
 import * as NetBoot from "./libs/netboot";
 import { Au } from "./libs/au";
 import { SceneNav } from "./libs/nav";
+import { launchGame } from "./libs/games";
 import { Timer } from "./libs/time";
 import { MT, ProgPID } from "./libs/MT";
 import { QA } from "./libs/gobe/qa";
@@ -72,8 +73,9 @@ export class slecet extends Laya.Script {
     private doubleBtn: any = null;
     private hideIdBtn: any = null;
 
-    onAwake(): void {
 
+    onAwake(): void {
+        
         console.log(Laya.stage.width + "//////////" + Laya.stage.height);
         QA.installMenu(this);
         Res.setAct("ui");
@@ -225,11 +227,7 @@ export class slecet extends Laya.Script {
         // —— game 点击：按选中索引跳场景(item 点击更新 _selIdx 后冒泡到这里) ——
         gameNode.on(Laya.Event.CLICK, this, () => {
             Au.tap();
-            if (this._selIdx > 0) {
-                Dialog.toast("暂未开放，敬请期待");
-                return;
-            }
-            this._checkNorAndJump();
+            launchGame(this._selIdx, () => this._checkNorAndJump());
         });
 
         this.initUserPage();
@@ -510,7 +508,7 @@ export class slecet extends Laya.Script {
         const go = () => {
             Res.get("nor/match/match.ls").then((node: any) => {
                 done(node || null);
-            }).catch(() => { done(null); });
+            }).catch((e: any) => { console.log("[G2] loader error", e && (e.message || e)); done(null); });
         };
         go();
     };

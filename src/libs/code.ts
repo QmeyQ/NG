@@ -172,6 +172,15 @@ export class Code {
     /**
      * 从容器中按文件路径切片提取原始文件数据（无解压，直接切片）
      */
+    /** 按名解压单个文件(异步, Blob 容器入参; 兼容 g2 res.res 管线)。result={blob,mimeType} */
+    static decompressFileByName(packBlob: Blob, packInfo: PackInfo, filePath: string, onComplete: (r: { blob: Blob; mimeType: string }) => void, onError?: (e: string) => void): void {
+        packBlob.arrayBuffer().then(buf => {
+            const blob = this.extractFile(buf, packInfo, filePath);
+            if (!blob) { onError && onError('file not found: ' + filePath); return; }
+            onComplete({ blob, mimeType: blob.type || this._getMimeType(filePath) });
+        }).catch(e => onError && onError(String(e && e.message || e)));
+    }
+
     static extractFile(container: ArrayBuffer, packInfo: PackInfo, filePath: string): Blob | null {
         const fileInfo = this._findFileInPack(filePath, packInfo.files);
         if (!fileInfo) return null;

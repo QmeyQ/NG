@@ -72,7 +72,8 @@ export class Res {
     static net: Net;
     static ResList = {
         ui:"https://agc-storage-drcn.platform.dbankcloud.cn/v0/sgf-rhq1y/ui.br?token=35201a45-55f5-4e83-b2b0-a6ee8e2b2c5d",
-        nor:"https://agc-storage-drcn.platform.dbankcloud.cn/v0/sgf-rhq1y/nor.br?token=aa436607-134d-4722-b4fb-6e43539d3c66"
+        nor:"https://agc-storage-drcn.platform.dbankcloud.cn/v0/sgf-rhq1y/nor.br?token=aa436607-134d-4722-b4fb-6e43539d3c66",
+        g2:"https://agc-storage-drcn.platform.dbankcloud.cn/v0/sgf-rhq1y/g2.br?token=6e17320f-5489-4c06-a80a-44b3f9a6ed52"
     }
 
     // ==================== 初始化 ====================

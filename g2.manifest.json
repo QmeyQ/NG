@@ -1,0 +1,28 @@
+{
+  "out": "g2.br",
+  "magic": "BRP1",
+  "version": "1.0",
+  "fileCount": 4,
+  "rawSize": 44168,
+  "containerSize": 44334,
+  "brSize": 40540,
+  "ratio": 0.9144,
+  "files": [
+    {
+      "path": "game/select.ls",
+      "size": 894
+    },
+    {
+      "path": "game/trace.ls",
+      "size": 890
+    },
+    {
+      "path": "sprite/hero.png",
+      "size": 41164
+    },
+    {
+      "path": "sprite/hero_frames.json",
+      "size": 1220
+    }
+  ]
+}

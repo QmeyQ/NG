@@ -1,0 +1,13 @@
+import "./load";
+import "./Main";
+import "./NewScript";
+import "./Script";
+import "./stateM";
+import "./traceSel";
+import "./ani";
+import "./cha";
+import "./EffectManager";
+import "./GameManager";
+import "./ui/slecet";
+import "./roomSession";
+import "./battleControl";

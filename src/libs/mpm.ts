@@ -172,6 +172,16 @@ export class MPMD {
         this.gridMap.clear();
     }
 
+    /** 清空所有对象(clear 别名, 兼容 g2 MapManager 用法) */
+    clearAll(): void { this.clear(); }
+
+    /** 移除指定对象(遍历各层网格与全局桶; 兼容 g2 MapManager.removeObject) */
+    removeObject(obj: any): void {
+        if (!obj) return;
+        this.globalObjects.delete(obj);
+        this.gridMap.forEach((cells) => { cells.forEach((set) => { set.delete(obj); }); });
+    }
+
     /**
      * 更新网格系统尺寸
      * @param newSize 新网格尺寸

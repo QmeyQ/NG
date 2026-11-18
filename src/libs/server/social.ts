@@ -329,7 +329,7 @@ export class Social {
             return;
         }
         Lobby.sendTo(target, body, (ok, viaCloud) => {
-            if (ok) { Social.lastMsg = ""; pushSent(Date.now() + ":local"); if (cb) cb(true); }
+            if (ok) { Social.lastMsg = ""; if (!viaCloud) pushSent(Date.now() + ":local"); if (cb) cb(true); }
             else { Social.fail(null, "消息发送失败"); Social.notify(); if (cb) cb(false); }
         });
     }

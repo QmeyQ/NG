@@ -2,11 +2,11 @@
   "out": "ui.br",
   "magic": "BRP1",
   "version": "1.0",
-  "fileCount": 31,
-  "rawSize": 3143300,
-  "containerSize": 3144268,
-  "brSize": 2440877,
-  "ratio": 0.7763,
+  "fileCount": 30,
+  "rawSize": 2974939,
+  "containerSize": 2975880,
+  "brSize": 2325161,
+  "ratio": 0.7813,
   "files": [
     {
       "path": "dialog/bg.png",
@@ -79,10 +79,6 @@
     {
       "path": "internal/UI/Tooltips.lh",
       "size": 560
-    },
-    {
-      "path": "main/12+.png",
-      "size": 168361
     },
     {
       "path": "main/battle.png",

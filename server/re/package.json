@@ -1,0 +1,10 @@
+{
+  "name": "re-relay",
+  "version": "1.0.0",
+  "private": true,
+  "description": "AI 远程中转 relay: 文件/终端/LayaAir MCP 全权接管",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  }
+}

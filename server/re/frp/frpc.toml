@@ -1,0 +1,11 @@
+serverAddr = "47.119.120.119"
+serverPort = 7000
+auth.method = "token"
+auth.token = "qmeyqmilo"    # ???????? token ????
+
+[[proxies]]
+name = "m-tcp"
+type = "tcp"
+localIP = "127.0.0.1"
+localPort = 21118
+remotePort = 5000

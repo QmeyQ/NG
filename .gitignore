@@ -12,3 +12,13 @@ __pycache__
 *.pyc
 tool/web
 server/te/te.zip
+
+# runtime binaries / logs / vendored upstream (re-downloadable, not source)
+server/re/bin/
+server/re/frp/*.exe
+server/re/*.log
+server/re/frp/*.log
+server/re/config.json
+server/re/frpc.toml
+dragonbones-local-web/DragonBonesJS-master/
+*.bak-*
