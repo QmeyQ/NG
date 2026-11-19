@@ -1,5 +1,5 @@
 const { regClass, property } = Laya;
-import { TimeManager } from "../libs/time";
+import { TimeManager, Timer } from "../libs/time";
 import { Cha } from "./cha";
 import { GameManager } from "./GameManager";
 import { EnemyCollisionSpeedBoostEffect } from "./EffectManager";
@@ -149,11 +149,11 @@ export class Main extends Laya.Script {
         this.gameManager = new GameManager(this.owner as Laya.Sprite, {
             prepTime: 30,
             baseDmg: 1,
-            shieldRecoverRate: 0.03,
+            shieldRecoverRate: 0.02,
             critChance: 0.1,
             critMultiplier: 2,
             stillCheckInterval: 500,
-            healRate: 0.03
+            healRate: 0.02
         });
 
         // 设置游戏事件回调
@@ -166,16 +166,16 @@ export class Main extends Laya.Script {
     /** 设置游戏回调 */
     private setupGameCallbacks(): void {
         this.gameManager.setCallbacks({
-            onRoundChange: (round) => {
+            onRoundChange: (round: any) => {
                 console.log(`回合变更: ${round}`);
             },
-            onTimeUpdate: (time) => {
+            onTimeUpdate: (time: any) => {
                 console.log(`剩余时间: ${time}`);
             },
-            onDamage: (attacker, target, damage, isCritical) => {
+            onDamage: (attacker: any, target: any, damage: any, isCritical: any) => {
                 console.log(`${attacker.isEnemy ? '敌方' : '我方'}对${target.isEnemy ? '敌方' : '我方'}造成${damage}点伤害${isCritical ? '(暴击!)' : ''}`);
             },
-            onGameOver: (winner) => {
+            onGameOver: (winner: any) => {
                 console.log(`游戏结束，${winner === 'player' ? '玩家' : '敌方'}胜利!`);
                 const winnerId = this.localId ? (winner === 'player' ? this.localId : (this.remoteIdList[0] || "")) : null;
                 this.lastWinnerId = winnerId;
@@ -186,10 +186,10 @@ export class Main extends Laya.Script {
                 console.log("资源加载完成，创建游戏角色");
                 this.createGameCharacters();
             },
-            onTouchStart: (pos) => {
+            onTouchStart: (pos: any) => {
                 console.log(`触摸开始: (${pos.x}, ${pos.y})`);
             },
-            onTouchEnd: (pos, isClick) => {
+            onTouchEnd: (pos: any, isClick: any) => {
                 console.log(`触摸结束: (${pos.x}, ${pos.y}), 是否单击: ${isClick}`);
             }
         });
@@ -218,6 +218,7 @@ export class Main extends Laya.Script {
         }
 
         const masterCha = new Cha(masterSprite, false);
+        masterCha.bodyPid = (RoomSession.get() && RoomSession.get().playerId) || 'me'; // 注册键=世界 pid, 先于 addCha
         masterCha.attack = 20;
         masterCha.defense = 10;
         masterCha.setPosition(Laya.stage.width*0.3, Laya.stage.height*0.65); // 单机/联机同场地布局
@@ -241,237 +242,136 @@ export class Main extends Laya.Script {
         try { this.createGameCharacters(); } catch (e) { console.error("[g2] start fail:", e && (e as any).stack || e); }
     }
 
-    /** 创建游戏角色（资源加载完成后调用；联机时远程玩家替换本地 AI 敌人） */
+    /** 创建角色 + 建立确定性世界 + 操作/快照通道 */
     private createGameCharacters(): void {
         if (typeof window !== "undefined" && (window as any).__ng2BattleStarted) return;
         const area2D = this.getBattleArea();
         if (!area2D) return;
-
         const room = RoomSession.get();
         this.battleArea2D = area2D;
         const playerIds = (room && room.players) ? room.players : [];
-        const localId = (room && room.playerId) || "";
+        const localId = (room && room.playerId) || "me";
         const remoteIds = playerIds.filter((id: string) => id !== localId);
+        this.localId = localId;
+        this.gameManager.myPid = localId;
+        if (this.masterCha) this.masterCha.bodyPid = localId;
+        const W = Laya.stage.width, H = Laya.stage.height;
+        const posOf = (side: number) => side === 0 ? { x: W * 0.3, y: H * 0.65 } : { x: W * 0.7, y: H * 0.35 };
 
         if (room && remoteIds.length > 0) {
-            // 双端对战：世界坐标共享, 房主左下/非房主右上, 避免双方 master 同点出生互撞
-            const W = Laya.stage.width, H = Laya.stage.height;
+            // 联机: side 由 pid 字典序决定(各端一致), 位置由 side 决定(世界坐标共享)
             const sorted = playerIds.slice().sort();
-            const hostLocal = localId === sorted[0];
-            if (this.masterCha) this.masterCha.setPosition(hostLocal ? W*0.3 : W*0.7, hostLocal ? H*0.65 : H*0.35);
-            remoteIds.forEach((id: string, i: number) => {
-                const cha = this.gameManager.createPlayerAvatar(id, { x: hostLocal ? W*0.7 : W*0.3, y: (hostLocal ? H*0.35 : H*0.65) + i * 200 }, area2D, true);
+            const sideOf = (pid: string) => sorted.indexOf(pid) === 0 ? 0 : 1;
+            this.isHost = sideOf(localId) === 0;
+            const gm = this.gameManager;
+            gm.pidSide = {}; playerIds.forEach(pid => { gm.pidSide[pid] = sideOf(pid); });
+            const myPos = posOf(sideOf(localId));
+            if (this.masterCha) this.masterCha.setPosition(myPos.x, myPos.y);
+            remoteIds.forEach((id: string) => {
+                const p2 = posOf(sideOf(id));
+                const cha = gm.createPlayerAvatar(id, p2, area2D, true);
                 this.remoteChars.set(id, cha);
             });
-            this.startBattleNet(room, localId, remoteIds);
+            this.setupBattleNet();
+            if (this.isHost) {
+                const bodies = playerIds.map(pid => ({ pid, x: posOf(sideOf(pid)).x, y: posOf(sideOf(pid)).y, hp: 100, sh: 50, side: sideOf(pid) }));
+                const seed = this.hashSeed((room.roomId || '') + ':' + RoomSession.getSeq());
+                gm.beginWorld(bodies, seed, Timer.now() + 400, true, true);
+                this.sendNet({ k: 'g2start', snap: gm.kernel.snapshot() });
+            }
+            // 非房主: 等 g2start/g2snap 建立世界(applyNetSnap bootstrap)
         } else {
-            // 单机回退：本地 AI 敌人 + 友方
-            const W=Laya.stage.width,H=Laya.stage.height;
-            const off=(typeof window!=="undefined" && (window as any).__g2Offline);
-            this.gameManager.createEnemy({x:W*0.7,y:H*0.35}, area2D);
-            this.gameManager.createAlly({x:W*0.3,y:H*0.35}, area2D);
+            // 单机: 同一内核, AI 操作本地生成
+            const gm = this.gameManager;
+            gm.createEnemy({ x: W * 0.7, y: H * 0.35 }, area2D);
+            gm.createAlly({ x: W * 0.3, y: H * 0.35 }, area2D);
+            gm.pidSide = { [localId]: 0, ai_e: 1, ai_a: 0 };
+            const bodies = [
+                { pid: localId, x: W * 0.3, y: H * 0.65, hp: 100, sh: 50, side: 0 },
+                { pid: 'ai_e', x: W * 0.7, y: H * 0.35, hp: 80, sh: 50, side: 1 },
+                { pid: 'ai_a', x: W * 0.3, y: H * 0.35, hp: 70, sh: 50, side: 0 },
+            ];
+            gm.beginWorld(bodies, (Date.now() & 0x7fffffff) || 1, Timer.now() + 300, false, false);
         }
-
-        // 开始游戏
-        this.gameManager.startGame();
+        Laya.timer.frameLoop(1, this, this.battleTick);
         if (typeof window !== "undefined") (window as any).__ng2BattleStarted = true;
     }
 
-    /** 联机角色血量快照（本地玩家 + 远程玩家） */
-    private buildNetChars(): any[] {
-        const out: any[] = [];
-        if (this.masterCha) out.push({ id: this.localId, hp: this.masterCha.health, sh: this.masterCha.shield });
-        this.remoteChars.forEach((cha, id) => out.push({ id: id, hp: cha.health, sh: cha.shield }));
-        return out;
+    private hashSeed(str: string): number {
+        let h = 2166136261 >>> 0;
+        for (let i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = Math.imul(h, 16777619) >>> 0; }
+        return h || 1;
     }
 
-    /** 双端帧同步：发送本地玩家状态并应用远端玩家状态 */
-    private startBattleNet(room: any, localId: string, remoteIds: string[]): void {
-        this.localId = localId;
-        this.remoteIdList = remoteIds;
-        const sortedPlayers = ((room.players && room.players.length) ? room.players : [localId]).slice().sort();
-        this.isHost = localId === sortedPlayers[0];
-        this.gameManager.authority = this.isHost; // 房主权威: 碰撞/伤害/回合推进
+    private battleTick(): void { if (this.gameManager) this.gameManager.tick(); this.flushNet(); }
 
-        const stats: any = {
-            roomId: room.roomId,
-            localId: localId,
-            players: room.players || [],
-            remoteIds: remoteIds,
-            remoteChars: this.remoteChars.size,
-            frameSyncStarted: false,
-            frameSyncError: null,
-            framesSent: 0,
-            framesReceived: 0,
-            frameEvents: 0,
-            rawFrameSample: null,
-            rawFrameSamples: [],
-            rawKeys: null,
-            frameInfoSeen: 0,
-            lastRemote: null,
-            isHost: this.isHost,
-            remoteRound: null,
-            appliedRound: null,
-            remoteForce: 0,
-            maxRemoteForce: 0,
-            remoteWinner: null,
-            lastWinnerId: null,
-            remoteHealth: {},
-            remoteLeft: false,
-            remoteLeftPlayer: null,
-            localRound: null,
-            reconnecting: false,
-            reconnected: false,
-            reconnectAttempts: 0,
-            reconnectError: null,
-            disconnectSignals: 0,
-            remoteJoined: false,
-            seqAdopted: false,
-            reconnectFailed: false,
-            reconnectText: null,
-            suppressedSignals: 0,
-            battleId: Date.now()
+    /** 操作同步 + 补充状态同步通道(不逐帧覆盖坐标) */
+    private setupBattleNet(): void {
+        this.gameManager.setNetSend((obj: any) => this.sendNet(obj));
+        // 快通道: 帧同步通道承载操作/快照(低延迟); sendToClient 作冗余慢通道(去重)
+        const frameHandler = (raw: any) => {
+            try {
+                let msg: any = raw;
+                if (typeof msg === 'string') msg = JSON.parse(msg);
+                if (msg && msg.frameInfo) return; // 引擎帧结构忽略
+                this.handleNetMsg(msg);
+            } catch (e) { }
         };
-        this.netStats = stats;
-        if (typeof window !== "undefined") {
-            (window as any).__ng2Net = stats;
-            (window as any).__ng2SimulateDisconnect = () => this.onDisconnectSignal({ playerId: this.localId });
-            (window as any).__ng2Rematch = () => this.requestRematch();
-            (window as any).__ng2ReturnRooms = () => this.returnToLobby();
-        }
+        Gnet.onFrame(frameHandler);
+        this._frameHandler = frameHandler;
+        try { Gnet.startFrameSync(() => { }); } catch (e) { }
+        const handler = (info: any) => {
+            try {
+                let msg: any = info && (info.msg !== undefined ? info.msg : info.data);
+                if (typeof msg === 'string') msg = JSON.parse(msg);
+                this.handleNetMsg(msg);
+            } catch (e) { /*  malformed */ }
+        };
+        Gnet.onClient(handler);
+        this._netHandler = handler;
         BattleControl.setCurrent(this);
         BattleControl.hook();
-
-        const applyState = (state: any) => {
-            const cha = this.remoteChars.get(state.p);
-            if (!cha) return;
-            (cha.Sprite as any).pos(state.x, state.y);
-            if (typeof state.a === "number") cha.angle = state.a;
-            if (typeof state.f === "number") {
-                cha.setForce(state.f);
-                stats.remoteForce = state.f;
-                if (state.f > (stats.maxRemoteForce || 0)) stats.maxRemoteForce = state.f;
-            }
-            if (typeof state.r === "number" && state.host) {
-                stats.remoteRound = state.r;
-                // 回合方按本机视角映射: 房主的 player=房主自己回合 → 非房主视角为 enemy(等待)
-                const rd = this.isHost ? (state.rd || "player") : ((state.rd || "player") === "player" ? "enemy" : "player");
-                const ph = state.ph || "pre_turn";
-                if (state.r !== this.gameManager.getRoundNum() || rd !== this.gameManager.getCurrRound() || ph !== this.gameManager.getCurrPhase()) {
-                    this.gameManager.syncRound(state.r, rd, ph);
-                    stats.appliedRound = state.r;
-                }
-            }
-            if (typeof state.fire === "number" && state.fire > (this._lastFire[state.p] || 0)) {
-                this._lastFire[state.p] = state.fire;
-                this.gameManager.remoteFire(state.p, state.a, state.f);
-            }
-            if (Array.isArray(state.chars)) {
-                // 房主帧里消失的角色=已死亡: 本机同步置 0(否则远端尸体一直显示旧血)
-                const seen: Record<string, boolean> = {};
-                for (const cs of state.chars) if (cs && cs.id) seen[cs.id] = true;
-                this.remoteChars.forEach((rc, id) => {
-                    if (!seen[id] && rc.health > 0) { rc.health = 0; rc.shield = 0; rc.drawUI(); }
-                });
-                for (const cs of state.chars) {
-                    if (!cs || !cs.id || cs.id === this.localId) continue;
-                    const rc = this.remoteChars.get(cs.id);
-                    if (!rc) continue;
-                    rc.health = cs.hp;
-                    rc.shield = cs.sh;
-                    rc.drawUI();
-                    stats.remoteHealth[cs.id] = { hp: cs.hp, sh: cs.sh };
-                }
-            }
-            if (state.over && state.winner && !this.resultShown) {
-                stats.remoteWinner = state.winner;
-                this.lastWinnerId = state.winner;
-                this.showResultLabel(state.winner === this.localId ? "胜利" : "失败");
-            }
-            stats.lastWinnerId = this.lastWinnerId;
-            stats.lastRemote = { p: state.p, x: state.x, y: state.y, a: state.a, f: state.f, r: state.r };
-        };
-        const parseFrame = (raw: any) => {
-            stats.frameEvents++;
-            if (!stats.rawFrameSample) { try { stats.rawFrameSample = JSON.stringify(raw).slice(0, 300); } catch (e) { stats.rawFrameSample = String(raw); } }
-            if (stats.frameEvents % 40 === 0 && stats.rawFrameSamples.length < 6) { try { stats.rawFrameSamples.push(JSON.stringify(raw).slice(0, 800)); } catch (e) { stats.rawFrameSamples.push(String(raw)); } }
-            if (!stats.rawKeys && raw && typeof raw === "object" && !Array.isArray(raw)) stats.rawKeys = Object.keys(raw);
-            if (raw && typeof raw === "object" && (raw as any).frameInfo) stats.frameInfoSeen = (stats.frameInfoSeen || 0) + 1;
-
-            const payloads: any[] = [];
-            const collect = (v: any) => {
-                if (v == null) return;
-                if (Array.isArray(v)) { v.forEach(collect); return; }
-                if (typeof v === "string") { payloads.push(v); return; }
-                if (typeof v === "object") {
-                    if (typeof v.x === "number") { payloads.push(v); return; }
-                    if (v.data !== undefined) collect(v.data);
-                    if (v.frameInfo !== undefined) collect(v.frameInfo);
-                }
-            };
-            collect(raw);
-            for (const p of payloads) {
-                let data: any = p;
-                if (typeof p === "string") { try { data = JSON.parse(p); } catch (e) { continue; } }
-                if (!data) continue;
-                if (data.ctrl && data.ctrl.op) {
-                    const key = data.ctrl.op + ":" + (data.ctrl.seq || 0);
-                    if (RoomSession.markControlApplied(key)) {
-                        if (data.ctrl.seq) RoomSession.setSeq(data.ctrl.seq);
-                        if (data.ctrl.op === "rematch") this.restartBattle();
-                        else if (data.ctrl.op === "toLobby") this.goLobby();
-                    }
-                }
-                if (typeof data.x !== "number") continue;
-                if (data.b) {
-                    if (!stats.seqAdopted) { RoomSession.setSeq(data.b); stats.seqAdopted = true; }
-                    if (data.b !== RoomSession.getSeq()) continue;
-                }
-                stats.framesReceived++;
-                applyState(data);
-            }
-        };
-        this.frameHandler = parseFrame;
-        Gnet.onFrame(parseFrame);
-
-        const beginSend = () => {
-            if (this.netSendTimer) return;
-            this.netSendTimer = true;
-            Laya.timer.loop(200, this, () => {
-                const local = this.masterCha;
-                if (!local) return;
-                try {
-                    Gnet.sendFrame(JSON.stringify({
-                        p: localId,
-                        b: RoomSession.getSeq(),
-                        ctrl: RoomSession.getControl(),
-                        x: local.Sprite.x,
-                        y: local.Sprite.y,
-                        a: local.angle,
-                        f: local.force,
-                        r: this.gameManager.getRoundNum(),
-                        rd: this.gameManager.getCurrRound(),
-                        ph: this.gameManager.getCurrPhase(),
-                        host: this.isHost,
-                        chars: this.buildNetChars(),
-                        fire: this.gameManager.fireSeq,
-                        over: this.gameManager.isFinished(),
-                        winner: this.lastWinnerId
-                    }));
-                    stats.framesSent++;
-                    stats.localRound = this.gameManager.getRoundNum();
-                } catch (e) { /* frame sync not ready */ }
-            });
-        };
-
-        // 房主启动帧同步；非房主收到 already-start 也视为可用
-        Gnet.startFrameSync((err: any) => {
-            stats.frameSyncStarted = !err;
-            stats.frameSyncError = err ? String(err.message || err) : null;
-            beginSend();
-        });
     }
-
+    private _netHandler: any = null;
+    private _frameHandler: any = null;
+    private handleNetMsg(msg: any): void {
+        if (!msg || !msg.k) return;
+        try { const rx = (window as any).__g2rx || ((window as any).__g2rx = {}); rx[msg.k] = (rx[msg.k] || 0) + 1; (window as any).__g2rxLast = JSON.stringify(msg).slice(0, 160); } catch (e) { }
+        if (msg.seq !== undefined && msg.seq !== RoomSession.getSeq()) { try { (window as any).__g2rxSeqDrop = ((window as any).__g2rxSeqDrop || 0) + 1; } catch (e) { } return; } // 旧局消息忽略
+        if (msg.k === 'g2ops') { for (const o of (msg.ops || [])) this.handleNetMsg(o); return; }
+        if (msg.k === 'g2ack') { for (const key of (msg.keys || [])) this._unacked.delete(key); return; }
+        if (msg.k === 'fire' || msg.k === 'g2fire' || msg.k === 'hit') {
+            if (this.gameManager.applyNetOp(msg)) this._pendingAck.push(this.opKey(msg));
+        }
+        else if (msg.k === 'g2start' || msg.k === 'g2snap') this.gameManager.applyNetSnap(msg.snap);
+    }
+    private _outbox: any[] = [];
+    private _pendingAck: string[] = [];
+    private _unacked: Map<string, { op: any; ts: number; tries: number }> = new Map();
+    private opKey(o: any): string { return o.k === 'fire' ? ('fire:' + (o.pid || '') + ':' + (o.round !== undefined ? o.round : -1)) : (o.k + ':' + (o.pid || '') + ':' + o.at + ':' + (o.from || '')); }
+    private sendNet(obj: any): void {
+        // 入箱: 每 tick 合批一条发送(SDK 同 tick 多次 sendFrame 会丢包, 实测 hit 操作丢失)
+        const m = Object.assign({ seq: RoomSession.getSeq() }, obj);
+        this._outbox.push(m);
+        if (m.k === 'fire' || m.k === 'hit') this._unacked.set(this.opKey(m), { op: m, ts: Timer.now(), tries: 0 });
+    }
+    private flushNet(): void {
+        // 可靠投递: 400ms 未 ack 的操作重传(接收端去重), 最多 6 次
+        const now = Timer.now();
+        this._unacked.forEach((u, key) => {
+            if (now - u.ts > 400 && u.tries < 6) { u.ts = now; u.tries++; this._outbox.push(u.op); }
+            else if (u.tries >= 6) this._unacked.delete(key);
+        });
+        if (this._pendingAck.length) { this._outbox.push({ k: 'g2ack', keys: this._pendingAck.splice(0, this._pendingAck.length) }); }
+        if (!this._outbox.length) return;
+        const batch = this._outbox.splice(0, this._outbox.length);
+        const payload = JSON.stringify({ k: 'g2ops', seq: RoomSession.getSeq(), ops: batch });
+        try {
+            const tx = (window as any).__g2tx || ((window as any).__g2tx = {}); tx['g2ops'] = (tx['g2ops'] || 0) + 1;
+            Gnet.sendFrame(payload); // 快通道
+            Gnet.sendToClient(Gnet.ROUTE_OTHERS, payload); // 冗余慢通道(接收端去重)
+        } catch (e) { try { (window as any).__g2txErr = String(e && (e.message || e)); } catch (e2) { } }
+    }
 
     /** 再来一局：通知对端并重开对战场景 */
     public requestRematch(): void {
@@ -675,6 +575,8 @@ export class Main extends Laya.Script {
         if (this._cleaned) return;
         this._cleaned = true;
         Laya.timer.clearAll(this);
+        if (this._netHandler) { try { Gnet.offClient(this._netHandler); } catch (e) { } this._netHandler = null; }
+        if (this._frameHandler) { try { Gnet.offFrame(this._frameHandler); } catch (e) { } this._frameHandler = null; }
         this.owner.off(Laya.Event.REMOVED, this, this.onSceneDetached);
         ["g2OfflineArea", "resultLabel", "roomBanner", "g2BackBtn", "netNotice"].forEach((n) => {
             const o = Laya.stage.getChildByName(n);

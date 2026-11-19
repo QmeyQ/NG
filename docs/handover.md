@@ -98,7 +98,7 @@ Worker=网关+IP/历史风控(历史改用户行 history 点查)。
 | GOBE 大厅/点对点/广播/路由 | `src/libs/server/lobby.ts` + `src/libs/gobe/net.ts` | setroom/lobbygroup | (无 UI, 纯逻辑) | lobby-receive.test.cjs |
 | 对局邀请(单打/双打) | `src/libs/server/invite.ts` | invite(create/accept/setroom/get) | item2 chatFuncPanel/funcList | social.test.cjs(invite) |
 | 本地对局详情 | `src/libs/server/localMatch.ts` | (无, 仅本地 IDB) | item3 战绩 panel | progress-pid.test.cjs |
-| g2 联机房间/帧同步/回合权威 | `src/g2/online.ts`(房间生命周期) + `src/g2/Main.ts`(startBattleNet/applyState) + `src/g2/GameManager.ts`(authority/remoteFire/syncRound) + `src/g2/battleControl.ts`(路由契约) | (GOBE 实时, 非 te) | g2/game/select.ls + trace.ls | **local/g2mcdrive.cjs 双账号实测** |
+| g2 联机房间/确定性同步 | `src/g2/online.ts`(房间生命周期) + `src/g2/phys2d.ts`(确定性内核: 操作同步+快照校正) + `src/g2/GameManager.ts`(编排/fireOp/tick) + `src/g2/Main.ts`(g2start/g2fire/g2snap 通道) + `src/g2/battleControl.ts`(重开/退出) | (GOBE 实时, 非 te) | g2/game/select.ls + trace.ls | **local/g2mcdrive.cjs 双账号实测(含跨端轨迹一致性)** |
 | 社交页 UI 绑定 | `src/ui/social.ts` | — | item2 全部 soc* 节点 | (浏览器 mcdrive) |
 | 个人页 UI 绑定 | `src/ui/personal.ts` | bag/set/score | item3 左 tabs 右 panel(背包/战绩/设置/隐私) | (浏览器) |
 | 网关/IP/历史风控 | `src/libs/server/cloud.ts`(teSafe/teWrite) | Worker `server/cloud/src/agc.js` | — | cloud-registration.test.cjs |
@@ -244,3 +244,24 @@ Worker=网关+IP/历史风控(历史改用户行 history 点查)。
 - **华为云存储上传 403**：CAS 自动重登(密码管理器 autofill+真实点击)后 console 读正常但上传 bearer 被拒(浏览器 XHR 亦 ERR_FAILED)。对策: 掉可见登录窗口请用户手动重登(可能短信验证) + `local/deploy_after_login.py` 后台等登录完成自动上传。备用技术: _raw CDP 复刻上传_ = 抓 storage POST 的 Authorization/productId/teamId + requestWillBeSentExtraInfo 的 Cookie, Node 发 multipart/form-data(name="file") + Origin/Referer 头到 `agc-storage-drcn.developer.huawei.com/v0/<bucket>?name=<path>`(token 有效时可绕过控制台 UI)。
 - **联机出生点**：世界坐标共享, 房主 master(0.3W,0.65H)/非房主 master(0.7W,0.35H), 远端_avatar 取对侧; 同点出生会开局互撞刷伤害。
 - **死局平衡**：shieldRecover/heal 速率必须低于伤害输出(0.03), 阻尼 0.25(半衰期0.5s)后碰撞窗口短, 0.1 回复率单机/联机都打不死。
+
+### g2 联机同步重设计（2026-11-20，用户明确：同步操作而非瞎同步状态）
+- **旧方案病根**：每 200ms 用远端坐标覆盖本地渲染 → 疯狂闪烁；双端各自模拟伤害 → 分歧。已废除。
+- **新方案（参考羽毛球 Phy 的时间同步计算模式）**：`src/g2/phys2d.ts` 确定性 2D 物理内核：
+  - 固定步长 60Hz、整数定点 FP=256；积分=整数加、阻尼=(v*32112)>>15、反弹/分离/速度交换全部整数或 IEEE 正确舍入(sqrt/cos/sin) → 同输入各端逐位一致；
+  - 随机仅种子化 xorshift32（种子=hash(roomId:seq)，随 g2start 快照下发）；身体按 pid 排序遍历；
+  - **操作同步为主**：fire 操作 {pid,angle,force,at=未来绝对步(量化 now+150ms)} 广播，各端在同一步应用；回合/阶段/伤害/胜负全部由内核从操作流确定性推导（回合结束=全体静止或超时，换边+整数回复），**不需要房主逐回合权威**；
+  - **补充状态同步**：房主每 2s 发 g2snap（全量快照+opLog）；接收端与本机历史同步对比，位置容差=4px+4步运动量（覆盖墙钟 skew），hp/sh/round/phase 严格相等；仅真分歧时 restore+重放操作+追步（平滑渲染不受影响）；迟到 join 亦由快照 bootstrap；
+  - 房主仅负责：超时兜底 fire 操作生成、快照发送、房间生命周期；
+  - 渲染：Cha.syncBody 每帧从内核取位置/血量/翻转/动画态 → 平滑无网络抖动。
+- 单机走同一内核（AI 操作本地生成，回合开始后 1~3s 发射），单机/联机同一套物理与回合逻辑。
+- 坑：同一步多身体同侧发射（master+ally）须允许 burst（actionStartStep 判定），否则第二个 fire 被 phase!=pre 拒绝（实测 master 不动）；角色注册键必须=世界 pid（先设 bodyPid 再 addCha）。
+- 验证：g2mcdrive 断言含「初始世界跨端逐位一致」「行动阶段轨迹跨端 <=12px」「血量跨端逐位一致」；诊断探针 local/kprobe.cjs（内核 vs 渲染）。
+
+**同步重设计最终验证（2026-11-20）：** 双账号 `g2mcdrive.cjs` **19/19**：初始世界跨端逐位一致、**同步网格历史跨端逐位一致(gridDiv=0, 504+ 采样)**、血量跨端逐位一致、行动阶段跨端位置差仅采样时差(<=223px@双ev间隔)、互补结算(@98s)、再来一局整局重置、双方退出离房。单机 14/14、社交 11/11、离线 121/121。
+- 通道最终形态：**操作同步为主** = fire/hit 操作带绝对执行步(fire 量化 30 步网格+800ms lead; hit +60 步)，**每 tick 合批一条 g2ops**(SDK 同 tick 多次 sendFrame 丢包, 实测) 走 sendFrame 快通道 + sendToClient 冗余慢通道；**ack/重传**(400ms 未 ack 重传, 最多 6 次, 接收端按 k+pid+round / k+pid+at+from 去重)保证可靠投递。
+- **补充状态同步** = 房主每 60 步(1s)网格步发 g2snap(全量+opLog)；接收端历史网格对齐绝对 60 步倍数；离散状态(回合/阶段/胜负)以快照为准；hp/sh 仅分歧时采纳；**静止位置静默收敛**(>8px 且双方静止时对齐, 运动中不干预→不闪烁)；重放只取 at>snapshot.step 的操作(否则双倍伤害, 实测)。
+- 再来一局: 新 t0 快照触发整局重置(旧局消息被 seq 检查丢弃)。
+- 平衡: 单机 atk30(3 身体接触率双倍)/联机 atk80(2 hit/kill, 局时长 ~60-100s); HIT_CD 20 步; 回复 0.01。
+- 渲染: Cha.syncBody 每帧从内核取状态 → 平滑; 结算时 hideAllForceUI。
+- 实测坑汇总: ① 同 tick 多 sendFrame 丢包→合批; ② 慢通道(sendToClient)延迟 ~600ms+→lead 必须 >延迟尖峰; ③ reset 重放含已结算操作→双倍伤害; ④ 非房主 bootstrap 漏设 online→跑离线 AI 自打; ⑤ 注册键≠世界 pid→渲染不同步; ⑥ 同步 lead 窗口内重复发射→_pendingFire 门; ⑦ clamp 改变 at 破坏去重→fire 按 round 去重。

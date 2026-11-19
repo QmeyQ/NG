@@ -56,6 +56,7 @@
 const { regClass } = Laya;
 import { EffectManager, Effect, EffectTrigger } from "./EffectManager";
 import { Res as PRes } from "../libs/res/res";
+import { FP } from "./phys2d";
 
 // 动画状态枚举
 enum AnimationState {
@@ -84,6 +85,8 @@ export class Cha {
     public maxShield: number = 50; // 最大护盾值
     public attack: number = 10; // 攻击力
     public defense: number = 5; // 防御力
+    public bodyPid: string = "";
+    private _vx: number = 0; private _vy: number = 0;
     public isEnemy: boolean = false; // 是否为敌方
     public isPlayerControlled: boolean = false; // 是否为玩家控制的友方
     public showAim: boolean = false; // 是否显示方向线
@@ -186,18 +189,15 @@ export class Cha {
         // 初始化状态持续时间
         this.initStateDurations();
 
-        this.initPhysics();
+        // 物理由确定性内核 Phys2D 统一驱动(多端操作同步), Cha 只负责渲染/UI/动画
         if (!this.Sprite.graphics) {
             this.Sprite.graphics = new Laya.Graphics();
         }
-        this.rigidBody = this.getRB();
-
-        if(!this.rigidBodyShape)
-            this.rigidBodyShape = this.rigidBody.shapes[0] as Laya.CircleShape2D;
+        this.rigidBody = null;
+        this.rigidBodyShape = { radius: 80 } as any;
 
         // 启动伤害和回血文本动画更新
         Laya.timer.frameLoop(1, this, this.updateTexts);
-        Laya.timer.frameLoop(1, this, this.manualPhysics);
         if (this.noPhysics) { this.Sprite.anchorX = 0; this.Sprite.anchorY = 0; this.bodySprite = new Laya.Sprite(); this.bodySprite.name = "body"; this.Sprite.addChildAt(this.bodySprite, 0); try { PRes.get("g2/sprite/hero.png").then((tx: any) => { this.spriteTex = tx; }); } catch (e) {} Laya.timer.frameLoop(1, this, this.spriteTick); }
         
         console.log("Cha构造函数完成，初始状态:", this.currentState);
@@ -599,59 +599,27 @@ export class Cha {
         const sub = Laya.Texture.create(this.spriteTex, sx, sy, FW, FW); g.drawTexture(sub, -100, -100, 200, 200);
     }
 
-    private _lastWallT: number = 0;
-    private manualPhysics(): void {
-        if (!this.noPhysics || !this.rigidBody) return;
-        const dt = Laya.timer.delta / 1000;
-        const v = this.rigidBody.linearVelocity;
-        this.Sprite.x += v.x * dt; this.Sprite.y += v.y * dt;
-        const d = Math.pow(0.25, dt); v.x *= d; v.y *= d; // 半衰期0.5s: 回合静止判定更快, 联机节奏不拖沓
-        // 单机无物理墙: 手动场地边界反弹, 角色留在屏内
-        const r = 60, W = Laya.stage.width, H = Laya.stage.height;
-        let hitWall = false;
-        if (this.Sprite.x < r) { this.Sprite.x = r; v.x = Math.abs(v.x) * 0.8; hitWall = true; }
-        if (this.Sprite.x > W - r) { this.Sprite.x = W - r; v.x = -Math.abs(v.x) * 0.8; hitWall = true; }
-        if (this.Sprite.y < r) { this.Sprite.y = r; v.y = Math.abs(v.y) * 0.8; hitWall = true; }
-        if (this.Sprite.y > H - r) { this.Sprite.y = H - r; v.y = -Math.abs(v.y) * 0.8; hitWall = true; }
-        if (hitWall && Laya.timer.currTimer - this._lastWallT > 400) { this._lastWallT = Laya.timer.currTimer; this.onWallCollision(); }
-    }
-
     private updateTexts(): void {
         this.updateDamageTexts();
         this.updateHealTexts();
-        this.updateFlip();
         this.drawUI();
     }
 
-    // 更新翻转状态，并在状态改变时重绘UI
-    private updateFlip(): void {
-        const rigidBody = this.getRB();
-        if (!rigidBody) return;
-
-        const velocity = rigidBody.linearVelocity;
-        let isFlipped = false;
-
-        // 无物理模式只翻转美术子节点: 血条/瞄准线/伤害文本不随之镜像
-        const flipNode: any = (this.noPhysics && this.bodySprite) ? this.bodySprite : this.Sprite;
-        if (velocity.x < 0 && this.lastScaleX > 0) {
-            flipNode.scaleX = -1;
-            isFlipped = true;
-        } else if (velocity.x > 0 && this.lastScaleX < 0) {
-            flipNode.scaleX = 1;
-            isFlipped = true;
+    /** 内核状态 → 渲染(位置/血量/翻转/动画态), 每帧由 GameManager.tick 调用 */
+    syncBody(b: any): void {
+        this._vx = b.vx; this._vy = b.vy;
+        this.Sprite.pos(b.x / FP, b.y / FP);
+        if (this.health !== b.hp || this.shield !== b.sh) {
+            this.health = b.hp; this.shield = b.sh; this.drawUI();
         }
-        // 如果速度为0，保持当前状态
-
-        // 记录新的缩放值
-        const newScaleX = flipNode.scaleX;
-        
-        // 当翻转状态发生变化时，强制重绘UI
-        if (this.lastScaleX !== newScaleX) {
-            this.lastScaleX = newScaleX;
-            // 强制重绘UI，确保所有元素正确显示
-            this.drawUI();
-            console.log(`角色翻转状态改变为: ${newScaleX < 0 ? '翻转' : '正常'}`);
+        if (this.bodySprite) {
+            if (b.vx < -21) this.bodySprite.scaleX = -1;
+            else if (b.vx > 21) this.bodySprite.scaleX = 1;
         }
+        if (!b.alive) return;
+        const speed = Math.abs(b.vx) + Math.abs(b.vy);
+        if (speed > 21 && this.currentState !== AnimationState.MOVING && this.currentState !== AnimationState.ATTACK && this.currentState !== AnimationState.HIT) this.setState(AnimationState.MOVING);
+        else if (speed <= 21 && this.currentState === AnimationState.MOVING) this.setState(AnimationState.IDLE);
     }
 
     // 更新伤害文本动画
@@ -777,42 +745,16 @@ export class Cha {
 
     // 应用力度
     applyForce(): void {
-        if (this.force == 0)
-            return;
-        const rigidBody = this.getRB();
-        if (!rigidBody) return;
-
-        const vx = Math.cos(this.angle) * this.force;
-        const vy = Math.sin(this.angle) * this.force;
-        rigidBody.linearVelocity = new Laya.Vector2(vx, vy);
-
-        // 应用力时立即更新翻转状态
-        const flipNode: any = (this.noPhysics && this.bodySprite) ? this.bodySprite : this.Sprite;
-        if (vx < 0 && this.lastScaleX > 0) {
-            flipNode.scaleX = -1;
-            this.lastScaleX = -1;
-        } else if (vx > 0 && this.lastScaleX < 0) {
-            flipNode.scaleX = 1;
-            this.lastScaleX = 1;
-        }
-        
-        // 应用力时切换到移动状态
+        // 发射由 GameManager.fireOp → 内核操作执行; 此处仅 UI 状态
+        if (this.force == 0) return;
         this.setState(AnimationState.MOVING);
-        console.log("应用力度，切换到移动状态");
     }
 
     // 检查速度是否接近零
     isVelocityNearZero(threshold: number = 10): boolean {
-        const rigidBody = this.getRB();
-        if (!rigidBody) return true;
-
-        const velocity = rigidBody.linearVelocity;
-        const speed = Math.sqrt(velocity.x * velocity.x + velocity.y * velocity.y);
-        const isNearZero = speed < threshold;
-        
-        // 注意：这里不再直接设置状态，状态切换在updateBaseStateByPhysics中处理
-        this.setState(AnimationState.IDLE);
-        return isNearZero;
+        const vx = this._vx * 60 / FP, vy = this._vy * 60 / FP;
+        const speed = Math.sqrt(vx * vx + vy * vy);
+        return speed < threshold;
     }
 
     // 绘制UI
