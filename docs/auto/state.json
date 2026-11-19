@@ -1,5 +1,5 @@
 {
-  "phase": "g2-online-verified-local-prod-pending-huawei-login",
+  "phase": "g2-deterministic-sync-verified-19of19",
   "done": [
     "h2 tsc baseline",
     "h3 tests 116 pass",
@@ -49,12 +49,18 @@
     "房主权威回合/伤害+fire 信号+回合视角映射+分侧出生",
     "net.ts owner 缓存口径修复+offJoin",
     "本地双账号 g2mcdrive 16/16 + 单机 14/14 + 社交 11/11",
-    "硬规则 ai14/h14/h16 工作流优先 + ai13 第6条联机双账号实测"
+    "硬规则 ai14/h14/h16 工作流优先 + ai13 第6条联机双账号实测",
+    "phys2d 确定性内核+操作同步+快照校正重写(废除逐帧坐标覆盖)",
+    "Cha/GameManager/Main 适配内核",
+    "same-step burst 与注册键修复",
+    "phys2d 确定性内核+操作同步(合批/ack重传/去重)+网格快照补充同步+静止收敛",
+    "双账号 g2mcdrive 19/19 (gridDiv=0 逐位一致, 结算@98s, 重开/退出全过)",
+    "单机 14/14 + 社交 11/11 + 离线 121/121"
   ],
   "next": [
-    "用户手动重登华为云(9227 窗口已掉起, deploy_after_login.py 后台等待)",
-    "上传 bundle 后 prod_g2mc 双账号生产复验+截图目视",
-    "回填+commit/push"
+    "华为云存储上传 bundle(控制台上传 403, 需用户手动覆盖 js/bundle.js 或修复鉴权)",
+    "prod_g2mc 生产双账号复验+截图目视",
+    "回填+commit/push(本轮代码已提交待推送)"
   ],
   "blocked": [
     "load.ls publish (served from ECS)",
@@ -64,5 +70,5 @@
   "failed": [],
   "last_output": "social3drive 11/11 PASS: addFriendInput/btn_申请好友 -> B req A, A reqAccept_0 -> friends=1, B 刷新 -> friend_0, msgInput+btn_发送 -> detail msgs=1 no duplicate, A refresh sees message, server fA/fB persisted, no exceptions | bundle 1,526,650B | tsc baseline | offline 121 pass",
   "note": "LayaProject=小游戏平台; NG2=branch origin/room",
-  "updatedAt": "2026-11-19T15:31:40.914Z"
+  "updatedAt": "2026-11-19T21:47:02.292Z"
 }

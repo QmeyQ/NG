@@ -1280,6 +1280,10 @@ export class Gnet {
     this._bridgeRoom();
   }
 
+  static offClient(cb?: (info: any) => any): void {
+    this._mpm.off("client", cb);
+  }
+
   static onDisconnect(cb: (info: any) => any): void {
     this._mpm.on("disconnect", cb);
     this._bridgeRoom();
