@@ -605,7 +605,7 @@ export class Cha {
         const dt = Laya.timer.delta / 1000;
         const v = this.rigidBody.linearVelocity;
         this.Sprite.x += v.x * dt; this.Sprite.y += v.y * dt;
-        const d = Math.pow(0.5, dt); v.x *= d; v.y *= d;
+        const d = Math.pow(0.25, dt); v.x *= d; v.y *= d; // 半衰期0.5s: 回合静止判定更快, 联机节奏不拖沓
         // 单机无物理墙: 手动场地边界反弹, 角色留在屏内
         const r = 60, W = Laya.stage.width, H = Laya.stage.height;
         let hitWall = false;

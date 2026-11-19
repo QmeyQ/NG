@@ -48,7 +48,8 @@ export class BattleControl {
             const me = Gnet.getCurrentPlayerId ? Gnet.getCurrentPlayerId() : "";
             const players = (Gnet.getPlayers ? Gnet.getPlayers() : []) || [];
             const ids = players.map((pl: any) => pl && (pl.playerId || pl.openId || pl.id)).filter((id: any) => !!id && id !== me);
-            Gnet.sendToClient(BattleControl.CONTROL_TYPE, JSON.stringify({ op: op, seq: seq }), ids.length ? ids : undefined);
+            // 契约: sendToClient 第一参=路由模式(0/1/2), 不是消息类型; 载荷自带 op
+        Gnet.sendToClient(ids.length ? Gnet.ROUTE_TARGET : Gnet.ROUTE_OTHERS, JSON.stringify({ op: op, seq: seq }), ids.length ? ids : undefined);
         } catch (e) { /* control channel not ready */ }
     }
 }

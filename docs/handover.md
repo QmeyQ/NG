@@ -98,6 +98,7 @@ Worker=网关+IP/历史风控(历史改用户行 history 点查)。
 | GOBE 大厅/点对点/广播/路由 | `src/libs/server/lobby.ts` + `src/libs/gobe/net.ts` | setroom/lobbygroup | (无 UI, 纯逻辑) | lobby-receive.test.cjs |
 | 对局邀请(单打/双打) | `src/libs/server/invite.ts` | invite(create/accept/setroom/get) | item2 chatFuncPanel/funcList | social.test.cjs(invite) |
 | 本地对局详情 | `src/libs/server/localMatch.ts` | (无, 仅本地 IDB) | item3 战绩 panel | progress-pid.test.cjs |
+| g2 联机房间/帧同步/回合权威 | `src/g2/online.ts`(房间生命周期) + `src/g2/Main.ts`(startBattleNet/applyState) + `src/g2/GameManager.ts`(authority/remoteFire/syncRound) + `src/g2/battleControl.ts`(路由契约) | (GOBE 实时, 非 te) | g2/game/select.ls + trace.ls | **local/g2mcdrive.cjs 双账号实测** |
 | 社交页 UI 绑定 | `src/ui/social.ts` | — | item2 全部 soc* 节点 | (浏览器 mcdrive) |
 | 个人页 UI 绑定 | `src/ui/personal.ts` | bag/set/score | item3 左 tabs 右 panel(背包/战绩/设置/隐私) | (浏览器) |
 | 网关/IP/历史风控 | `src/libs/server/cloud.ts`(teSafe/teWrite) | Worker `server/cloud/src/agc.js` | — | cloud-registration.test.cjs |
@@ -213,3 +214,33 @@ Worker=网关+IP/历史风控(历史改用户行 history 点查)。
 - 生产 normalgame.cn 全路径实测 `local/prod_g2full.cjs` **14/14**(入口→单机→拖拽角度/力度→单击发射→伤害→胜利→返回→重进), 截图 local/prod-selftest-*.png 目视通过; 社交生产冒烟 socialdrive_prod.cjs **14/14**。
 - **生产 index.html 缺 libs/laya.ui.js 引用**(历史直链版遗漏): g2 全部文本节点已改 Laya.GTextField(ui2, 生产已带), 不再依赖旧 laya.ui.js; 平台其余链路实测无依赖。彻底对齐需 ECS 改 index.html 加一行 script —— **阿里云控制台登录态已过期**(edge-srv cookies 失效, 跳 login.htm), 需用户重新登录阿里云后按 h14/r4 CDP 法或 FTP 更新 /home/ftpu/html/index.html(用 release/web/index.html, 已含 laya.ui.js 直链)。laya.ui.js 已在云存储备好。
 - 坑补充: node_repl 沙箱内 spawn 的 detached 子进程随调用结束被杀、回环 fetch EACCES —— **长驻浏览器/CDP 轮询一律经 exec_command**; headless Edge 必须 --no-sandbox; 探针等待新局用 window.__ng2BattleSeq(onStart 自增), 不要等 started===false(同步创建角色时该窗口不存在)。
+
+## h16 工作流优先纪律 + 联机双账号实测（用户明确 2026-11-19，写死）
+
+**纪律（每轮强制）：**
+1. 开工先读：`docs/handover.md` h0/h12/h13/h15/h16 + `docs/auto/state.json`（从 `next` 续跑）+ `docs/nodes/aidev.js` 对应分支节点（ai14→aiPlan→…→ai13→ai12）。**禁止凭记忆开工**；改哪块只读 h12 地图该行文件。
+2. 执行沿链路：策划 → 实现 → h2 tsc(基线 card.ts:80/82) → h3 离线测试 → h4 打包 → h5/ai13 浏览器实测 → h6-h8 部署 → 生产复验 → ai12 回填。**每轮结束必须回填** handover/节点/state.json，未回填=本轮未完成。
+3. 工作流与代码不符：先使两者一致（修文档或修代码），不允许绕过工作流直接改。
+4. 遗忘/偏离工作流导致功能不符 = 验收失败重做（用户多次强调测试仍出现功能不符的根因即跳过工作流与实测）。
+
+**联机验证硬规则（ai13 第 6 条）：**
+- 联机/多人功能必须**双独立账号、双客户端**（双 profile、双 CDP、真实 GOBE 云）真实跑全链路：建房/匹配 → 双方进房 → 回合轮流 → 伤害 → 结算 → 再来一局 → 退出离房。
+- 控制方式：**植入代码**（`page.ev` 直接调游戏 API：setAngle/setForce/endPrepPhase/requestRematch/goLobby）+ **真实鼠标**拖拽/点击混合；只读状态不算控制测试。
+- 单客户端自测**不算**联机验证。探针：`local/g2mcdrive.cjs`（g2 联机 14 断言+截图）、`local/mcdrive.cjs`/`mc3drive.cjs`（社交）。
+- 账号来源：fresh profile 自动云注册（menu 的 id 节点纯数字），两 profile 即两账号；GOBE 身份=Cloud userid，NetBoot.ensure 预热。
+
+**g2 联机架构（本轮落地，h12 已登记）：**
+- `src/g2/online.ts`：roomType=`g2battle` 2人房；matchRoom 撮合 / createRoom 等待；onRoomChange 驱动第二人进入（不轮询）；60s 超时取消；enter 写 RoomSession 后 SceneNav 开 trace.ls；leave=房主 dismiss/其余 leave。
+- 回合权威：房主 `GameManager.authority=true` 独占碰撞/伤害/回合推进；非房主只本地模拟自己 + 按房主帧 syncRound（**回合方按本机视角映射**：房主 player→非房主 enemy）；非房主发射 fireSeq 随帧上报，房主 remoteFire 放行对手回合；联机对手回合不跑 AI 自动发射。
+- 帧载荷：p/b/ctrl/x/y/a/f/r/rd/ph/host/chars/fire/over/winner，200ms loop；sendToClient 第一参=路由模式(0/1/2)（battleControl 曾误传 200 已修）。
+- 退出/重开：goLobby=G2Online.leave+SceneNav.back（不再误开羽毛球 load.ls）；restartBattle=SceneNav+PRes.clear 重开 trace.ls（保留 RoomSession seq）。
+
+**本轮验证数字（2026-11-19）：** 本地双账号联机 `g2mcdrive.cjs` **16/16**（注册→建房/匹配→同房→分侧出生→房主权威→真实拖拽+单击发射双方→回合映射→fire 信号→伤害→血量跨端一致→互补结算→再来一局→双方退出离房）；单机 `g2selftest.cjs` **14/14**；社交双客户端 `mcdrive.cjs` **11/11**（net.ts owner 缓存修改后平台回归）。生产双账号复验待华为重新登录后执行 `prod_g2mc.cjs`。
+
+**h10 坑补充（本轮实测）：**
+- **GOBE 鬼房**：客户端被 kill 后房间在服务端存活数分钟, matchRoom 会撮合进鬼房(含死玩家)。对策: match 先 getAvailableRooms 扫 createTime<45s 且未满的房直接 join; matchRoom 撮合到过期房则 leave+create; 测试结束必须 `__g2OnlineLeave()` 离房/解散。
+- **房主缓存比对口径**：net.ts updateRoomOwnerCache 原用 openId(currentPlayerId) 比 room.ownerId(GOBE playerId) → 永远 false; 已改 getCurrentPlayerId()。影响所有 isRoomOwner 调用方。
+- **onRoomChange 只在房间属性变化触发**, 玩家加入走 onJoin; 等第二人必须同时监听 onJoin(实测创建者干等)。
+- **华为云存储上传 403**：CAS 自动重登(密码管理器 autofill+真实点击)后 console 读正常但上传 bearer 被拒(浏览器 XHR 亦 ERR_FAILED)。对策: 掉可见登录窗口请用户手动重登(可能短信验证) + `local/deploy_after_login.py` 后台等登录完成自动上传。备用技术: _raw CDP 复刻上传_ = 抓 storage POST 的 Authorization/productId/teamId + requestWillBeSentExtraInfo 的 Cookie, Node 发 multipart/form-data(name="file") + Origin/Referer 头到 `agc-storage-drcn.developer.huawei.com/v0/<bucket>?name=<path>`(token 有效时可绕过控制台 UI)。
+- **联机出生点**：世界坐标共享, 房主 master(0.3W,0.65H)/非房主 master(0.7W,0.35H), 远端_avatar 取对侧; 同点出生会开局互撞刷伤害。
+- **死局平衡**：shieldRecover/heal 速率必须低于伤害输出(0.03), 阻尼 0.25(半衰期0.5s)后碰撞窗口短, 0.1 回复率单机/联机都打不死。

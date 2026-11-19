@@ -9,6 +9,7 @@ import { Dialog } from "../ui/DIalog";
 import { Au } from "../libs/au";
 import { UI } from "../ui/ui";
 import { RoomSession } from "./roomSession";
+import { G2Online } from "./online";
 
 @regClass()
 export class traceSel extends Laya.Script {
@@ -34,8 +35,8 @@ export class traceSel extends Laya.Script {
 
         const modes = [
             { label: "单机模式 · 人机", go: () => this._openBattle(true) },
-            { label: "轨迹对战 · 匹配", go: () => this._openBattle(false) },
-            { label: "创建房间", go: () => this._openBattle() },
+            { label: "轨迹对战 · 匹配", go: () => G2Online.match() },
+            { label: "创建房间", go: () => G2Online.create() },
             { label: "返回", go: () => SceneNav.back() },
         ];
         modes.forEach((m, i) => {

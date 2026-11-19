@@ -1,5 +1,5 @@
 {
-  "phase": "platform-ui2-social-interactive-verified",
+  "phase": "g2-online-verified-local-prod-pending-huawei-login",
   "done": [
     "h2 tsc baseline",
     "h3 tests 116 pass",
@@ -41,9 +41,21 @@
     "social page v3: add-friend input + 申请好友 (Social.find/request), request list with 同意/拒绝, 刷新 button, message input + 发送, readable chat text (parses {k:chat} cloud payload); __ui2Social publishes reqs/addStatus/msgStatus/peer/detail",
     "fix: Social.send cloud-fallback double-record - sendCloud already pushes sentMsg, so skip local push when viaCloud=true",
     "verify: social3drive 11/11 PASS - B adds A via UI input, A receives req and accepts, B refresh shows friend row, B sends via input (detail msgs=1, no duplicate), A refresh+open shows received message, server fA/fB persisted, no exceptions",
-    "bundle=1,526,650B; release/web/js/bundle.js synced; tsc baseline only card.ts(80/82); offline regression 121 pass / 0 fail"
+    "bundle=1,526,650B; release/web/js/bundle.js synced; tsc baseline only card.ts(80/82); offline regression 121 pass / 0 fail",
+    "g2 单机修复+生产14/14+社交14/14 (上一轮)",
+    "硬规则: ai13/h13/h15 截图目视 + ai14/h14/h16 工作流优先 + 联机双账号实测",
+    "g2 online.ts 房间生命周期 + 房主权威回合/伤害 + fire 信号 + 路由契约修复",
+    "g2 online.ts 房间生命周期+鬼房过滤+onJoin 等待",
+    "房主权威回合/伤害+fire 信号+回合视角映射+分侧出生",
+    "net.ts owner 缓存口径修复+offJoin",
+    "本地双账号 g2mcdrive 16/16 + 单机 14/14 + 社交 11/11",
+    "硬规则 ai14/h14/h16 工作流优先 + ai13 第6条联机双账号实测"
   ],
-  "next": "G2 对局结算接平台战绩：Scene.ls 结束时上报 Social.reportResult + 写入 LocalMatch，并展示新UI胜负结果页",
+  "next": [
+    "用户手动重登华为云(9227 窗口已掉起, deploy_after_login.py 后台等待)",
+    "上传 bundle 后 prod_g2mc 双账号生产复验+截图目视",
+    "回填+commit/push"
+  ],
   "blocked": [
     "load.ls publish (served from ECS)",
     "g2.br 生产 CDN 地址/令牌未配置（当前仅本地 Fetch 拦截验证）",
@@ -52,5 +64,5 @@
   "failed": [],
   "last_output": "social3drive 11/11 PASS: addFriendInput/btn_申请好友 -> B req A, A reqAccept_0 -> friends=1, B 刷新 -> friend_0, msgInput+btn_发送 -> detail msgs=1 no duplicate, A refresh sees message, server fA/fB persisted, no exceptions | bundle 1,526,650B | tsc baseline | offline 121 pass",
   "note": "LayaProject=小游戏平台; NG2=branch origin/room",
-  "updatedAt": "2026-11-18"
+  "updatedAt": "2026-11-19T15:31:40.914Z"
 }
