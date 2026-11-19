@@ -400,8 +400,11 @@ export class Gnet {
    */
   private static updateRoomOwnerCache(room?: any): void {
     const currentRoom = room || this.getRoom();
-    if (currentRoom && this.currentPlayerId) {
-      this.isRoomOwnerCache = currentRoom.ownerId === this.currentPlayerId;
+    // 房主比对必须用房间内 playerId(getCurrentPlayerId), 而非 openId(currentPlayerId):
+    // room.ownerId 是 GOBE playerId, 用 openId 比永远 false(实测创建者 owner=false)
+    const me = this.getCurrentPlayerId();
+    if (currentRoom && me) {
+      this.isRoomOwnerCache = currentRoom.ownerId === me;
     } else {
       this.isRoomOwnerCache = false;
     }
@@ -1295,6 +1298,10 @@ export class Gnet {
   static onConnect(cb: (player: any) => any): void {
     this._mpm.on("connect", cb);
     this._bridgeRoom();
+  }
+
+  static offJoin(cb?: (player: any) => any): void {
+    this._mpm.off("join", cb);
   }
 
   static onJoin(cb: (player: any) => any): void {

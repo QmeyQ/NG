@@ -43,6 +43,19 @@ window.__DOC_FILES["nodes/aidev.js"]={
   "node_tree": {
     "name": "AI 开发辅助 子树",
     "nodes": {
+      "ai14": {
+        "location": [-880, -4.19],
+        "width": 260,
+        "name": "ai14",
+        "label": "工作流优先纪律(硬规则)",
+        "type": "规则",
+        "desc": "【用户明确 2026-11-19】所有工作必须基于工作流开展, 禁止凭记忆/ improvisation: ①每轮开工先读 docs/handover.md h0(登录态)/h12(模块地图, 改哪块读哪行)/h13(授权与续跑)/h15(验收硬规则) + docs/auto/state.json(从 next 续跑) + 本图对应分支节点; ②执行沿工作流链路: 策划(aiPlan)→实现→h2 tsc→h3 离线测试→h4 打包→h5/ai13 浏览器实测(联机按 ai13 第6条双客户端)→h6-h8 部署→生产复验→ai12 回填; ③每轮结束回填 handover/节点/state.json, 未回填=本轮未完成; ④发现工作流与代码不符: 先修工作流或先修代码使两者一致, 不允许绕过; ⑤遗忘/偏离工作流导致功能不符=验收失败重做。",
+        "inputs": [{ "name": "开发指令", "type": "Event" }],
+        "outputs": [{ "name": "纪律就绪", "type": "Event" }],
+        "height": 190,
+        "use_custom_color": true,
+        "color": [0.8, 0.3, 0.3]
+      },
       "aiPlan": {
         "location": [
           -600,
@@ -53,7 +66,7 @@ window.__DOC_FILES["nodes/aidev.js"]={
         "name": "aiPlan",
         "label": "先策划 / 细化（执行前置）",
         "type": "Group",
-        "desc": "任何执行与返工先回到工作流：需求 → 条件动作 → 实现方案 → 验收策划。策划落图后才交给 ai1 执行；保留已有变更、布局与 unused 历史。",
+        "desc": "任何执行与返工先回到工作流：需求 → 条件动作 → 实现方案 → 验收策划。策划落图后才交给 ai1 执行；保留已有变更、布局与 unused 历史。 开工前置(ai14 硬规则): 先读 handover h0/h12/h13/h15 + docs/auto/state.json, 按模块地图定位分支, 禁止凭记忆开工。",
         "inputs": [
           {
             "name": "开发指令",
@@ -386,7 +399,7 @@ window.__DOC_FILES["nodes/aidev.js"]={
         "name": "ai13",
         "label": "截图目视自检(硬规则)",
         "type": "规则",
-        "desc": "【完成验收硬规则(用户明确 2026-11-19)】游戏/玩法/UI 任何改动, 宣称完成前必须: (1)真实浏览器跑对应探针覆盖全路径(入口→模式→对局→控制→伤害→结算→退出→重进); (2)每个关键状态截图, AI 必须自己 view_image 逐张目视核对 UI/布局/状态(血条位置/角色对齐/残留节点/按钮可见/文本正确), 自主发现 bug; (3)数值断言与目视核对双通过才算完成, 矛盾即失败; (4)多人通讯改动必须多浏览器实例多账号实测(mcdrive/mc3drive), 禁止单端臆测; (5)只靠用户反馈发现问题=验收失败。探针清单: local/g2selftest.cjs(g2单机全路径+6截图+14断言), g2fireprobe.cjs(控制/时钟诊断), play_probe.cjs(拖拽控制), g2probe.cjs(入口链路), prod_g2.cjs/prod_g2full.cjs(生产CDN复验, full 14断言+6截图), mcdrive.cjs/mc3drive.cjs(社交多客户端)。headless Edge 坑: 加 --no-sandbox(AppContainer 崩溃 0xC0000005), boot 失败重试一次; CDP 轮询必须走 exec_command 的 node(node_repl 回环 EACCES)。",
+        "desc": "【完成验收硬规则(用户明确 2026-11-19)】游戏/玩法/UI 任何改动, 宣称完成前必须: (1)真实浏览器跑对应探针覆盖全路径(入口→模式→对局→控制→伤害→结算→退出→重进); (2)每个关键状态截图, AI 必须自己 view_image 逐张目视核对 UI/布局/状态(血条位置/角色对齐/残留节点/按钮可见/文本正确), 自主发现 bug; (3)数值断言与目视核对双通过才算完成, 矛盾即失败; (4)多人通讯改动必须多浏览器实例多账号实测(mcdrive/mc3drive), 禁止单端臆测; (5)只靠用户反馈发现问题=验收失败; (6)联机/多人功能必须双独立账号双客户端(双 profile/双 CDP/真实 GOBE)真实跑全链路: 建房/匹配→双方进房→回合轮流→伤害→结算→再来一局→退出离房; 控制方式=植入代码(page.ev 调游戏 API)+真实鼠标拖拽/点击混合; 单客户端自测不算联机验证; 探针 local/g2mcdrive.cjs(g2)与 mcdrive/mc3drive(社交)。探针清单: local/g2selftest.cjs(g2单机全路径+6截图+14断言), g2fireprobe.cjs(控制/时钟诊断), play_probe.cjs(拖拽控制), g2probe.cjs(入口链路), prod_g2.cjs/prod_g2full.cjs(生产CDN复验, full 14断言+6截图), mcdrive.cjs/mc3drive.cjs(社交多客户端)。headless Edge 坑: 加 --no-sandbox(AppContainer 崩溃 0xC0000005), boot 失败重试一次; CDP 轮询必须走 exec_command 的 node(node_repl 回环 EACCES)。",
         "inputs": [{ "name": "测试反馈", "type": "Event" }],
         "outputs": [{ "name": "目视通过", "type": "Event" }],
         "height": 160,
@@ -584,11 +597,21 @@ window.__DOC_FILES["nodes/aidev.js"]={
         "to_socket_type": "Event"
       },
       {
+        "from_node": "ai14",
+        "from_socket": "纪律就绪",
+        "from_socket_identifier": "纪律就绪",
+        "from_socket_type": "Event",
+        "to_node": "aiPlan",
+        "to_socket": "开发指令",
+        "to_socket_identifier": "开发指令",
+        "to_socket_type": "Event"
+      },
+      {
         "from_node": "ai12",
         "from_socket": "开发指令",
         "from_socket_identifier": "开发指令",
         "from_socket_type": "Event",
-        "to_node": "aiPlan",
+        "to_node": "ai14",
         "to_socket": "开发指令",
         "to_socket_identifier": "开发指令",
         "to_socket_type": "Event"

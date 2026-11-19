@@ -8,6 +8,8 @@ import { RoomSession } from "./roomSession";
 import { Gnet } from "../libs/gobe/net";
 import { BattleControl } from "./battleControl";
 import { SceneNav } from "../libs/nav";
+import { G2Online } from "./online";
+import { Res as PRes } from "../libs/res/res";
 
 @regClass()
 export class Main extends Laya.Script {
@@ -25,6 +27,8 @@ export class Main extends Laya.Script {
     private remoteIdList: string[] = [];
     private isHost: boolean = false;
     private lastWinnerId: string | null = null;
+    private _lastFire: Record<string, number> = {};
+    private _joinSeen: boolean = false;
     private resultShown: boolean = false;
     private frameHandler: any = null;
     private restarting: boolean = false;
@@ -140,14 +144,16 @@ export class Main extends Laya.Script {
     /** 初始化游戏管理器 */
     private initializeGameManager(): void {
         // 创建游戏管理器实例
+        // 回复速率必须低于伤害输出, 否则护盾/回血形成死局(实测联机150s/单机60s打不死);
+        // 阻尼加快(0.25)后碰撞窗口变短, 单机也需低回复
         this.gameManager = new GameManager(this.owner as Laya.Sprite, {
             prepTime: 30,
             baseDmg: 1,
-            shieldRecoverRate: 0.1,
+            shieldRecoverRate: 0.03,
             critChance: 0.1,
             critMultiplier: 2,
             stillCheckInterval: 500,
-            healRate: 0.1
+            healRate: 0.03
         });
 
         // 设置游戏事件回调
@@ -214,7 +220,7 @@ export class Main extends Laya.Script {
         const masterCha = new Cha(masterSprite, false);
         masterCha.attack = 20;
         masterCha.defense = 10;
-        if (typeof window!=="undefined" && (window as any).__g2Offline) masterCha.setPosition(Laya.stage.width*0.3, Laya.stage.height*0.65); else masterCha.setPosition(0, 0);
+        masterCha.setPosition(Laya.stage.width*0.3, Laya.stage.height*0.65); // 单机/联机同场地布局
         masterCha.setSize(200, 200);
         masterCha.setHealth(100);
         masterCha.setMaxHealth(100);
@@ -248,9 +254,13 @@ export class Main extends Laya.Script {
         const remoteIds = playerIds.filter((id: string) => id !== localId);
 
         if (room && remoteIds.length > 0) {
-            // 双端对战：房间玩家映射为角色，替换本地 AI 敌人
+            // 双端对战：世界坐标共享, 房主左下/非房主右上, 避免双方 master 同点出生互撞
+            const W = Laya.stage.width, H = Laya.stage.height;
+            const sorted = playerIds.slice().sort();
+            const hostLocal = localId === sorted[0];
+            if (this.masterCha) this.masterCha.setPosition(hostLocal ? W*0.3 : W*0.7, hostLocal ? H*0.65 : H*0.35);
             remoteIds.forEach((id: string, i: number) => {
-                const cha = this.gameManager.createPlayerAvatar(id, { x: -200, y: 1000 + i * 200 }, area2D, true);
+                const cha = this.gameManager.createPlayerAvatar(id, { x: hostLocal ? W*0.7 : W*0.3, y: (hostLocal ? H*0.35 : H*0.65) + i * 200 }, area2D, true);
                 this.remoteChars.set(id, cha);
             });
             this.startBattleNet(room, localId, remoteIds);
@@ -258,8 +268,8 @@ export class Main extends Laya.Script {
             // 单机回退：本地 AI 敌人 + 友方
             const W=Laya.stage.width,H=Laya.stage.height;
             const off=(typeof window!=="undefined" && (window as any).__g2Offline);
-            this.gameManager.createEnemy(off?{x:W*0.7,y:H*0.35}:{x:-200,y:1000}, area2D);
-            this.gameManager.createAlly(off?{x:W*0.3,y:H*0.35}:{x:-200,y:1400}, area2D);
+            this.gameManager.createEnemy({x:W*0.7,y:H*0.35}, area2D);
+            this.gameManager.createAlly({x:W*0.3,y:H*0.35}, area2D);
         }
 
         // 开始游戏
@@ -281,6 +291,7 @@ export class Main extends Laya.Script {
         this.remoteIdList = remoteIds;
         const sortedPlayers = ((room.players && room.players.length) ? room.players : [localId]).slice().sort();
         this.isHost = localId === sortedPlayers[0];
+        this.gameManager.authority = this.isHost; // 房主权威: 碰撞/伤害/回合推进
 
         const stats: any = {
             roomId: room.roomId,
@@ -341,14 +352,27 @@ export class Main extends Laya.Script {
                 stats.remoteForce = state.f;
                 if (state.f > (stats.maxRemoteForce || 0)) stats.maxRemoteForce = state.f;
             }
-            if (typeof state.r === "number") {
+            if (typeof state.r === "number" && state.host) {
                 stats.remoteRound = state.r;
-                if (state.host && state.r !== this.gameManager.getRoundNum()) {
-                    this.gameManager.syncRound(state.r, state.rd || "player", state.ph || "pre_turn");
+                // 回合方按本机视角映射: 房主的 player=房主自己回合 → 非房主视角为 enemy(等待)
+                const rd = this.isHost ? (state.rd || "player") : ((state.rd || "player") === "player" ? "enemy" : "player");
+                const ph = state.ph || "pre_turn";
+                if (state.r !== this.gameManager.getRoundNum() || rd !== this.gameManager.getCurrRound() || ph !== this.gameManager.getCurrPhase()) {
+                    this.gameManager.syncRound(state.r, rd, ph);
                     stats.appliedRound = state.r;
                 }
             }
+            if (typeof state.fire === "number" && state.fire > (this._lastFire[state.p] || 0)) {
+                this._lastFire[state.p] = state.fire;
+                this.gameManager.remoteFire(state.p, state.a, state.f);
+            }
             if (Array.isArray(state.chars)) {
+                // 房主帧里消失的角色=已死亡: 本机同步置 0(否则远端尸体一直显示旧血)
+                const seen: Record<string, boolean> = {};
+                for (const cs of state.chars) if (cs && cs.id) seen[cs.id] = true;
+                this.remoteChars.forEach((rc, id) => {
+                    if (!seen[id] && rc.health > 0) { rc.health = 0; rc.shield = 0; rc.drawUI(); }
+                });
                 for (const cs of state.chars) {
                     if (!cs || !cs.id || cs.id === this.localId) continue;
                     const rc = this.remoteChars.get(cs.id);
@@ -413,7 +437,7 @@ export class Main extends Laya.Script {
         const beginSend = () => {
             if (this.netSendTimer) return;
             this.netSendTimer = true;
-            Laya.timer.loop(400, this, () => {
+            Laya.timer.loop(200, this, () => {
                 const local = this.masterCha;
                 if (!local) return;
                 try {
@@ -430,6 +454,7 @@ export class Main extends Laya.Script {
                         ph: this.gameManager.getCurrPhase(),
                         host: this.isHost,
                         chars: this.buildNetChars(),
+                        fire: this.gameManager.fireSeq,
                         over: this.gameManager.isFinished(),
                         winner: this.lastWinnerId
                     }));
@@ -484,7 +509,7 @@ export class Main extends Laya.Script {
             if (others.length > 0) {
                 others.forEach((id: string, i: number) => {
                     if (!this.remoteChars.has(id)) {
-                        const cha = this.gameManager.createPlayerAvatar(id, { x: -200, y: 1000 + i * 200 }, this.battleArea2D, true);
+                        const cha = this.gameManager.createPlayerAvatar(id, { x: Laya.stage.width*0.7, y: Laya.stage.height*0.35 + i * 200 }, this.battleArea2D, true);
                         this.remoteChars.set(id, cha);
                     }
                 });
@@ -508,7 +533,8 @@ export class Main extends Laya.Script {
             this.netStats.remoteLeft = false;
             this.netStats.remoteJoinedPlayer = player && player.playerId ? player.playerId : null;
         }
-        this.showNetNotice("对手已重连");
+        this.showNetNotice(this._joinSeen ? "对手已重连" : "对手已加入");
+        this._joinSeen = true;
     }
 
     public onDisconnectSignal(info: any): void {
@@ -601,19 +627,20 @@ export class Main extends Laya.Script {
     private restartBattle(): void {
         if (this.restarting) return;
         this.restarting = true;
-        const open = () => { try { (window as any).__ng2OpenDiag = { url: "game/trace.ls", at: Date.now(), attempts: (((window as any).__ng2OpenDiag || {}).attempts || 0) + 1 }; Laya.Scene.open("game/trace.ls", true); } catch (e) { (window as any).__ng2OpenErr = String(e && ((e as any).message || e)); } };
-        open();
-        setTimeout(() => { if (typeof window !== "undefined" && (window as any).__ng2Battle === this) open(); }, 1500);
-        setTimeout(() => { if (typeof window !== "undefined" && (window as any).__ng2Battle === this) open(); }, 3000);
+        // 重开对战: 走平台 SceneNav + Res 预制体通道(清缓存重建), 保留 RoomSession(seq 已递增)
+        try { PRes.clear("g2/game/trace.ls"); } catch (e) { }
+        SceneNav.open("g2/game/trace.ls", undefined, (done) => {
+            PRes.get("g2/game/trace.ls").then((n: any) => done(n || null)).catch(() => done(null));
+        });
     }
 
     private goLobby(): void {
         if (this.restarting) return;
         this.restarting = true;
-        const open = () => { try { (window as any).__ng2OpenDiag = { url: "game/load.ls", at: Date.now(), attempts: (((window as any).__ng2OpenDiag || {}).attempts || 0) + 1 }; Laya.Scene.open("game/load.ls", true); } catch (e) { (window as any).__ng2OpenErr = String(e && ((e as any).message || e)); } };
-        open();
-        setTimeout(() => { if (typeof window !== "undefined" && (window as any).__ng2Battle === this) open(); }, 1500);
-        setTimeout(() => { if (typeof window !== "undefined" && (window as any).__ng2Battle === this) open(); }, 3000);
+        // 通知对端一起退出(接收端 markControlApplied 去重, 不会回环)
+        try { BattleControl.send("toLobby"); } catch (e) { }
+        // g2 的"lobby"= 模式选择页: 离开/解散房间后 back, 不去羽毛球的 load.ls
+        G2Online.leave(() => { SceneNav.back(); });
     }
 
     private showNetNotice(text: string): void {

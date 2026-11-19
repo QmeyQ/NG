@@ -206,7 +206,8 @@ export class GameManager {
         if (!(Laya as any).RigidBody) Laya.timer.frameLoop(1, this, this.offlineCollisionTick);
         this.isGameOver = false;
         this.roundNum = 1;
-        this.startRound('player');
+        if (this.authority) this.startRound('player');
+        else { this.currRound = 'enemy'; this.roundPhase = 'pre_turn'; } // 非房主等房主帧同步
     }
 
     /** 创建敌人角色 */
@@ -467,6 +468,7 @@ export class GameManager {
     
     /** 结束当前回合 */
     public endCurrentRound(): void {
+        if (!this.authority) return; // 回合推进只由房主驱动
         this.clearAllTimers();
         
         // 进入回合结束阶段
@@ -509,6 +511,9 @@ export class GameManager {
         if (round === 'player') {
             this.prepPlayerRound();
             this.startPrepTimer();
+        } else if (this.authority && this.hasRemotePlayers()) {
+            // 联机对手回合: 不自动发射, 等对手 fire 信号(remoteFire); 超时由回合计时兜底
+            this.startRoundTimer();
         } else {
             this.prepEnemyRound();
             this.endPrepPhase();
@@ -519,6 +524,7 @@ export class GameManager {
     public endPrepPhase(): void {
         this.clearTimer(this.prepTimer);
         this.prepTimer = null;
+        if (!this.authority) this.fireSeq++; // 发射信号随帧上报房主
 
         // 隐藏所有UI
         this.hideAllForceUI();
@@ -570,12 +576,40 @@ export class GameManager {
 
     // ... 其他私有方法保持不变
 
-    /** 房主权威回合同步：对端按房主帧校正回合号/回合方/阶段 */
+    /** 联机权威: 单机=true; 联机仅房主模拟碰撞/伤害/回合推进, 非房主只本地模拟自己+按帧校正 */
+    public authority: boolean = true;
+    /** 本地发射计数(非房主随帧发给房主, 房主据此放行对手回合) */
+    public fireSeq: number = 0;
+
+    /** 是否存在远程玩家角色(联机标志) */
+    public hasRemotePlayers(): boolean {
+        let found = false;
+        this.mapManager.get(LAYOUT.ENEMY).forEach((c: Cha) => { if (c.Sprite.name.indexOf("player_") === 0) found = true; });
+        return found;
+    }
+
+    /** 房主收到对手发射信号: 用对手帧里的角度/力度放行敌方回合 */
+    public remoteFire(id: string, angle: number, force: number): void {
+        if (!this.authority || this.currRound !== 'enemy' || this.roundPhase !== 'pre_turn') return;
+        let cha: Cha = null;
+        this.mapManager.get(LAYOUT.ENEMY).forEach((c: Cha) => { if (c.Sprite.name === 'player_' + id) cha = c; });
+        if (!cha || cha.health <= 0) return;
+        if (typeof angle === 'number') cha.setAngle(angle);
+        if (typeof force === 'number') cha.setForce(force);
+        this.endPrepPhase();
+    }
+
+    /** 房主权威回合同步：对端按房主帧校正回合号/回合方/阶段(回合方已在 Main 按本机视角映射) */
     public syncRound(roundNum: number, round: RoundType, phase: RoundPhase): void {
         if (this.isGameOver) return;
+        const changed = roundNum !== this.roundNum || round !== this.currRound || phase !== this.roundPhase;
         this.roundNum = roundNum;
         this.currRound = round;
         this.roundPhase = phase;
+        if (!this.authority && changed) {
+            if (round === 'player' && phase === 'pre_turn') { this.hideAllForceUI(); this.prepPlayerRound(); }
+            else this.hideAllForceUI();
+        }
     }
 
     /** 获取当前回合类型 */
@@ -727,6 +761,7 @@ export class GameManager {
         const chars = this.mapManager.get(layout);
         
         chars.forEach((char: Cha) => {
+            if (!this.authority && char !== this.activeChar) return; // 非房主只发射自己
             if (char.health > 0 && char.force > 0) {
                 char.applyForce();
                 char.setForce(0);
@@ -784,7 +819,7 @@ export class GameManager {
 
     /** 单机/无物理模式: 手动圆-圆碰撞检测(无物理世界时 onTriggerEnter 不会触发) */
     private offlineCollisionTick(): void {
-        if (this.isGameOver) return;
+        if (this.isGameOver || !this.authority) return; // 伤害只由房主结算
         const chars: Cha[] = [];
         this.nodeToChar.forEach((c) => { if (c.health > 0) chars.push(c); });
         const now = Date.now();
@@ -1030,6 +1065,7 @@ export class GameManager {
 
     // ------------------------------ 定时器管理 ------------------------------
     private startPrepTimer(): void {
+        if (!this.authority) return;
         this.clearTimer(this.prepTimer);
         this.prepTimer = this.timer.setInterval(1000, () => {
             this.remainTime--;
@@ -1041,6 +1077,7 @@ export class GameManager {
     }
 
     private startRoundTimer(): void {
+        if (!this.authority) return;
         this.clearTimer(this.roundTimer);
         this.roundTimer = this.timer.setInterval(1000, () => {
             this.remainTime--;
@@ -1056,6 +1093,7 @@ export class GameManager {
     }
 
     private startStillCheck(): void {
+        if (!this.authority) return;
         this.clearTimer(this.stillCheckTimer);
         this.stillCheckTimer = this.timer.setInterval(
             this.config.stillCheckInterval,

@@ -315,13 +315,34 @@ window.__DOC_FILES["nodes/aihandover.js"]={
         "name": "h13",
         "label": "完成=实测+截图目视(硬规则)",
         "type": "规则",
-        "desc": "【完成验收硬规则(用户明确 2026-11-19)】游戏/玩法/UI 任何改动, 宣称完成前必须: (1)真实浏览器跑对应探针覆盖全路径(入口→模式→对局→控制→伤害→结算→退出→重进); (2)每个关键状态截图, AI 必须自己 view_image 逐张目视核对 UI/布局/状态(血条位置/角色对齐/残留节点/按钮可见/文本正确), 自主发现 bug; (3)数值断言与目视核对双通过才算完成, 矛盾即失败; (4)多人通讯改动必须多浏览器实例多账号实测(mcdrive/mc3drive), 禁止单端臆测; (5)只靠用户反馈发现问题=验收失败。探针清单: local/g2selftest.cjs(g2单机全路径+6截图+14断言), g2fireprobe.cjs(控制/时钟诊断), play_probe.cjs(拖拽控制), g2probe.cjs(入口链路), prod_g2.cjs/prod_g2full.cjs(生产CDN复验, full 14断言+6截图), mcdrive.cjs/mc3drive.cjs(社交多客户端)。headless Edge 坑: 加 --no-sandbox(AppContainer 崩溃 0xC0000005), boot 失败重试一次; CDP 轮询必须走 exec_command 的 node(node_repl 回环 EACCES)。 详见 docs/handover.md h15 与 nodes/aidev.js ai13。",
+        "desc": "【完成验收硬规则(用户明确 2026-11-19)】游戏/玩法/UI 任何改动, 宣称完成前必须: (1)真实浏览器跑对应探针覆盖全路径(入口→模式→对局→控制→伤害→结算→退出→重进); (2)每个关键状态截图, AI 必须自己 view_image 逐张目视核对 UI/布局/状态(血条位置/角色对齐/残留节点/按钮可见/文本正确), 自主发现 bug; (3)数值断言与目视核对双通过才算完成, 矛盾即失败; (4)多人通讯改动必须多浏览器实例多账号实测(mcdrive/mc3drive), 禁止单端臆测; (5)只靠用户反馈发现问题=验收失败; (6)联机/多人功能必须双独立账号双客户端(双 profile/双 CDP/真实 GOBE)真实跑全链路: 建房/匹配→双方进房→回合轮流→伤害→结算→再来一局→退出离房; 控制方式=植入代码(page.ev 调游戏 API)+真实鼠标拖拽/点击混合; 单客户端自测不算联机验证; 探针 local/g2mcdrive.cjs(g2)与 mcdrive/mc3drive(社交)。探针清单: local/g2selftest.cjs(g2单机全路径+6截图+14断言), g2fireprobe.cjs(控制/时钟诊断), play_probe.cjs(拖拽控制), g2probe.cjs(入口链路), prod_g2.cjs/prod_g2full.cjs(生产CDN复验, full 14断言+6截图), mcdrive.cjs/mc3drive.cjs(社交多客户端)。headless Edge 坑: 加 --no-sandbox(AppContainer 崩溃 0xC0000005), boot 失败重试一次; CDP 轮询必须走 exec_command 的 node(node_repl 回环 EACCES)。 详见 docs/handover.md h15 与 nodes/aidev.js ai13。",
+        "inputs": [{ "name": "上一步", "type": "Event" }],
+        "outputs": [{ "name": "下一步", "type": "Event" }],
+        "height": 210
+      },
+      "h14": {
+        "location": [0, 0],
+        "width": 280,
+        "name": "h14",
+        "label": "工作流优先纪律(硬规则)",
+        "type": "规则",
+        "desc": "【用户明确 2026-11-19】所有工作基于工作流: 开工先读 handover h0/h12/h13/h15 + docs/auto/state.json(从 next 续跑) + aidev 图对应节点; 沿链路 策划→实现→tsc→离线测试→打包→浏览器实测(联机双客户端双账号+植入代码控制)→部署→生产复验→回填; 每轮结束必须回填 handover/节点/state.json; 工作流与代码不符先使两者一致; 凭记忆开工/遗忘流程=验收失败。详见 handover h16 与 aidev ai14。",
         "inputs": [{ "name": "上一步", "type": "Event" }],
         "outputs": [],
         "height": 210
       }
     },
     "links": [
+      {
+        "from_node": "h13",
+        "from_socket": "下一步",
+        "from_socket_identifier": "下一步",
+        "from_socket_type": "Event",
+        "to_node": "h14",
+        "to_socket": "上一步",
+        "to_socket_identifier": "上一步",
+        "to_socket_type": "Event"
+      },
       {
         "from_node": "h12",
         "from_socket": "下一步",
