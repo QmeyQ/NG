@@ -25,6 +25,7 @@
 import { Gnet } from "./net";
 import { Timer } from "../time";
 import { SceneNav } from "../nav";
+import { Res } from "../res/res";
 import { Phy } from "../../badm/engine/phy";
 import * as Msg from "./msg";
 import * as Proto from "../pvpProto";
@@ -145,35 +146,36 @@ function gameState(): any {
     // 场景已经销毁(玩家按过返回/我们调过 back)时 store.game 仍指着尸体:
     // 这里任何一次取坐标都会 "Cannot read properties of null (reading 'position')" 把整条采样打挂
     if ((g as any).destroyed) { store.game = null; return null; }
-    try { return gameStateInner(g); } catch (e) { store.game = null; return null; }
+    try { return gameStateInner(g); } catch (e: any) { return { err: String((e && e.message) || e) }; }
 }
 
 function gameStateInner(g: any): any {
+    const S = (f: () => any): any => { try { return f(); } catch (e) { return null; } };
     const mag: any = g.mag;
     const st: any = mag && mag._cachedGlobalStatus;
     // 发球/准备阶段的 HUD 数字取 UI 实际渲染值(ui._cd), 不是 rule 的推算值——
     // 验收要的是"两端玩家看到的数字一致"
     const cd: any = g.ui ? (g.ui as any)._cd : null;
     return {
-        ball: v3(g.ballO && g.ballO.pos),
+        ball: S(() => v3(g.ballO && g.ballO.pos)),
         // 球速: 采样对齐用。两端是先后两次读页(差 100~400ms), 30m/s 的球在这段间隔里自己就走
         // 3~12m, 不拿速度把两个样本对齐到同一时刻, 量到的"分歧"大半是测量动作本身。
         // 鹰眼取证: 记录在球手里(拆到 Ball 之后), 有没有记录/是否在回放决定两端画面会不会分叉
         eaglePlaying: !!(g.ballO as any)?.playing,
         trackPts: ((g.ballO as any)?.trackPts || []).length,
-        ballVel: v3((g.ballO as any)?.phy?.state?.vel),
+        ballVel: S(() => v3((g.ballO as any)?.phy?.state?.vel)),
         ballSleeping: !!(g.ballO as any)?.phy?.isSleeping,
         // 球到底还在不在积分(卡在原地不飞 = isCalc 被谁关了), 以及该发球的人和球隔多远:
         // "发球站位不对→球不模拟"要看的就是这两条
         ballCalc: !!(g.ballO as any)?.phy?.isCalc,
-        serverId: mag && (mag as any).currentServer ? (mag as any).currentServer.id : null,
+        serverId: S(() => mag && (mag as any).currentServer ? (mag as any).currentServer.id : null),
         localIsP: g.localCha ? !!g.localCha.isP : null,
         ballToServer: (() => {
             const srv = mag && (mag as any).currentServer;
             if (!srv || !g.ballO) return null;
             return Math.round(Math.hypot(g.ballO.x - srv.x, g.ballO.y - srv.y, g.ballO.z - srv.z) * 100) / 100;
         })(),
-        localCha: v3(g.localCha && g.localCha.pos),
+        localCha: S(() => v3(g.localCha && g.localCha.pos)),
         localChaId: g.localCha ? g.localCha.id : null,
         playersP: mag && (mag as any).players
             ? (mag as any).players.map((p: any) => ({ id: p.id, isP: !!p.isP, x: Math.round(p.x * 100) / 100, z: Math.round(p.z * 100) / 100 }))
@@ -216,6 +218,17 @@ function matchState(): any {
 }
 
 const api = {
+    pack(key: string): string {
+        try {
+            const url = (Res as any).ResList[key];
+            if (!url) return 'NO_URL';
+            (Res as any).url(url, (info: any) => {
+                if (info) (window as any).__qaPackOk = key;
+                else (window as any).__qaPackErr = key;
+            });
+            return 'LOADING';
+        } catch (e) { return 'ERR ' + (e as any).message; }
+    },
     toMatch(): string {
         if (role('matchPage')) return 'ALREADY_ON_MATCH_PAGE';
         const m = role('menuPage');

@@ -1,5 +1,5 @@
 {
-  "phase": "g2-deterministic-sync-verified-19of19",
+  "phase": "commercial-audit-round1-done",
   "done": [
     "h2 tsc baseline",
     "h3 tests 116 pass",
@@ -55,12 +55,21 @@
     "same-step burst 与注册键修复",
     "phys2d 确定性内核+操作同步(合批/ack重传/去重)+网格快照补充同步+静止收敛",
     "双账号 g2mcdrive 19/19 (gridDiv=0 逐位一致, 结算@98s, 重开/退出全过)",
-    "单机 14/14 + 社交 11/11 + 离线 121/121"
+    "单机 14/14 + 社交 11/11 + 离线 121/121",
+    "羽毛球 bButton null 崩溃修复(菜单/对局双 Scene2D 冲突) → PVE 球/角色/发球恢复",
+    "羽毛球鬼房过滤(新鲜房 join + createTime 校验)",
+    "UI: 加好友页去身价 / 隐私文案 / 匹配按钮字号自适应; socialdrive_prod 14/14",
+    "qa.pack 包预加载; uitour/badmdrive/pveprobe/btnprobe 驱动",
+    "mc3drive 转发等待窗口放宽(9/9)",
+    "羽毛球 PVP 7/7(音效补齐 hit.MP3/hitF.MP3 + Au 容错 + 双端球位一致 + 无未捕获异常)",
+    "磁盘清理 34GB(233 个测试 profile)",
+    "g2 单机14/14(离线atk40)/联机19/19; 社交11/11; 离线121/121; tsc基线; doccheck0"
   ],
   "next": [
-    "华为云存储上传 bundle(控制台上传 403, 需用户手动覆盖 js/bundle.js 或修复鉴权)",
-    "prod_g2mc 生产双账号复验+截图目视",
-    "回填+commit/push(本轮代码已提交待推送)"
+    "商城购买金币实测",
+    "对局内点头像加好友/屏蔽ID 实测",
+    "生产上传(需用户)后 prod 全量复验",
+    "更多边界: 断线重连/退群/身价到账"
   ],
   "blocked": [
     "load.ls publish (served from ECS)",
@@ -70,5 +79,5 @@
   "failed": [],
   "last_output": "social3drive 11/11 PASS: addFriendInput/btn_申请好友 -> B req A, A reqAccept_0 -> friends=1, B 刷新 -> friend_0, msgInput+btn_发送 -> detail msgs=1 no duplicate, A refresh sees message, server fA/fB persisted, no exceptions | bundle 1,526,650B | tsc baseline | offline 121 pass",
   "note": "LayaProject=小游戏平台; NG2=branch origin/room",
-  "updatedAt": "2026-11-19T21:47:02.292Z"
+  "updatedAt": "2026-11-21T10:32:30.865Z"
 }

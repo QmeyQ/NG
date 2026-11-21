@@ -97,7 +97,9 @@ export class Au {
                 .catch((err) => {
                     Au._loading.delete(key);
                     Au._mpm.emit('err', key, err);
-                    throw err;
+                    // 音效缺失/解码失败不向上抛(会变成 unhandledrejection 打断自动化与线上错误上报), 记警告即可
+                    try { console.warn('[Au] 音效加载失败(忽略):', key); } catch (e) { }
+                    return null as any;
                 });
             Au._loading.set(key, promise);
             return promise;
