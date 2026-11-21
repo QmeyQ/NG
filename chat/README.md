@@ -114,3 +114,8 @@ bash /tmp/ecs.sh <RE_TOKEN> http://127.0.0.1/apim
 ```
 
 `codex.bundle` 返回 9 个文件（bridge/plugin/UI/config/deploy/codex.js），ECS 写入 `/home/ftpu/codex-chat` 后由 `install-ecs.sh` 建 systemd 服务。桥在 ECS 上应设 `mode=relay`（调本机 `/apim`）。
+## 手机端
+
+- 手机打开 `https://normalgame.cn/codex`，默认不显示二维码，显示 **“在微信中打开并授权”**（官方 `liteapp.weixin.qq.com` 链接，调起微信）。
+- 若未自动跳转：点 **“复制授权链接”**，粘贴到微信任意聊天窗口打开。
+- 需要另一台手机扫时，点 **“显示二维码”**。
