@@ -50,3 +50,4 @@ chat/service/chat_service.log
 tools/blender/blender_mcp_start.log
 tools/blender/_qoder_tail.txt
 tools/blender/_*
+chat/test/ide-config.json

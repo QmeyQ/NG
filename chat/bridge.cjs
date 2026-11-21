@@ -49,6 +49,13 @@ function relayCall(action, params) {
         .then(async r => { const t = await r.text(); let j; try { j = JSON.parse(t); } catch (e) { throw new Error('relay 非 JSON: ' + t.slice(0, 200)); } if (!r.ok || j.ok === false) throw new Error(j.error || ('relay HTTP ' + r.status)); return j; });
 }
 async function chat(opts) {
+    if (opts.peer && String(opts.peer).startsWith('ide:')) {
+        const threadId = String(opts.peer).slice(4);
+        if ((CONFIG.mode || 'local') === 'relay') {
+            return relayCall('codex.ideChat', { threadId, text: opts.text, sandbox: opts.sandbox, timeoutMs: opts.timeoutMs });
+        }
+        return codex.ideChat(threadId, opts.text, { sandbox: opts.sandbox, timeoutMs: opts.timeoutMs });
+    }
     if ((CONFIG.mode || 'local') === 'relay') {
         return relayCall('codex.chat', { peer: opts.peer, text: opts.text, cwd: opts.cwd || (CONFIG.codex || {}).cwd, model: opts.model || (CONFIG.codex || {}).model, sandbox: opts.sandbox || (CONFIG.codex || {}).sandbox, timeoutMs: (CONFIG.codex || {}).timeoutMs });
     }
@@ -61,6 +68,22 @@ async function listConversations() {
     if ((CONFIG.mode || 'local') === 'relay') {
         try { const r = await relayCall('codex.sessions', {}); sessions = r.sessions || []; } catch (e) { log('relay sessions failed', String(e.message)); }
     } else sessions = localSessions();
+    let ide = [];
+    try {
+        if ((CONFIG.mode || 'local') === 'relay') { const r = await relayCall('codex.ideThreads', { limit: 50 }); ide = r.threads || []; }
+        else ide = codex.ideThreads(50);
+    } catch (e) { log('ide threads failed', String(e.message)); }
+    const ideConvs = (ide || []).map(t => ({
+        id: 'ide:' + t.id,
+        title: 'IDE · ' + (t.title || t.id),
+        last: t.last || '',
+        lastRole: '',
+        updatedAt: t.updatedAt || 0,
+        count: 0,
+        kind: 'ide',
+        cwd: t.cwd || '',
+        project: t.project || ''
+    }));
     return sessions.map(s => {
         const h = ((CONFIG.mode || 'local') !== 'relay') ? localHistory(s.id) : { messages: [] };
         const msgs = h.messages || [];
@@ -74,9 +97,16 @@ async function listConversations() {
             count: msgs.length || s.count || 0,
             kind: s.id.startsWith('wechat:group:') ? 'group' : (s.id.startsWith('wechat:') ? 'wechat' : 'codex')
         };
-    }).sort((a, b) => b.updatedAt - a.updatedAt);
+    }).concat(ideConvs).sort((a, b) => b.updatedAt - a.updatedAt);
 }
 async function history(peer) {
+    if (String(peer).startsWith('ide:')) {
+        const threadId = String(peer).slice(4);
+        if ((CONFIG.mode || 'local') === 'relay') {
+            try { return await relayCall('codex.ideHistory', { threadId, limit: 200 }); } catch (e) { return { peer, messages: [], error: String(e.message) }; }
+        }
+        try { return await codex.ideHistory(threadId, 200); } catch (e) { return { peer, messages: [], error: String(e.message) }; }
+    }
     if ((CONFIG.mode || 'local') === 'relay') {
         try { return await relayCall('codex.history', { peer, limit: 200 }); } catch (e) { return { peer, messages: [], error: String(e.message) }; }
     }

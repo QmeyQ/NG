@@ -95,3 +95,18 @@ curl -X POST https://normalgame.cn/apim -H "X-Re-Token: <token>" -H "Content-Typ
 
 实现：`re/codex.js`，`codex exec --json` + `resume <threadId>`；stdin 必须关闭（否则会等待输入）。会话文件 `re/codex-sessions.json`（本地，勿提交）。
 
+
+## Codex IDE / Desktop 会话同步（2026-11-22）
+
+`state_5.sqlite` 的 `threads` 表（`source='vscode'`）是 Codex IDE/Desktop 的真实会话来源，包含 `title/cwd/model_provider/model/rollout_path/project_id`。
+
+| action | 说明 | 必填 |
+|---|---|---|
+| codex.ideThreads | 列出 IDE 会话（含 project/updatedAt） | limit 可选 |
+| codex.ideHistory | 从 rollout JSONL 提取 user/assistant 消息 | threadId |
+| codex.ideChat | `codex exec ... resume <threadId>` 继续原 IDE 会话 | threadId, text |
+
+注意：
+- resume 必须使用该线程的 `model_provider` 与 `model`（`-c model_provider=... -m ...`），否则会报 provider mismatch。
+- 若该线程正在 Codex 中打开，会报 `already has an active writer`；先关闭/切走该对话再继续。
+- 历史中的 `<environment_context>` / `<turn_aborted>` / 外部门户上下文会跳过。

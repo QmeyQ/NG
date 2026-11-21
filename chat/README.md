@@ -119,3 +119,12 @@ bash /tmp/ecs.sh <RE_TOKEN> http://127.0.0.1/apim
 - 手机打开 `https://normalgame.cn/codex`，默认不显示二维码，显示 **“在微信中打开并授权”**（官方 `liteapp.weixin.qq.com` 链接，调起微信）。
 - 若未自动跳转：点 **“复制授权链接”**，粘贴到微信任意聊天窗口打开。
 - 需要另一台手机扫时，点 **“显示二维码”**。
+
+## Codex IDE / Desktop 会话
+
+- 数据源：`C:\Users\mien\.codex\state_5.sqlite` 的 `threads`（`source='vscode'`）与 `projects`。
+- `/chat` 会话列表合并 `ide:<threadId>`，标题 `IDE · ...`，头像 `I`。
+- 点开读取 rollout JSONL 的 user/assistant 历史；发送消息会执行 `codex exec resume <threadId>`，**在原 IDE 线程里继续工作**。
+- 只读会话/历史不需要 Token；从网页发消息仍需 `X-Cx-Token`。
+- 若线程正在 Codex 中打开，resume 会报 `active writer`，请先关闭/切走该对话。
+- resume 使用线程自身的 `model_provider/model`，不能强行改模型。

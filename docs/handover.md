@@ -467,3 +467,25 @@ Python/pythoncore-3.14-64/python.exe local/doupload.py      # PUB_FORCE=1, h6 �
 
 ### 回填（m8）
 - 回填本节 + h12 模块行 + ai3d 节点树 + `docs/auto/state.json`（phase/done/next/updatedAt）；记录逐轨帧区间变更、修复断言、导出 take 列表、IDE 发布产物、dist 同步、nor.br 尺寸/哈希、上传时间戳、探针断言数与截图路径。未回填 = 本轮未完成；下一轮从 state.json next 续跑。
+
+
+## h19 Codex IDE/Desktop 会话同步到 chat（2026-11-22）
+
+- 数据源：`C:\Users\mien\.codex\state_5.sqlite` 的 `threads`（`source='vscode'`）+ `projects`；字段 `title/cwd/model_provider/model/rollout_path/project_id/updated_at`。
+- relay 新增：`codex.ideThreads / codex.ideHistory / codex.ideChat`。
+- `server/re/codex.js`：
+  - `ideThreads(limit)` 读 SQLite（node:sqlite readOnly），过滤 archived=0。
+  - `ideHistory(threadId)` 逐行读 rollout JSONL，提取 `response_item.message` 的 user/assistant；跳过 environment_context/skills/turn_aborted/external_browser_tabs。
+  - `ideChat(threadId,text)` 用线程自身的 `model_provider/model` 执行 `codex exec ... resume <threadId>`，实现 chat 继续工作。
+- chat 侧：
+  - 会话列表合并 `ide:<threadId>`，标题 `IDE · ...`，kind=ide，头像 I。
+  - `/api/history?peer=ide:...` 读 IDE 历史；`POST /api/chat {peer:'ide:...',text}` 继续原线程。
+  - 只读会话/历史公开；发消息仍需 X-Cx-Token。
+- 实测：
+  - 本机 4 个 IDE 线程；历史 7 条；`IDEOK`、`IDEOK2` 本机 resume 成功。
+  - 生产 ECS relay：`/codex-api/api/conversations` 返回 4 个 `ide:*`；`/api/history` 正常；`POST /api/chat` 返回 `PRODIDEOK2`（OpenAI 线程较慢，客户端 120s 超时但服务端最终完成并写入 rollout）。
+  - 浏览器 `chatpage_ide.cjs` PASS：列表显示 `IDE · ...`（头像 I），点开可见历史。
+- 坑：
+  - IDE 线程正在 Codex 中打开时 resume 报 active writer；需先关闭/切走该对话。
+  - 必须按线程的 `model_provider/model` resume，不能强行用当前默认模型。
+  - `server/re/codex-config.json` 曾残留 `timeoutMs=30000`，导致 IDE resume 30s 超时；已改 600000 / workspace-write。

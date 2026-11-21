@@ -51,7 +51,10 @@ const HELP = {
         'codex.history': { desc: '读取某个 peer 的对话历史', params: { peer: '必填', limit: '可选' }, example: { action: 'codex.history', peer: 'default' } },
         'codex.sessions': { desc: '列出所有 Codex 会话', params: {}, example: { action: 'codex.sessions' } },
         'codex.cancel': { desc: '取消当前 Codex 子进程', params: { peer: '可选' }, example: { action: 'codex.cancel' } },
-        'codex.bundle': { desc: '返回 chat 桥源码包(base64 文件清单), 供 ECS 一键部署', params: {}, example: { action: 'codex.bundle' } }
+        'codex.bundle': { desc: '返回 chat 桥源码包(base64 文件清单), 供 ECS 一键部署', params: {}, example: { action: 'codex.bundle' } },
+        'codex.ideThreads': { desc: '列出 Codex IDE/Desktop 会话(state_5.sqlite source=vscode)', params: { limit: '可选' }, example: { action: 'codex.ideThreads', limit: 50 } },
+        'codex.ideHistory': { desc: '读取某个 Codex IDE 会话历史', params: { threadId: '必填', limit: '可选' }, example: { action: 'codex.ideHistory', threadId: '01a1...', limit: 200 } },
+        'codex.ideChat': { desc: '继续 Codex IDE 会话(codex exec resume)', params: { threadId: '必填', text: '必填', sandbox: '可选', timeoutMs: '可选' }, example: { action: 'codex.ideChat', threadId: '01a1...', text: '继续' } }
     }
 };
 
@@ -90,6 +93,9 @@ const handlers = {
     'codex.history': (p) => { need(p, ['peer'], 'codex.history'); return codex.history(p.peer, p.limit); },
     'codex.sessions': () => ({ sessions: codex.sessions() }),
     'codex.cancel': (p) => codex.cancel(p.peer),
+    'codex.ideThreads': (p) => ({ threads: codex.ideThreads(p.limit) }),
+    'codex.ideHistory': (p) => { need(p, ['threadId'], 'codex.ideHistory'); return codex.ideHistory(p.threadId, p.limit); },
+    'codex.ideChat': (p) => { need(p, ['threadId', 'text'], 'codex.ideChat'); return codex.ideChat(p.threadId, p.text, { sandbox: p.sandbox, timeoutMs: p.timeoutMs }); },
     'codex.bundle': () => { const files = ['chat/bridge.cjs','chat/plugin/weixin.cjs','chat/plugin/wechat.cjs','chat/public/chat.html','chat/public/qrcode.js','chat/public/codex.html','chat/config.example.json','chat/deploy/install-ecs.sh','chat/deploy/ecs-install-remote.sh','chat/deploy/nginx-codex.conf','chat/README.md','server/re/codex.js']; return { files: files.map(f => ({ path: f, b64: fs.readFileSync(path.resolve(PROJ, f)).toString('base64') })) }; }
 };
 

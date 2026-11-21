@@ -35,6 +35,7 @@ body{background:radial-gradient(1200px 700px at 20% -10%,#17324a 0%,transparent 
 .av{width:42px;height:42px;border-radius:12px;flex:0 0 auto;display:flex;align-items:center;justify-content:center;font-weight:700;color:#07130d;background:linear-gradient(135deg,#4ad9a0,#2f8fff);font-size:15px}
 .av.g{background:linear-gradient(135deg,#ffb454,#ff6b9a)}
 .av.c{background:linear-gradient(135deg,#7bd0ff,#7a8cff)}
+.av.i{background:linear-gradient(135deg,#c084fc,#7a8cff)}
 .conv-body{flex:1;min-width:0}
 .conv-top{display:flex;align-items:center;gap:6px}
 .conv-title{font-weight:600;font-size:13.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1}
@@ -160,11 +161,11 @@ async function api(path,opts){
 function showToken(){$('tokenDlg').classList.add('show');$('tokenInput').value=state.token||''}
 function fmtTime(ts){if(!ts)return'';const d=new Date(ts),n=new Date();const p=x=>String(x).padStart(2,'0');if(d.toDateString()===n.toDateString())return p(d.getHours())+':'+p(d.getMinutes());return (d.getMonth()+1)+'/'+d.getDate()}
 function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
-function avatar(c){return c.kind==='group'?'群':(c.kind==='wechat'?'微':'C')}
+function avatar(c){return c.kind==='group'?'群':(c.kind==='wechat'?'微':(c.kind==='ide'?'I':'C'))}
 function renderConvs(){
   const q=($('q').value||'').toLowerCase();
   const list=state.convs.filter(c=>!q||(c.title||'').toLowerCase().includes(q)||(c.id||'').toLowerCase().includes(q));
-  $('list').innerHTML=list.length?list.map(c=>`<div class="conv ${c.id===state.active?'active':''}" data-id="${esc(c.id)}"><div class="av ${c.kind==='group'?'g':(c.kind==='wechat'?'':'c')}">${avatar(c)}</div><div class="conv-body"><div class="conv-top"><div class="conv-title">${esc(c.title||c.id)}</div><div class="conv-time">${fmtTime(c.updatedAt)}</div></div><div class="conv-last">${esc(c.last||'（暂无消息）')}</div></div>${state.unread[c.id]?`<span class="badge">${state.unread[c.id]}</span>`:''}</div>`).join(''):`<div class="empty" style="padding:30px 10px"><div>暂无会话</div><div style="font-size:11px">点击 + 新建</div></div>`;
+  $('list').innerHTML=list.length?list.map(c=>`<div class="conv ${c.id===state.active?'active':''}" data-id="${esc(c.id)}"><div class="av ${c.kind==='group'?'g':(c.kind==='wechat'?'':(c.kind==='ide'?'i':'c'))}">${avatar(c)}</div><div class="conv-body"><div class="conv-top"><div class="conv-title">${esc(c.title||c.id)}</div><div class="conv-time">${fmtTime(c.updatedAt)}</div></div><div class="conv-last">${esc(c.last||'（暂无消息）')}</div></div>${state.unread[c.id]?`<span class="badge">${state.unread[c.id]}</span>`:''}</div>`).join(''):`<div class="empty" style="padding:30px 10px"><div>暂无会话</div><div style="font-size:11px">点击 + 新建</div></div>`;
   document.querySelectorAll('.conv').forEach(el=>el.onclick=()=>openConv(el.dataset.id));
 }
 async function loadConvs(){
@@ -176,7 +177,7 @@ async function loadModels(){
 async function openConv(id){
   state.active=id;delete state.unread[id];renderConvs();
   const c=state.convs.find(x=>x.id===id)||{id};
-  $('chatTitle').textContent=c.title||id;$('chatSub').textContent=(c.kind==='wechat'?'微信会话':c.kind==='group'?'微信群':'Codex 会话')+' · '+id;
+  $('chatTitle').textContent=c.title||id;$('chatSub').textContent=(c.kind==='wechat'?'微信会话':c.kind==='group'?'微信群':(c.kind==='ide'?'Codex IDE 会话':'Codex 会话'))+' · '+id;
   $('peerHint').textContent=id;$('send').disabled=false;
   $('msgs').innerHTML='<div class="empty"><div>加载中…</div></div>';
   try{const r=await api('/api/history?peer='+encodeURIComponent(id));renderMsgs((r.history&&r.history.messages)||[])}catch(e){$('msgs').innerHTML='<div class="empty"><div>'+esc(e.message)+'</div></div>'}

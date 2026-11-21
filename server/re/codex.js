@@ -5,6 +5,7 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const cp = require('child_process');
+const readline = require('readline');
 
 const DEFAULT_MODELS = ['auto', 'qwen4-max-preview', 'qwen3.8-max', 'qwen3.8-flash', 'qwen3.7-max', 'qwen3.7-plus', 'glm-5.3', 'deepseek-v4-pro'];
 
@@ -232,6 +233,135 @@ class CodexBridge {
             this.log('codex.chat', peer, 'code=' + res.code, 'ms=' + ms, 'thread=' + threadId, 'chars=' + outText.length);
             return { ok: res.code === 0, peer, cwd, model, threadId, text: outText, events: res.events, usage: res.usage, ms, code: res.code, error: res.error || '' };
         });
+    }
+
+    // ---------------- Codex IDE / Desktop threads ----------------
+    ideDbPath() { return this.cfg().ideDbPath || path.join(os.homedir(), '.codex', 'state_5.sqlite'); }
+    static clean(s) { return String(s == null ? '' : s).replace(/\s+/g, ' ').trim(); }
+    static stripLongPath(p) { return String(p || '').replace(/^\\\\\?\\/, ''); }
+
+    ideThreads(limit) {
+        const dbPath = this.ideDbPath();
+        try {
+            const { DatabaseSync } = require('node:sqlite');
+            const db = new DatabaseSync(dbPath, { readOnly: true });
+            const rows = db.prepare(`SELECT t.id,t.title,t.cwd,t.model_provider,t.model,t.updated_at,t.updated_at_ms,
+                t.project_id,t.preview,t.first_user_message,t.rollout_path,t.source,t.originator,t.archived,
+                p.name AS project_name
+                FROM threads t LEFT JOIN projects p ON p.id=t.project_id
+                WHERE t.archived=0 AND t.source='vscode'
+                ORDER BY t.updated_at DESC LIMIT ?`).all(Number(limit) || 50);
+            db.close();
+            return rows.map(r => ({
+                id: r.id,
+                title: CodexBridge.clean(r.title).slice(0, 160) || ('IDE ' + String(r.id).slice(0, 8)),
+                last: CodexBridge.clean(r.preview || r.first_user_message).slice(0, 120),
+                cwd: CodexBridge.stripLongPath(r.cwd),
+                model: r.model || '',
+                modelProvider: r.model_provider || '',
+                project: r.project_name || '',
+                projectId: r.project_id || '',
+                updatedAt: Number(r.updated_at_ms || (r.updated_at ? r.updated_at * 1000 : 0)) || 0,
+                rolloutPath: CodexBridge.stripLongPath(r.rollout_path)
+            }));
+        } catch (e) {
+            this.log('codex.ideThreads failed', String(e.message));
+            return [];
+        }
+    }
+
+    ideThread(threadId) {
+        const { DatabaseSync } = require('node:sqlite');
+        const db = new DatabaseSync(this.ideDbPath(), { readOnly: true });
+        const r = db.prepare(`SELECT t.id,t.title,t.cwd,t.model_provider,t.model,t.updated_at,t.updated_at_ms,
+            t.project_id,t.preview,t.first_user_message,t.rollout_path,t.source,p.name AS project_name
+            FROM threads t LEFT JOIN projects p ON p.id=t.project_id
+            WHERE t.id=? LIMIT 1`).get(String(threadId));
+        db.close();
+        if (!r) throw new Error('未找到 Codex IDE 会话: ' + threadId);
+        return {
+            id: r.id, title: CodexBridge.clean(r.title), cwd: CodexBridge.stripLongPath(r.cwd),
+            model: r.model || '', modelProvider: r.model_provider || '', project: r.project_name || '',
+            updatedAt: Number(r.updated_at_ms || (r.updated_at ? r.updated_at * 1000 : 0)) || 0,
+            rolloutPath: CodexBridge.stripLongPath(r.rollout_path)
+        };
+    }
+
+    async ideHistory(threadId, limit) {
+        const meta = this.ideThread(threadId);
+        const file = meta.rolloutPath;
+        if (!file || !fs.existsSync(file)) throw new Error('IDE 会话 rollout 不存在: ' + file);
+        const msgs = [];
+        const rl = readline.createInterface({ input: fs.createReadStream(file, { encoding: 'utf8' }), crlfDelay: Infinity });
+        for await (const line of rl) {
+            const s = line.trim();
+            if (!s || s[0] !== '{') continue;
+            let o; try { o = JSON.parse(s); } catch (e) { continue; }
+            if (o.type !== 'response_item') continue;
+            const pl = o.payload || {};
+            if (pl.type !== 'message') continue;
+            const role = pl.role;
+            if (role !== 'user' && role !== 'assistant') continue;
+            const content = Array.isArray(pl.content) ? pl.content : [];
+            let text = content.map(c => (c && (c.text != null ? c.text : ''))).filter(Boolean).join('\n').trim();
+            if (!text) continue;
+            if (role === 'user') {
+                if (/^<environment_context>/.test(text)) continue;
+                if (/^<skills_instructions>/.test(text)) continue;
+                if (/^<(turn_aborted|external_browser_tabs|codex_apps_client_time_context)/.test(text)) continue;
+                const m = text.match(/<\/environment_context>\s*([\s\S]*)$/);
+                if (m) text = m[1].trim();
+                if (!text) continue;
+                if (/^<environment_context>/.test(text)) continue;
+            }
+            msgs.push({ role, text, ts: o.timestamp ? Date.parse(o.timestamp) || 0 : 0 });
+        }
+        return { peer: 'ide:' + meta.id, threadId: meta.id, title: meta.title, cwd: meta.cwd, model: meta.model, modelProvider: meta.modelProvider, project: meta.project, messages: msgs.slice(-(Number(limit) || 200)) };
+    }
+
+    async ideChat(threadId, text, opts) {
+        opts = opts || {};
+        const meta = this.ideThread(threadId);
+        const c = this.cfg();
+        const cwd = meta.cwd || c.cwd || this.root;
+        const sandbox = opts.sandbox || c.sandbox || 'workspace-write';
+        const timeoutMs = Number(opts.timeoutMs || c.timeoutMs || 600000);
+        const bin = this.resolveBin();
+        if (!bin) throw new Error('未找到 codex CLI');
+        if (!meta.modelProvider) throw new Error('IDE 会话缺少 model_provider');
+        const args = ['exec', '--json', '--skip-git-repo-check', '-s', sandbox, '-c', 'model_provider=' + meta.modelProvider];
+        if (meta.model) args.push('-m', meta.model);
+        args.push('resume', String(threadId), String(text || ''));
+        const started = Date.now();
+        const res = await new Promise((resolve) => {
+            const child = cp.spawn(bin, args, { cwd, windowsHide: true, env: process.env, stdio: ['ignore', 'pipe', 'pipe'] });
+            this.procs.add(child);
+            let stdout = '', stderr = '', agentText = '', usage = null, events = 0, done = false;
+            const finish = (code, error) => { if (done) return; done = true; clearTimeout(to); this.procs.delete(child); resolve({ code, error, stdout, stderr, text: agentText, usage, events }); };
+            const to = setTimeout(() => { try { if (process.platform === 'win32') cp.execFileSync('taskkill', ['/pid', String(child.pid), '/T', '/F'], { stdio: 'ignore' }); else child.kill('SIGKILL'); } catch (e) { } finish(-2, 'timeout after ' + timeoutMs + 'ms'); }, timeoutMs);
+            child.stdout.on('data', d => {
+                const chunk = d.toString('utf8'); stdout += chunk;
+                for (const line of chunk.split(/\r?\n/)) {
+                    const s = line.trim(); if (!s || s[0] !== '{') continue;
+                    let ev; try { ev = JSON.parse(s); } catch (e) { continue; }
+                    events++;
+                    if (ev.type === 'item.completed' && ev.item && ev.item.type === 'agent_message' && ev.item.text) agentText = agentText ? agentText + '\n' + ev.item.text : ev.item.text;
+                    if (ev.type === 'turn.completed' && ev.usage) usage = ev.usage;
+                    if (ev.type === 'error' && ev.message) stderr += (stderr ? '\n' : '') + ev.message;
+                }
+            });
+            child.stderr.on('data', d => { stderr += d.toString('utf8'); if (stderr.length > 2e6) stderr = stderr.slice(-2e6); });
+            child.on('error', e => finish(-1, String(e.message)));
+            child.on('close', code => finish(code, code === 0 ? '' : 'codex exit ' + code));
+        });
+        const ms = Date.now() - started;
+        let err = res.error || '';
+        const blob = (res.stderr || '') + '\n' + (res.stdout || '');
+        if (/already has an active writer/i.test(blob)) err = '该 IDE 会话正在 Codex 中打开（active writer）。请先在 Codex 关闭/切换该对话，或在 chat 新开一个分支。';
+        else if (/Cannot change this thread's model provider/i.test(blob)) err = 'IDE 会话的 model_provider 与当前配置不一致: ' + blob.match(/Cannot change[^\n]*/i)?.[0];
+        const outText = (res.text || '').trim() || (err ? ('[codex error] ' + err) : '');
+        this.log('codex.ideChat', threadId, 'code=' + res.code, 'ms=' + ms, 'chars=' + outText.length);
+        return { ok: res.code === 0, peer: 'ide:' + threadId, threadId, cwd, model: meta.model, text: outText, events: res.events, usage: res.usage, ms, code: res.code, error: err };
     }
 
     cancel(peer) {
