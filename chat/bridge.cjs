@@ -8,6 +8,7 @@ const crypto = require('crypto');
 const { URL } = require('url');
 const { CodexBridge } = require('../server/re/codex.js');
 const { WeChatChannel } = require('./plugin/wechat.cjs');
+const { WeixinChannel } = require('./plugin/weixin.cjs');
 
 const ROOT = path.resolve(__dirname, '..');
 const HERE = __dirname;
@@ -83,24 +84,34 @@ async function history(peer) {
 }
 
 // ---------------- WeChat ----------------
-const wechat = new WeChatChannel(CONFIG.wechat || {}, {
-    log,
-    onMessage: async (msg) => {
-        const peer = msg.group ? ('wechat:group:' + msg.group.id) : ('wechat:' + msg.sender.id);
-        const who = msg.group ? ('群 ' + msg.group.id + ' / ' + msg.sender.id) : msg.sender.id;
-        log('wechat inbound', who, msg.content.slice(0, 80));
-        broadcast('message', { peer, role: 'user', text: msg.content, via: 'wechat' });
-        try {
-            const r = await chat({ peer, text: msg.content, via: 'wechat' });
-            const to = msg.group ? msg.group.id : msg.sender.id;
-            await wechat.sendText(to, r.text || '(空回复)');
-            broadcast('message', { peer, role: 'assistant', text: r.text, via: 'wechat' });
-        } catch (e) {
-            log('wechat chat failed', String(e.message));
-            try { await wechat.sendText(msg.group ? msg.group.id : msg.sender.id, '[Codex 错误] ' + e.message); } catch (e2) { }
-        }
+async function handleIncoming(m) {
+    const peer = m.peer, to = m.to, text = m.text;
+    log('wechat inbound', to, String(text).slice(0, 80));
+    broadcast('message', { peer, role: 'user', text, via: 'wechat' });
+    try {
+        const r = await chat({ peer, text, via: 'wechat' });
+        await wechat.sendText(to, r.text || '(空回复)', m.contextToken);
+        broadcast('message', { peer, role: 'assistant', text: r.text, via: 'wechat' });
+        broadcast('conversations', { at: Date.now() });
+    } catch (e) {
+        log('wechat chat failed', String(e.message));
+        try { await wechat.sendText(to, '[Codex 错误] ' + e.message, m.contextToken); } catch (e2) { }
     }
-});
+}
+const WX_PROVIDER = ((CONFIG.wechat || {}).provider || 'ilink');
+const wechat = WX_PROVIDER === 'canghe'
+  ? new WeChatChannel(CONFIG.wechat || {}, {
+        log,
+        onMessage: (msg) => handleIncoming({
+            peer: msg.group ? ('wechat:group:' + msg.group.id) : ('wechat:' + msg.sender.id),
+            to: msg.group ? msg.group.id : msg.sender.id,
+            text: msg.content
+        })
+    })
+  : new WeixinChannel(CONFIG.wechat || {}, {
+        log,
+        onMessage: (m) => handleIncoming({ peer: 'wechat:' + m.from, to: m.from, text: m.text, contextToken: m.contextToken })
+    });
 
 const HELP = {
     service: 'codex-chat-bridge',
@@ -155,6 +166,7 @@ const server = http.createServer(async (req, res) => {
     const p = u.pathname;
     if (req.method === 'GET' && (p === '/' || p === '/index.html')) return staticFile(res, 'chat.html');
     if (req.method === 'GET' && p === '/codex.html') return staticFile(res, 'codex.html');
+    if (req.method === 'GET' && p === '/qrcode.js') return staticFile(res, 'qrcode.js', 'application/javascript; charset=utf-8');
     if (req.method === 'GET' && p === '/api/help') return sendJson(res, 200, Object.assign({ ok: true }, HELP));
     if (req.method === 'GET' && p === '/api/events') {
         res.writeHead(200, { 'Content-Type': 'text/event-stream; charset=utf-8', 'Cache-Control': 'no-cache', 'Connection': 'keep-alive', 'Access-Control-Allow-Origin': '*' });
@@ -166,7 +178,7 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'POST' && p === '/webhook/wechat') {
         const body = await readBody(req).catch(() => null);
         if (!body) { res.writeHead(400).end('Bad Request'); return; }
-        try { await wechat.onPayload(body); } catch (e) { log('webhook failed', String(e.message)); }
+        try { if (wechat.onPayload) await wechat.onPayload(body); } catch (e) { log('webhook failed', String(e.message)); }
         res.writeHead(200, { 'Content-Type': 'text/plain' }).end('OK');
         return;
     }

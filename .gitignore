@@ -39,3 +39,8 @@ chat/test/e2e-config.json
 chat/test/e2e-sessions.json
 server/re/codex-config.json
 server/re/codex-sessions.json
+chat/vendor/weixin/
+chat/vendor/wechat-acp/
+chat/vendor/*.tgz
+chat/test/ilink-config.json
+chat/test/ilink-qr.txt

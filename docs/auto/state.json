@@ -69,12 +69,17 @@
     "chat/bridge.cjs + chat/public/chat.html(微信式列表/未读/新建/SSE) + codex.html(工作目录/模型/微信/ECS)",
     "chat/test/e2e.cjs 17/17 PASS + ui-chat/ui-codex 截图目检",
     "codex.html/chat.html 发布 https://www.normalgame.cn/codex.html (Cloudflare Worker assets, 未替换 index) + 生产截图目检",
-    "h17 + docs/nodes/aif.js(aiF) + h12 模块行 + doccheck 0"
+    "h17 + docs/nodes/aif.js(aiF) + h12 模块行 + doccheck 0",
+    "微信通道改为腾讯官方 @tencent-weixin/openclaw-weixin iLink 扫码直连(无需 API Key): plugin/weixin.cjs + chat/data/weixin.json",
+    "官方 iLink 实测 6/6: 真实二维码 liteapp.weixin.qq.com + 状态 wait + codex.html qrcode.js 渲染",
+    "codex.html 增加 provider=ilink/canghe 切换 + 本地 qrcode.js 生成二维码; 已重新发布 www.normalgame.cn/codex.html",
+    "阿里云 ECS 自动部署完成: codex-chat systemd active, mode=relay -> http://127.0.0.1/apim -> 本机 Codex",
+    "nginx /codex-api/ 已加(80/443), 站点 /home/ftpu/html; https://normalgame.cn/codex + /chat 200",
+    "生产实测 /codex-api/api/status mode=relay + /api/chat 返回 ECSOK; 官方 iLink 二维码在 ECS 生成"
   ],
   "next": [
-    "阿里云 ECS 登录后部署 chat bridge (chat/deploy/install-ecs.sh)",
-    "微信 apiKey/proxyUrl 配置后真实扫码登录联调",
-    "frpc 21121→5002 + nginx /codex-api/ 配置",
+    "用户扫码登录官方微信 iLink 后验证真实微信收发",
+    "用户扫码登录官方微信 iLink 后验证收发消息",
     "真实 Codex 长任务/多会话并发验证",
     "对局内点头像加好友/屏蔽ID 等原待办继续"
   ],
@@ -86,5 +91,5 @@
   "failed": [],
   "last_output": "social3drive 11/11 PASS: addFriendInput/btn_申请好友 -> B req A, A reqAccept_0 -> friends=1, B 刷新 -> friend_0, msgInput+btn_发送 -> detail msgs=1 no duplicate, A refresh sees message, server fA/fB persisted, no exceptions | bundle 1,526,650B | tsc baseline | offline 121 pass",
   "note": "LayaProject=小游戏平台; NG2=branch origin/room",
-  "updatedAt": "2026-11-21T13:00:59.061Z"
+  "updatedAt": "2026-11-21T13:37:41.823Z"
 }

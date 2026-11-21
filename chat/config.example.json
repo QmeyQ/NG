@@ -17,7 +17,7 @@
     "timeoutMs": 600000
   },
   "wechat": {
-    "enabled": false,
+    "enabled": true,
     "apiKey": "",
     "proxyUrl": "",
     "accountId": "default",
@@ -25,7 +25,11 @@
     "proxy": "2",
     "webhookHost": "",
     "webhookPort": 18790,
-    "webhookPath": "/webhook/wechat"
+    "webhookPath": "/webhook/wechat",
+    "provider": "ilink",
+    "botType": "3",
+    "botAgent": "Codex/1.0",
+    "stateFile": ""
   },
   "ecs": {
     "regionId": "cn-shenzhen",

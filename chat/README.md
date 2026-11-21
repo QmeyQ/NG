@@ -1,6 +1,6 @@
 # chat — Codex 远程同步聊天（微信通道）
 
-从 OpenClaw（龙虾）微信插件 `@canghe/openclaw-wechat` 提取通道协议，改为 **Codex CLI** 的远程同步聊天桥：
+从 OpenClaw（龙虾）微信插件提取通道协议，改为 **Codex CLI** 的远程同步聊天桥。默认使用腾讯官方 `@tencent-weixin/openclaw-weixin` 的 **iLink 扫码直连**（无需 API Key）；苍何代理作为可选 fallback。
 
 ```
 微信好友/群  ── webhook(60001/80001) ──┐
@@ -10,14 +10,16 @@ Web 聊天页  ── /api/chat (SSE) ─────────┘
 ```
 
 - **不经过游戏云数据库**：会话与消息只落本机 `chat/data/` 与 Codex 自身会话文件。
-- **与龙虾接口一致**：保留 `openclaw-wechat` 的 Proxy API 路径、`60001/80001` webhook 负载、`/v1/iPadLogin` 登录流程。
+- **扫码即可**：官方 iLink `get_bot_qrcode → get_qrcode_status → getupdates → sendmessage`，登录后 token 存 `chat/data/weixin.json`。
+- **与龙虾接口一致**：苍何 fallback 保留 `openclaw-wechat` 的 Proxy API 路径、`60001/80001` webhook 负载、`/v1/iPadLogin` 登录流程。
 - **低耦合**：`plugin/wechat.cjs` 只负责微信收发；`server/re/codex.js` 只负责 Codex 会话；`bridge.cjs` 负责编排；UI 只调 HTTP。
 
 ## 目录
 
 | 路径 | 作用 |
 |---|---|
-| `plugin/wechat.cjs` | 独立版微信通道（ProxyClient + webhook 归一化 + 去重 + 分段发送） |
+| `plugin/weixin.cjs` | 官方 iLink 扫码通道（二维码/长轮询/发送/去重），默认 |
+| `plugin/wechat.cjs` | 苍何代理 fallback（ProxyClient + webhook 归一化） |
 | `bridge.cjs` | 编排服务：微信 ↔ Codex ↔ Web，HTTP/SSE |
 | `public/chat.html` | 微信式对话列表 + 聊天面板 |
 | `public/codex.html` | 配置页（工作目录/模型/微信/阿里云），已发布到 `www.normalgame.cn/codex.html` |
@@ -46,16 +48,28 @@ http://127.0.0.1:21121/codex.html  # 配置
   "token": "cx-...",
   "mode": "local",
   "codex": { "cwd": "F:/LayaProject", "model": "qwen4-max-preview", "sandbox": "workspace-write" },
-  "wechat": { "enabled": true, "apiKey": "wc_live_...", "proxyUrl": "http://代理:3000", "webhookHost": "公网地址", "webhookPort": 18790 },
+  "wechat": { "provider": "ilink", "enabled": true, "botType": "3", "botAgent": "Codex/1.0" },
   "ecs": { "regionId": "cn-shenzhen", "instanceId": "i-wz9..." }
 }
 ```
 
 - `mode=local`：bridge 进程直接跑 `codex exec`（推荐，本机有 Codex 登录态）。
 - `mode=relay`：bridge 部署在云上时，经 `https://normalgame.cn/apim` 的 `codex.chat` 调本机 Codex。
-- 微信需要苍何代理的 `apiKey` + `proxyUrl`；首次 `POST /api/wechat/login` 返回二维码，扫码后自动注册 webhook。
+- 默认 `provider=ilink`：`POST /api/wechat/login` 返回官方二维码，手机微信扫码确认即可，无需 API Key；登录后自动开始长轮询。
+- 只有 `provider=canghe` 才需要苍何代理的 `apiKey` + `proxyUrl`。
 
-## 协议（与 openclaw-wechat 一致）
+## 协议
+
+### 官方 iLink（默认）
+
+| 方向 | 接口 |
+|---|---|
+| 二维码 | `POST https://ilinkai.weixin.qq.com/ilink/bot/get_bot_qrcode?bot_type=3` |
+| 扫码状态 | `GET /ilink/bot/get_qrcode_status?qrcode=...`（长轮询） |
+| 收消息 | `POST {baseurl}/ilink/bot/getupdates`（`get_updates_buf`） |
+| 发消息 | `POST {baseurl}/ilink/bot/sendmessage`（`message_type=2` + `text_item`） |
+
+### 苍何 fallback（与 openclaw-wechat 一致）
 
 | 方向 | 接口 |
 |---|---|
@@ -77,10 +91,13 @@ node F:\LayaProject\chat\test\e2e.cjs
 
 ## 部署
 
-- **配置页已发布**：`server/cloud/public/codex.html` + `chat.html` → Cloudflare Worker `www.normalgame.cn` 静态资源；未替换 `index.html`。
-  - 访问 `https://www.normalgame.cn/codex.html`。
-- **桥服务**：本机运行 `chat/bridge.cjs`；如需公网访问，在 `server/re/frpc.toml` 增加 21121→5002 隧道，并在 ECS nginx 增加 `location /codex-api/ { proxy_pass http://127.0.0.1:5002/; }`（见 `deploy/nginx-codex.conf`）。
-- **阿里云 ECS**：`deploy/install-ecs.sh` 安装 systemd 服务；当前 ECS 控制台会话过期，需在可见 Edge 9228 的登录窗口完成阿里云登录后执行（`local/open_workbench.cjs` 可打开 Workbench）。
+- **配置页已发布（生产）**：`https://normalgame.cn/codex` / `https://normalgame.cn/chat`（ECS nginx 静态；Cloudflare 会去掉 `.html`）。
+  - 备用入口：`https://www.normalgame.cn/codex.html`（Cloudflare Worker 静态资源）。
+  - 未替换 `index.html`。
+- **桥服务（已部署）**：ECS `/home/ftpu/codex-chat` + systemd `codex-chat`，监听 127.0.0.1:21121；nginx `/codex-api/` 反代到它。
+  - ECS `chat/config.json`：`mode=relay`、`relay.url=http://127.0.0.1/apim`，再经 frp 调本机 Codex。
+  - 本机也可直接 `node chat/bridge.cjs`（mode=local）。
+- **阿里云 ECS**：已完成登录/部署（Workbench 免密连接）。`deploy/install-ecs.sh` 可重复安装；`codex.bundle` + `ecs-install-remote.sh` 可一键更新。
 
 ## 安全
 

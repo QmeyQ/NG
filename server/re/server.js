@@ -90,7 +90,7 @@ const handlers = {
     'codex.history': (p) => { need(p, ['peer'], 'codex.history'); return codex.history(p.peer, p.limit); },
     'codex.sessions': () => ({ sessions: codex.sessions() }),
     'codex.cancel': (p) => codex.cancel(p.peer),
-    'codex.bundle': () => { const files = ['chat/bridge.cjs','chat/plugin/wechat.cjs','chat/public/chat.html','chat/public/codex.html','chat/config.example.json','chat/deploy/install-ecs.sh','chat/deploy/ecs-install-remote.sh','chat/deploy/nginx-codex.conf','chat/README.md','server/re/codex.js']; return { files: files.map(f => ({ path: f, b64: fs.readFileSync(path.resolve(PROJ, f)).toString('base64') })) }; }
+    'codex.bundle': () => { const files = ['chat/bridge.cjs','chat/plugin/weixin.cjs','chat/plugin/wechat.cjs','chat/public/chat.html','chat/public/qrcode.js','chat/public/codex.html','chat/config.example.json','chat/deploy/install-ecs.sh','chat/deploy/ecs-install-remote.sh','chat/deploy/nginx-codex.conf','chat/README.md','server/re/codex.js']; return { files: files.map(f => ({ path: f, b64: fs.readFileSync(path.resolve(PROJ, f)).toString('base64') })) }; }
 };
 
 function getToken(req, body) { return (body && body.token) || req.headers['x-re-token'] || (req.headers.authorization || '').replace(/^Bearer\s+/i, '') || new URL(req.url, 'http://x').searchParams.get('token') || ''; }

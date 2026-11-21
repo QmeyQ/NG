@@ -7,7 +7,7 @@ const src=path.join(ROOT,'chat','public');
 const targets=[path.join(ROOT,'server','cloud','public'),path.join(ROOT,'release','web'),path.join(ROOT,'web')];
 for(const t of targets){
   if(!fs.existsSync(t))continue;
-  for(const f of ['codex.html','chat.html']){
+  for(const f of ['codex.html','chat.html','qrcode.js']){
     fs.copyFileSync(path.join(src,f),path.join(t,f));
     console.log('copied '+f+' -> '+path.relative(ROOT,t));
   }

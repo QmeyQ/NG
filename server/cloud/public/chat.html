@@ -145,7 +145,7 @@ select,input,textarea{font-family:inherit}
 <script>
 (function(){
 const $=id=>document.getElementById(id);
-const API_BASE=(localStorage.getItem('cx_api')||new URLSearchParams(location.search).get('api')||'').replace(/\/+$/,'');
+const API_BASE=(localStorage.getItem('cx_api')||new URLSearchParams(location.search).get('api')||(/normalgame\.cn$/i.test(location.hostname)?'/codex-api':'')).replace(/\/+$/,'');
 const state={token:localStorage.getItem('cx_token')||new URLSearchParams(location.search).get('token')||'',convs:[],active:null,models:[],sending:false,hist:{},unread:{}};
 function toast(t){const e=$('toast');e.textContent=t;e.classList.add('show');clearTimeout(toast._t);toast._t=setTimeout(()=>e.classList.remove('show'),2200)}
 async function api(path,opts){
