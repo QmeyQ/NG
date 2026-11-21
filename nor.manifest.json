@@ -2,11 +2,11 @@
   "out": "nor.br",
   "magic": "BRP1",
   "version": "1.0",
-  "fileCount": 54,
-  "rawSize": 6116783,
-  "containerSize": 6118378,
-  "brSize": 5294031,
-  "ratio": 0.8653,
+  "fileCount": 56,
+  "rawSize": 6123151,
+  "containerSize": 6124813,
+  "brSize": 5298995,
+  "ratio": 0.8652,
   "files": [
     {
       "path": "ani.controller",
@@ -155,6 +155,14 @@
     {
       "path": "gcolor.png",
       "size": 377018
+    },
+    {
+      "path": "girl/au/hit.MP3",
+      "size": 3811
+    },
+    {
+      "path": "girl/au/hitF.MP3",
+      "size": 2557
     },
     {
       "path": "girl1/node_0.004.lm",

@@ -141,13 +141,15 @@ export class NewScript extends Laya.Script {
             }
         });
 
-        // 返回按钮(程序化, badm.ls 无 bButton 节点): 左上角, back 回 match 预制体复用
-        const s2d: any = (Laya.stage.getChildByName("root") as any)?.getChildByName("Scene2D");
-        if (s2d) {
-            const bk = UI.findNode(s2d, "bButton").on(Laya.Event.CLICK, this, () => {
+        // 返回按钮: 从整树找 bButton(菜单预制体也是 Scene2D, 按 root.Scene2D 取会拿到菜单场景 → null 崩溃)
+        const bk = UI.findNode(Laya.stage as any, "bButton");
+        if (bk) {
+            bk.on(Laya.Event.CLICK, this, () => {
                 Au.tap();
                 SceneNav.back();
             });
+        } else {
+            console.warn("[badm] 未找到 bButton 节点");
         }
 
         // gList 玩家列表渲染(PVE: 玩家+人机; PVP: 房间所有玩家, 昵称/头像由进房时 customPlayerProperties 同步)

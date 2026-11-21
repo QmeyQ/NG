@@ -1,0 +1,8 @@
+{
+  "name": "upstorage",
+  "version": "1.0.0",
+  "private": true,
+  "dependencies": {
+    "@hw-agconnect/storage-server": "^1.0.0"
+  }
+}

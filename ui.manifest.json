@@ -3,10 +3,10 @@
   "magic": "BRP1",
   "version": "1.0",
   "fileCount": 30,
-  "rawSize": 2974939,
-  "containerSize": 2975880,
-  "brSize": 2325161,
-  "ratio": 0.7813,
+  "rawSize": 2974146,
+  "containerSize": 2975087,
+  "brSize": 2325105,
+  "ratio": 0.7815,
   "files": [
     {
       "path": "dialog/bg.png",
@@ -126,7 +126,7 @@
     },
     {
       "path": "menu.ls",
-      "size": 54509
+      "size": 53716
     }
   ]
 }

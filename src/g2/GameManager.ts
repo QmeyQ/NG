@@ -38,7 +38,7 @@ export class GameManager {
   private lastFlip: Record<string, number> = {};
   private resultShown = false;
   private _pendingFire = false;
-  private atk = 30; // 单机30/联机80: 单机3身体接触率双倍; 联机2 hit/kill 保证局时长 ~60-100s
+  private atk = 40; // 单机40/联机80: 单机3身体(双弹道)约4hit约20-30s; 联机2 hit/kill ~60-100s
   private _lastRoundSeen = 1;
 
   constructor(owner: Laya.Sprite, config: any) {
@@ -74,7 +74,7 @@ export class GameManager {
 
   /** 建立确定性世界: bodies=[{pid,x,y,hp,sh,side}] */
   beginWorld(bodies: any[], seed: number, t0: number, online: boolean, isHost: boolean): void {
-    this.online = online; this.isHost = isHost; this.atk = online ? 80 : 30;
+    this.online = online; this.isHost = isHost; this.atk = online ? 80 : 40;
     const cfg = {
       W: Laya.stage.width, H: Laya.stage.height,
       attack: this.config.attack, defense: this.config.defense, maxHp: this.config.maxHp, maxSh: this.config.maxSh,

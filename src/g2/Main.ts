@@ -10,6 +10,7 @@ import { BattleControl } from "./battleControl";
 import { SceneNav } from "../libs/nav";
 import { G2Online } from "./online";
 import { Res as PRes } from "../libs/res/res";
+import { LocalMatch } from "../libs/server/localMatch";
 
 @regClass()
 export class Main extends Laya.Script {
@@ -49,7 +50,7 @@ export class Main extends Laya.Script {
         if ((window as any).__g2Offline) RoomSession.clear(); // 单机不带旧联机房间
     }
     // stage 级节点不随场景销毁: 清理上一局残留
-    ["g2OfflineArea", "resultLabel", "roomBanner", "g2BackBtn", "netNotice"].forEach((n) => {
+    ["g2OfflineArea", "resultLabel", "roomBanner", "g2BackBtn", "netNotice", "reconnectOverlay"].forEach((n) => {
         const old = Laya.stage.getChildByName(n);
         if (old) { old.removeSelf(); old.destroy(); }
     });
@@ -180,7 +181,15 @@ export class Main extends Laya.Script {
                 const winnerId = this.localId ? (winner === 'player' ? this.localId : (this.remoteIdList[0] || "")) : null;
                 this.lastWinnerId = winnerId;
                 const text = this.localId ? (winnerId === this.localId ? '胜利' : '失败') : (winner === 'player' ? '胜利' : '失败');
-                this.showResultLabel(text);
+                try {
+const room = RoomSession.get();
+const players = room && room.players && room.players.length ? room.players.map((pid: string) => ({ userid: pid, name: pid === this.localId ? "我" : "玩家" + String(pid).slice(-4), side: this.gameManager && this.gameManager.pidSide ? (this.gameManager.pidSide[pid] || 0) : (pid === this.localId ? 0 : 1), self: pid === this.localId })) : [
+{ userid: this.localId || "me", name: "我", side: 0, self: true },
+{ name: "AI", side: 1 }
+];
+LocalMatch.save({ id: Date.now() + ":" + Math.random().toString(36).slice(2, 8), ts: Date.now(), mode: room ? "pvp" : "pve", win: text === "胜利", score: text === "胜利" ? [1, 0] : [0, 1], players: players });
+} catch (e) { console.warn("[g2] 本地对局详情保存失败:", e); }
+this.showResultLabel(text);
             },
             onResourceLoaded: () => {
                 console.log("资源加载完成，创建游戏角色");
@@ -370,7 +379,7 @@ export class Main extends Laya.Script {
             const tx = (window as any).__g2tx || ((window as any).__g2tx = {}); tx['g2ops'] = (tx['g2ops'] || 0) + 1;
             Gnet.sendFrame(payload); // 快通道
             Gnet.sendToClient(Gnet.ROUTE_OTHERS, payload); // 冗余慢通道(接收端去重)
-        } catch (e) { try { (window as any).__g2txErr = String(e && (e.message || e)); } catch (e2) { } }
+        } catch (e: any) { try { (window as any).__g2txErr = String(e && (e.message || e)); } catch (e2) { } }
     }
 
     /** 再来一局：通知对端并重开对战场景 */
@@ -578,7 +587,7 @@ export class Main extends Laya.Script {
         if (this._netHandler) { try { Gnet.offClient(this._netHandler); } catch (e) { } this._netHandler = null; }
         if (this._frameHandler) { try { Gnet.offFrame(this._frameHandler); } catch (e) { } this._frameHandler = null; }
         this.owner.off(Laya.Event.REMOVED, this, this.onSceneDetached);
-        ["g2OfflineArea", "resultLabel", "roomBanner", "g2BackBtn", "netNotice"].forEach((n) => {
+        ["g2OfflineArea", "resultLabel", "roomBanner", "g2BackBtn", "netNotice", "reconnectOverlay"].forEach((n) => {
             const o = Laya.stage.getChildByName(n);
             if (o) { o.removeSelf(); o.destroy(); }
         });

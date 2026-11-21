@@ -753,7 +753,7 @@ export class load extends Laya.Script {
             joinTime: Date.now()
         });
 
-        Gnet.matchRoom({ matchParams: { level: "1" }, maxPlayers: maxPlayers, roomType: "demo" }, (err: Error | null, room: any) => {
+        const onRoom = (err: Error | null, room: any) => {
             // 用户取消或新匹配已经开始：忽略旧请求回调，避免迟到 success 覆盖“匹配”按钮。
             if (attemptId !== this._matchAttemptSeq || this._userCancel || !this.isMatching) {
                 const staleRoom = room || Gnet.getRoom();
@@ -794,8 +794,34 @@ export class load extends Laya.Script {
             }
 
             console.log("[load] 匹配成功", room);
+            // 鬼房过滤: 创建超过 120s 的等待房=发起方已断线残留, 退出重匹配(否则单人进死房"等待开局")
+            let stale = false;
+            try {
+                const pp = room && (typeof room.customRoomProperties === 'string' ? JSON.parse(room.customRoomProperties) : (room.customRoomProperties || {}));
+                stale = !!(pp && pp.createTime && Date.now() - pp.createTime > 120000);
+            } catch (e) { }
+            if (stale) {
+                console.warn("[load] 命中鬼房, 退出重匹配:", room && (room.id || room.roomId));
+                Gnet.leaveRoom(() => { if (attemptId === this._matchAttemptSeq && this.isMatching && !this._userCancel) this._startMatch(true); });
+                return;
+            }
             this.handleRoomJoined(room, true);
-        }, { customPlayerProperties: props });
+        };
+        // 先扫新鲜等待房直接 join, 无则 matchRoom(避免撮合进鬼房)
+        Gnet.getAvailableRooms((e2: any, info: any) => {
+            if (attemptId !== this._matchAttemptSeq || this._userCancel || !this.isMatching) return;
+            const list = (info && (info.rooms || info.roomList)) || [];
+            const now = Date.now();
+            let pick: any = null;
+            for (const r of list) {
+                let pp: any = {};
+                try { pp = typeof r.customRoomProperties === 'string' ? JSON.parse(r.customRoomProperties) : (r.customRoomProperties || {}); } catch (e) { }
+                const cnt = r.playerCount !== undefined ? r.playerCount : ((r.players || r.playerList || []).length || 0);
+                if (pp.createTime && now - pp.createTime < 120000 && cnt < 2) { pick = r; break; }
+            }
+            if (pick) { console.log('[load] join 新鲜等待房', pick.id || pick.roomId); Gnet.joinRoom(String(pick.id || pick.roomId), onRoom, { customPlayerProperties: props }); }
+            else Gnet.matchRoom({ matchParams: { level: "1" }, maxPlayers: maxPlayers, roomType: "demo" }, onRoom, { customPlayerProperties: props });
+        }, { roomType: 'demo', limit: 20 });
     }
 
     /**
@@ -810,6 +836,9 @@ export class load extends Laya.Script {
         btn.title = txt;
         btn.selectedTitle = txt;
         btn.titleColor = color;
+        // 长文案自适应字号(预制体默认 70, "单打匹配中(1/2)" 会溢出圆形按钮)
+        // 长文案自适应字号(预制体 titleFontSize=125/70; 新UI GButton 暴露 titleFontSize 而非 labelSize)
+        try { const fs2 = txt.length > 5 ? 40 : 70; if ('titleFontSize' in btn) btn.titleFontSize = fs2; else if (typeof btn.labelSize === 'number') btn.labelSize = fs2; } catch (e) { }
         btn.selected = false;
     }
 

@@ -265,3 +265,18 @@ Worker=网关+IP/历史风控(历史改用户行 history 点查)。
 - 平衡: 单机 atk30(3 身体接触率双倍)/联机 atk80(2 hit/kill, 局时长 ~60-100s); HIT_CD 20 步; 回复 0.01。
 - 渲染: Cha.syncBody 每帧从内核取状态 → 平滑; 结算时 hideAllForceUI。
 - 实测坑汇总: ① 同 tick 多 sendFrame 丢包→合批; ② 慢通道(sendToClient)延迟 ~600ms+→lead 必须 >延迟尖峰; ③ reset 重放含已结算操作→双倍伤害; ④ 非房主 bootstrap 漏设 online→跑离线 AI 自打; ⑤ 注册键≠世界 pid→渲染不同步; ⑥ 同步 lead 窗口内重复发射→_pendingFire 门; ⑦ clamp 改变 at 破坏去重→fire 按 round 去重。
+
+### 商业级审计 第1轮（2026-11-21）
+- **羽毛球致命 bug 修复**: 菜单预制体根节点也是 Scene2D, badm.ts 用 root.getChildByName("Scene2D") 拿到菜单场景 → bButton=null → onStart 抛错 → 对局场景只有空壳(无球/无角色/无 ctrl)。改为整树 findNode(stage,'bButton') 并判空。PVE 实测球/角色/发球恢复(serve=HIT, ball 有坐标)。
+- **羽毛球鬼房**: matchRoom 会进断线残留房(单客户端"等待开局"卡死)。load.ts 匹配改为: 先 getAvailableRooms 找 createTime<120s 且未满的房直接 joinRoom, 否则 matchRoom; 回调再验 createTime>120s 是鬼房则离开重匹配。
+- **UI 修正(截图实测)**: 加好友页移除"身价"行(只在个人页隐私栏); 隐私栏按钮文案 屏蔽我的ID/已屏蔽ID; 匹配按钮长文案 titleFontSize 自适应(70→40), 不再溢出圆形按钮。socialdrive_prod 14/14 复验。
+- **社交转发偶发失败**: mc3drive 首次 8/9(B 未在 4s 窗口内看到转发), 复跑 9/9; 转发断言改为轮询 10s。根因疑似云兜底慢路径(实时通道未命中时), 继续观察。
+- **存储上传阻塞**: 控制台登录态下上传仍 403(浏览器自身 XHR 也 ERR_FAILED); 已尝试: 自动重登/Profile1 会话复制/换 team/raw CDP 复刻(multipart+Cookie+CSRF+trace)/服务端 OAuth JWT(client_credentials)→网关 PUT 均 403; AGC 无 storage-server Node SDK(@hw-agconnect/storage 仅客户端; cloudstorage 是客户端实例 API)。结论: 需用户在控制台手动覆盖上传或完成 SMS 级验证。
+- **测试驱动新增**: local/uitour.cjs(全页面截图巡览), local/badmdrive.cjs(羽毛球双账号 PVP), local/pveprobe.cjs(羽毛球 PVE 隔离), local/btnprobe.cjs(匹配按钮状态), qa 增加 __qa.pack(key)(预加载包, 解决 vers 无本地索引卡匹配页)。
+
+**商业级审计 第1轮收尾（2026-11-21 晚）：**
+- 羽毛球 PVP 双账号 **7/7**：同房/角色/确定性(diff=0)/发球(HIT)/**两端都采到飞行球(位置差≤0.02m)**/无未捕获异常。
+- 音效缺失修复: nor 包补 `girl/au/hit.MP3`+`hitF.MP3`(56 files, nor.br 5.30MB); `Au.load` 单载失败不再抛 unhandledrejection(仅警告)。此即 PVP 里 "Uncaught (in promise)" 与 A 端 "无 Room" 连锁噪声的根源。
+- 磁盘: 测试残留 edge profile 233 个, 释放 ~34GB(曾 ENOSPC, 是近期 headless 崩溃/Profile 写入异常的重要噪声源)。**每轮清理 local/edge-*(保留 edge-agc-login)**。
+- g2 回归: 单机 14/14(离线 atk40, 对局 ~15-25s)、联机双账号 19/19(确定性同步不变); 社交双客户端 11/11; 离线 121/121。
+- 待办(下一轮): 商城/购买金币流程实测、对局内点头像加好友+屏蔽ID、局后加好友、好友身价展示、生产上传后 prod 全量(prod_g2full/prod_g2mc/socialdrive_prod/badm) 复验。
