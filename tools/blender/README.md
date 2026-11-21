@@ -67,3 +67,22 @@ F:\ENV\3D\blender\blender.exe --background --python-expr "import bpy; bpy.ops.pr
 # 4) 用 launcher 启动 Blender
 tools\blender\start_blender_mcp.bat
 ```
+
+## Qoder
+
+全局配置：`C:\Users\mien\.qoder\mcp.json`（已备份为 `mcp.json.bak-blender`）。
+
+```json
+{
+  "mcpServers": {
+    "blender": {
+      "type": "stdio",
+      "command": "C:/Users/mien/.codex/blender-mcp/.venv/Scripts/mcp-for-blender.exe",
+      "args": ["--host", "127.0.0.1", "--port", "9876"],
+      "env": { "PYTHONIOENCODING": "utf-8" }
+    }
+  }
+}
+```
+
+使用前先运行 `tools\blender\start_blender_mcp.bat`，再打开 Qoder。Qoder 会启动 `mcp-for-blender`，连接 Blender 9876。已验证 `tools/list` 10 个工具、`get_scene_info` 成功。
