@@ -80,7 +80,8 @@
     "微信登录免 Token 公开接口(login/status, 12s/IP 限流); 其余 API 仍需 X-Cx-Token",
     "修复 qrcodeUrl 大小写导致二维码不渲染; tokenValue 过滤非 ASCII 头; page 实测 QR SVG 23110B + liteapp href",
     "聊天页 /chat 可显示微信来源会话(wechat:*): 会话/历史只读公开, chatpage.cjs PASS",
-    "修复 /codex/chat.html 404: 绝对 /chat 链接 + ECS /codex/chat 兼容页"
+    "修复 /codex/chat.html 404: 绝对 /chat 链接 + ECS /codex/chat 兼容页",
+    "CodexChat NSSM 开机自启脚本: chat/service/{nssm.exe,ontask.bat,uninstall.bat,kill_manual.ps1,README.md}"
   ],
   "next": [
     "用户扫码登录官方微信 iLink 后验证真实微信收发",
@@ -96,5 +97,5 @@
   "failed": [],
   "last_output": "social3drive 11/11 PASS: addFriendInput/btn_申请好友 -> B req A, A reqAccept_0 -> friends=1, B 刷新 -> friend_0, msgInput+btn_发送 -> detail msgs=1 no duplicate, A refresh sees message, server fA/fB persisted, no exceptions | bundle 1,526,650B | tsc baseline | offline 121 pass",
   "note": "LayaProject=小游戏平台; NG2=branch origin/room",
-  "updatedAt": "2026-11-21T15:59:26.038Z"
+  "updatedAt": "2026-11-21T16:23:46.483Z"
 }
