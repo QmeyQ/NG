@@ -68,24 +68,30 @@ F:\ENV\3D\blender\blender.exe --background --python-expr "import bpy; bpy.ops.pr
 tools\blender\start_blender_mcp.bat
 ```
 
-## Qoder
+## Qoder（MCP 自动拉起 Blender）
 
-全局配置：`C:\Users\mien\.qoder\mcp.json`（已备份为 `mcp.json.bak-blender`）。
+Qoder 的 MCP 配置指向 wrapper，**调用 MCP 时由 wrapper 自己拉起 Blender**，不需要手动先开：
+
+`C:\Users\mien\.qoder\mcp.json`：
 
 ```json
 {
   "mcpServers": {
     "blender": {
       "type": "stdio",
-      "command": "C:/Users/mien/.codex/blender-mcp/.venv/Scripts/mcp-for-blender.exe",
-      "args": ["--host", "127.0.0.1", "--port", "9876"],
+      "command": "C:\\Windows\\System32\\cmd.exe",
+      "args": ["/c", "F:\\LayaProject\\tools\\blender\\qoder_mcp_wrapper.bat"],
       "env": { "PYTHONIOENCODING": "utf-8" }
     }
   }
 }
 ```
 
-使用前先运行 `tools\blender\start_blender_mcp.bat`，再打开 Qoder。Qoder 会启动 `mcp-for-blender`，连接 Blender 9876。已验证 `tools/list` 10 个工具、`get_scene_info` 成功。
+- `qoder_mcp_wrapper.bat`：检查 9876；未监听则用 PowerShell `Start-Process` 启动 Blender（最小化，独立 stdio），等待最多 30s；然后在前台启动 `mcp-for-blender.exe`，把 stdio 留给 Qoder。
+- 关键：wrapper 不向 stdout 输出任何内容，否则会污染 MCP JSON-RPC。
+- 关键：Qoder 配置里的 `cmd.exe` 必须用**反斜杠** `C:\Windows\System32\cmd.exe`；用 `C:/Windows/...` 会报 “The syntax of the command is incorrect.”。
+- 实测：Blender 关闭状态下，Qoder 配置直接 spawn → wrapper 自动启动 Blender → MCP `initialize` + `tools/list`（10 个工具）+ `get_scene_info` 成功，冷启动约 4.8s。
+- 原 `mcp.json` 备份：`mcp.json.bak-blender`、`mcp.json.bak-wrapper`。
 
 ## 一键启动 / 开机自启
 

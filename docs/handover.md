@@ -406,3 +406,4 @@ node chat/test/e2e.cjs   -> 17 pass / 0 fail
 - **注意**：Blender 5.x 的 Action 是分层/槽位结构，`action.fcurves` 不存在；统计 fcurve 用 `action.layers[*].strips[*].channelbags[*].fcurves`。
 - **Qoder**：`C:\Users\mien\.qoder\mcp.json` 已加 `blender` stdio 条目（venv `mcp-for-blender.exe --host 127.0.0.1 --port 9876`，备份 `mcp.json.bak-blender`）；Qoder 端 `tools/list` 10 个工具、`get_scene_info` 实测 PASS。
 - **一键/自启**：`tools/blender/start_qoder_blender.bat` 先确保 9876 再启动 Qoder；`install_qoder_blender_autostart.bat` 已写入用户 Startup（`QoderBlenderMCP.lnk`），登录自动启动 Blender(最小化)+Qoder；卸载用 `uninstall_qoder_blender_autostart.bat`。
+- **Qoder 自动拉起**：`~/.qoder/mcp.json` 的 blender 改为 `cmd.exe /c tools/blender/qoder_mcp_wrapper.bat`；wrapper 检测 9876，未开则 PowerShell `Start-Process` 启动 Blender（独立 stdio），等待后前台运行 `mcp-for-blender.exe`。实测 Blender 关闭状态冷启动约 4.8s，`tools/list` 10 个工具 + `get_scene_info` PASS。**cmd.exe 路径必须反斜杠**，否则 cmd 报 syntax error。
