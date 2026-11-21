@@ -168,12 +168,15 @@ function base(){
 }
 function log(t){const e=$('log');e.textContent+=('['+new Date().toLocaleTimeString()+'] '+t+'\n');e.scrollTop=e.scrollHeight}
 function toast(t){const e=$('toast');e.textContent=t;e.classList.add('show');clearTimeout(toast._t);toast._t=setTimeout(()=>e.classList.remove('show'),2200)}
-async function api(path,opts){
-  opts=opts||{};opts.headers=Object.assign({'X-Cx-Token':$('token').value.trim()},opts.headers||{});
+function tokenValue(){const t=$('token').value.trim();if(!t)return '';if(!/^[\x20-\x7E]+$/.test(t)){log('Token 含非 ASCII 字符，已忽略；请只粘贴 cx-... 或 re-... 形式的 Token');return ''}return t}
+async function api(path,opts,noAuth){
+  opts=opts||{};opts.headers=Object.assign({},opts.headers||{});
+  const tk=tokenValue();if(tk&&!noAuth)opts.headers['X-Cx-Token']=tk;
   if(opts.body&&typeof opts.body!=='string'){opts.headers['Content-Type']='application/json';opts.body=JSON.stringify(opts.body)}
   const r=await fetch(base()+path,opts);let j;try{j=await r.json()}catch(e){throw new Error('HTTP '+r.status+' 非 JSON')}
   if(!r.ok||j.ok===false)throw new Error(j.error||('HTTP '+r.status));return j;
 }
+const apiPublic=(path,opts)=>api(path,opts,true);
 function setStatus(ok,text){$('dot').className='dot '+(ok?'ok':'bad');$('statusText').textContent=text}
 function fillModels(models,current){
   $('model').innerHTML=(models||[]).map(m=>`<option value="${m.slug}">${m.label||m.slug}</option>`).join('');
@@ -202,8 +205,17 @@ async function save(patch,msg){
   catch(e){log('保存失败: '+e.message);toast(e.message);throw e}
 }
 function wxBadge(w){
-  const b=$('wxBadge');b.textContent=w.loggedIn?'已登录':(w.configured?(w.login&&w.login.status||'未登录'):'未配置');b.className='badge '+(w.loggedIn?'ok':'');
-  if(w.login&&w.login.qrCodeUrl)showQr(w.login.qrCodeUrl,w.login.status);
+  const b=$('wxBadge');const st=(w.login&&w.login.status)||'';
+  let text='未配置';
+  if(w.loggedIn)text='已登录';
+  else if(st==='wait')text='等待扫码';
+  else if(st==='scaned')text='已扫码，待微信确认';
+  else if(st==='need_verifycode')text='需要在微信内确认/验证';
+  else if(st==='expired')text='二维码已过期';
+  else if(st==='error')text='登录失败';
+  else if(w.provider==='ilink'||w.configured)text='未登录';
+  b.textContent=text;b.className='badge '+(w.loggedIn?'ok':(st==='error'?'bad':''));b.title=(w.login&&w.login.error)||'';
+  if(w.login&&w.login.qrcodeUrl)showQr(w.login.qrcodeUrl,w.login.status);
 }
 function isMobile(){return /Android|iPhone|iPad|iPod|Mobile|HarmonyOS/i.test(navigator.userAgent)}
 function showQr(url,status){
@@ -222,11 +234,11 @@ function syncWxProvider(){
   $('ilinkHint').style.display=p==='ilink'?'block':'none';
 }
 async function wxLogin(){
-  try{const r=await api('/api/wechat/login',{method:'POST',body:{}});const w=r.wechat||{};wxBadge(w);if(w.qrCodeUrl)showQr(w.qrCodeUrl,w.status);log('微信登录: '+(w.status||''));startPoll();toast('请扫码登录')}
+  try{const r=await apiPublic('/api/wechat/login',{method:'POST',body:{}});const w=r.wechat||{};const st=w.login||{};wxBadge(w);if(st.qrcodeUrl)showQr(st.qrcodeUrl,st.status);else if(w.qrcodeUrl)showQr(w.qrcodeUrl,w.status);log('微信登录: '+(st.status||w.status||''));startPoll();toast(st.status==='wait'?'请扫码或点“在微信中打开并授权”':'请按提示登录')}
   catch(e){log('微信登录失败: '+e.message);toast(e.message)}
 }
-async function wxStatus(){try{const r=await api('/api/wechat/status');wxBadge(r.wechat||{});log('微信状态: '+JSON.stringify(r.wechat))}catch(e){toast(e.message)}}
-function startPoll(){clearInterval(poll);poll=setInterval(async()=>{try{const r=await api('/api/wechat/status');const w=r.wechat||{};wxBadge(w);if(w.loggedIn){clearInterval(poll);toast('微信已登录');log('微信登录成功: '+(w.login&&w.login.nickName||''))}}catch(e){clearInterval(poll)}},3000)}
+async function wxStatus(){try{const r=await apiPublic('/api/wechat/status');wxBadge(r.wechat||{});log('微信状态: '+JSON.stringify(r.wechat))}catch(e){toast(e.message)}}
+function startPoll(){clearInterval(poll);poll=setInterval(async()=>{try{const r=await apiPublic('/api/wechat/status');const w=r.wechat||{};wxBadge(w);if(w.loggedIn){clearInterval(poll);toast('微信已登录');log('微信登录成功: '+(w.login&&w.login.nickName||''))}}catch(e){clearInterval(poll)}},3000)}
 async function openTerm(){
   let url=$('ecsUrl').value.trim();
   if(!url){try{const r=await api('/api/ecs/terminal');url=r.url}catch(e){const rg=$('ecsRegion').value.trim()||'cn-shenzhen',inid=$('ecsInstance').value.trim();url='https://ecs-workbench.aliyun.com/?instanceType=ecs&regionId='+encodeURIComponent(rg)+'&instanceId='+encodeURIComponent(inid)+'&workbenchType=ssh&language=zh'}}
@@ -241,7 +253,7 @@ $('loadBtn').onclick=()=>loadConfig();
 $('reloadModels').onclick=()=>loadModels();
 $('saveCodex').onclick=()=>save({codex:{cwd:$('cwd').value.trim(),model:$('model').value,sandbox:$('sandbox').value,timeoutMs:Number($('timeoutMs').value)||600000,bin:$('bin').value.trim()}},'Codex 配置已保存');
 $('saveMode').onclick=()=>save({mode:$('mode').value,relay:{url:$('relayUrl').value.trim(),token:$('relayToken').value.trim()}},'运行模式已保存');
-$('saveWechat').onclick=()=>save({wechat:{provider:$('wxProvider').value,enabled:$('wxEnabled').value==='true',botType:'3',botAgent:'Codex/1.0',apiKey:$('wxApiKey').value.trim(),proxyUrl:$('wxProxyUrl').value.trim(),webhookHost:$('wxWebhookHost').value.trim(),webhookPort:Number($('wxWebhookPort').value)||18790,webhookPath:$('wxWebhookPath').value.trim()||'/webhook/wechat',deviceType:$('wxDevice').value}},'微信配置已保存');
+$('saveWechat').onclick=()=>{if(!tokenValue()){toast('保存配置需要 Token；扫码登录不需要 Token');log('保存微信配置跳过：缺少 ASCII Token');return}save({wechat:{provider:$('wxProvider').value,enabled:$('wxEnabled').value==='true',botType:'3',botAgent:'Codex/1.0',apiKey:$('wxApiKey').value.trim(),proxyUrl:$('wxProxyUrl').value.trim(),webhookHost:$('wxWebhookHost').value.trim(),webhookPort:Number($('wxWebhookPort').value)||18790,webhookPath:$('wxWebhookPath').value.trim()||'/webhook/wechat',deviceType:$('wxDevice').value}},'微信配置已保存')};
 $('wxProvider').onchange=syncWxProvider;
 $('saveEcs').onclick=()=>save({ecs:{regionId:$('ecsRegion').value.trim(),instanceId:$('ecsInstance').value.trim(),workbenchUrl:$('ecsUrl').value.trim()}},'ECS 配置已保存');
 $('wxCopyBtn').onclick=()=>{const u=$('wxOpenBtn').href;navigator.clipboard.writeText(u).then(()=>toast('授权链接已复制，可粘贴到微信打开')).catch(()=>toast('复制失败，请长按链接复制'))};
@@ -249,7 +261,7 @@ $('qrToggleBtn').onclick=()=>{const b=$('qrCanvas');b.style.display=b.style.disp
 $('wxLogin').onclick=wxLogin;$('wxStatus').onclick=wxStatus;$('openTerm').onclick=openTerm;$('copyDeploy').onclick=copyDeploy;
 $('clearLog').onclick=()=>$('log').textContent='';
 const QQ=new URLSearchParams(location.search);$('apiBase').value=QQ.get('api')||localStorage.getItem('cx_api')||'';$('token').value=QQ.get('token')||localStorage.getItem('cx_token')||'';if(QQ.get('qr'))showQr(QQ.get('qr'),'wait');if(QQ.get('scroll'))setTimeout(()=>{const e=document.getElementById(QQ.get('scroll'));if(e)e.scrollIntoView({block:'start'})},900);
-if($('token').value)test().catch(()=>{});else log('请填写 API Base 与 Token 后测试连接');
+wxStatus().catch(()=>{});if($('token').value)test().catch(()=>{});else log('微信扫码不需要 Token；Codex 配置/保存需要 Token');
 })();
 </script>
 </body>

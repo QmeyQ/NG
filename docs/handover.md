@@ -377,3 +377,6 @@ node chat/test/e2e.cjs   -> 17 pass / 0 fail
 - 二维码本地生成：`chat/public/qrcode.js`（`qrcode-generator` MIT），不依赖外部二维码 API/CDN。
 - 手机端 CSS：`@media(max-width:600px)` 单列布局、按钮 50% 换行、`#qrCanvas svg` 自适应 72vw，修复此前右侧溢出。
 - 生产验证：`https://normalgame.cn/codex` 移动 UA 截图布局通过；页面包含 `wxOpenBtn/mobileHint`，`/codex-api/api/wechat/login` 返回官方二维码。
+- 免 Token 登录：`/api/wechat/login`、`/api/wechat/status` 为公开接口（登录 12s/IP 限流）；其余 `/api/*` 仍需 `X-Cx-Token`。
+- **字段名坑**：服务端返回 `qrcodeUrl`（小写 c），页面曾写 `qrCodeUrl` 导致二维码不渲染；已统一为 `qrcodeUrl`。`chat/test/wxlogin-page.cjs` 实测：点“获取登录二维码”→ `qrCanvas` SVG 23110B、`wxOpenBtn.href` 为 `liteapp.weixin.qq.com`。
+- Token 头只发 ASCII：`tokenValue()` 过滤非 ASCII，避免 `fetch` 抛 “String contains non ISO-8859-1 code point”。

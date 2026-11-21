@@ -45,3 +45,4 @@ chat/vendor/*.tgz
 chat/test/ilink-config.json
 chat/test/ilink-qr.txt
 chat/test/mobileshot.cjs
+chat/test/wxpage*.cjs

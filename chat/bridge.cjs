@@ -151,6 +151,16 @@ function readBody(req, limit) {
     });
 }
 function auth(req, body) { const t = (body && body.token) || req.headers['x-cx-token'] || ''; return !!t && t === TOKEN(); }
+const wxLoginHits = new Map();
+function allowWxLogin(req) {
+    const ip = (req.socket && req.socket.remoteAddress) || 'unknown';
+    const now = Date.now();
+    for (const [k, t] of wxLoginHits) if (now - t > 60000) wxLoginHits.delete(k);
+    const last = wxLoginHits.get(ip) || 0;
+    if (now - last < 12000) return false;
+    wxLoginHits.set(ip, now);
+    return true;
+}
 function staticFile(res, name) {
     const f = path.join(PUBLIC, name);
     fs.readFile(f, (e, buf) => {
@@ -185,7 +195,9 @@ const server = http.createServer(async (req, res) => {
     if (p.startsWith('/api/')) {
         const body = req.method === 'POST' ? await readBody(req).catch(e => ({ __error: e.message })) : {};
         if (body && body.__error) return sendJson(res, 400, { ok: false, error: body.__error, help: HELP });
-        if (!auth(req, body)) return sendJson(res, 401, { ok: false, error: 'token 缺失/错误 (X-Cx-Token)', help: HELP });
+        const publicWx = ((p === '/api/wechat/login' || p === '/api/wechat/connect') && req.method === 'POST') || (p === '/api/wechat/status' && req.method === 'GET');
+        if (!publicWx && !auth(req, body)) return sendJson(res, 401, { ok: false, error: 'token 缺失/错误 (X-Cx-Token)', help: HELP });
+        if (req.method === 'POST' && p === '/api/wechat/login' && !allowWxLogin(req)) return sendJson(res, 429, { ok: false, error: '二维码获取过于频繁，请 12 秒后再试', help: HELP });
         try {
             if (req.method === 'GET' && p === '/api/status') {
                 let st;

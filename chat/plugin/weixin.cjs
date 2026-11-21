@@ -80,7 +80,7 @@ class WeixinChannel {
     status() {
         return {
             provider: 'ilink',
-            configured: !!this.state.token,
+            configured: true,
             loggedIn: !!this.state.token && this.login.status === 'logged_in',
             accountId: this.state.accountId || '',
             userId: this.state.userId || '',
