@@ -87,3 +87,13 @@ node F:\LayaProject\chat\test\e2e.cjs
 - 所有 `/api/*` 需 `X-Cx-Token`；token 在 `chat/config.json`，不要提交。
 - 微信 `apiKey` / 阿里云 AccessKey 仅存本地配置，页面不回显完整密钥。
 - `codex` 默认 `workspace-write`；需要全权时显式改 `danger-full-access`。
+
+## ECS 一键部署（登录 Workbench 后）
+
+```bash
+# 把 chat/deploy/ecs-install-remote.sh 内容贴到 ECS，或：
+curl -fsS https://www.normalgame.cn/ecs-install-remote.sh -o /tmp/ecs.sh  # 可选：自行上传到站点
+bash /tmp/ecs.sh <RE_TOKEN> http://127.0.0.1/apim
+```
+
+`codex.bundle` 返回 9 个文件（bridge/plugin/UI/config/deploy/codex.js），ECS 写入 `/home/ftpu/codex-chat` 后由 `install-ecs.sh` 建 systemd 服务。桥在 ECS 上应设 `mode=relay`（调本机 `/apim`）。
