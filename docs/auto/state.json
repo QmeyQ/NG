@@ -104,8 +104,10 @@
     "g2.br 生产 CDN 地址/令牌未配置（当前仅本地 Fetch 拦截验证）",
     "AGC 上传受阻：publish.py 需浏览器可执行路径(exit 103)，且 9227 当前无 cslp 云存储 iframe"
   ],
-  "failed": [],
+  "failed": [
+    "git push origin Badminton3D 网络失败(GitHub 443 连接重置/超时, 已重试2次); 本地提交 a3097b42 已落盘, 待网络恢复补推"
+  ],
   "last_output": "social3drive 11/11 PASS: addFriendInput/btn_申请好友 -> B req A, A reqAccept_0 -> friends=1, B 刷新 -> friend_0, msgInput+btn_发送 -> detail msgs=1 no duplicate, A refresh sees message, server fA/fB persisted, no exceptions | bundle 1,526,650B | tsc baseline | offline 121 pass",
   "note": "LayaProject=小游戏平台; NG2=branch origin/room",
-  "updatedAt": "11/22/2026, 03:06:07"
+  "updatedAt": "11/22/2026, 03:07:33"
 }
