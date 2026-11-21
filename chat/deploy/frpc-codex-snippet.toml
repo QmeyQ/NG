@@ -1,0 +1,7 @@
+# frpc 追加(独立隧道, 不冲突 21118/5001):
+[[proxies]]
+name = "codex-chat"
+type = "tcp"
+localIP = "127.0.0.1"
+localPort = 21121
+remotePort = 5002

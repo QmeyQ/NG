@@ -104,6 +104,7 @@ Worker=网关+IP/历史风控(历史改用户行 history 点查)。
 | 网关/IP/历史风控 | `src/libs/server/cloud.ts`(teSafe/teWrite) | Worker `server/cloud/src/agc.js` | — | cloud-registration.test.cjs |
 | PVP 协议(帧/消息/角色) | `src/libs/gobe/msg.ts`+`pvpProto.ts`+`roleSync.ts` | (GOBE 实时, 非 te) | game/badm.ls | (对局驱动) |
 | 资源网络加载 | `src/libs/res.js`+`load.ts` | Worker /res 令牌 | — | res-loader.test.js |
+| AI 辅助/远程聊天 | `chat/*` + `server/re/codex.js` | relay `codex.*` | `chat/public/codex.html`(发布 `www.normalgame.cn/codex.html`) | `chat/test/e2e.cjs`(17) |
 
 **解耦契约**：
 - lobby **不 import social**；social 经 `Lobby.setSinks({chat,freq,cloud,group,roomOf,sync})` 注入回调。改大厅逻辑不碰社交业务，反之亦然。
@@ -280,3 +281,69 @@ Worker=网关+IP/历史风控(历史改用户行 history 点查)。
 - 磁盘: 测试残留 edge profile 233 个, 释放 ~34GB(曾 ENOSPC, 是近期 headless 崩溃/Profile 写入异常的重要噪声源)。**每轮清理 local/edge-*(保留 edge-agc-login)**。
 - g2 回归: 单机 14/14(离线 atk40, 对局 ~15-25s)、联机双账号 19/19(确定性同步不变); 社交双客户端 11/11; 离线 121/121。
 - 待办(下一轮): 商城/购买金币流程实测、对局内点头像加好友+屏蔽ID、局后加好友、好友身价展示、生产上传后 prod 全量(prod_g2full/prod_g2mc/socialdrive_prod/badm) 复验。
+
+## h17 AI 辅助：Codex 远程同步聊天 + 微信通道 + codex.html（2026-11-21）
+
+> 定位：AI 辅助分支（aidev 图 `aiF`）。目标是在不改动游戏主链路的前提下，把 OpenClaw（龙虾）的微信插件提取为 Codex 的远程同步聊天通道，并提供 normalgame 上的配置页与阿里云 ECS 部署路径。
+
+### h17.1 架构（低耦合，改哪块只读哪行）
+
+| 分支 | 文件 | 职责 |
+|---|---|---|
+| 微信通道 | `chat/plugin/wechat.cjs` | 提取自 `freestylefly/openclaw-wechat`（MIT）：ProxyClient、`/webhook/wechat`、60001/80001 归一化、newMsgId 去重、2000 字分段 |
+| 编排 | `chat/bridge.cjs` | 微信 ↔ Codex ↔ Web；HTTP/SSE；配置；登录二维码；ECS 终端 URL |
+| Codex 会话 | `server/re/codex.js` | `codex exec --json`，按 peer 自动 `resume <threadId>`；relay 与 bridge 共用 |
+| 中继 | `server/re/server.js` | 新增 `codex.status/models/config.get/set/chat/history/sessions/cancel`；经 `/apim` 调用 |
+| 聊天页 | `chat/public/chat.html` | 微信式对话列表 + 聊天面板 + 未读徽标 + 新建聊天 |
+| 配置页 | `chat/public/codex.html` | 工作目录、模型、沙箱、微信 apiKey/proxyUrl/webhook、阿里云 ECS |
+| 发布 | `server/cloud/public/{codex,chat}.html` | 已随 Cloudflare Worker 部署到 `https://www.normalgame.cn/codex.html`（未替换 index） |
+| 对照源码 | `chat/vendor/openclaw-wechat/` | 原始插件源码，协议对照用 |
+| 测试 | `chat/test/e2e.cjs` | mock 代理 + mock Codex，17 断言 + 2 截图 |
+
+契约：
+- 微信侧**只**认龙虾同款 payload：`messageType` + `wcId` + `data.{fromUser,fromGroup,content,newMsgId}`；私聊回 `fromUser`，群聊回 `fromGroup`。
+- Codex 侧**只**认 `peer/cwd/model/sandbox/text`；会话键 `wechat:<wxid>` / `wechat:group:<roomid>` / `web:*`。
+- UI **只**走 `/api/*`，不直接碰 Codex/微信对象。
+
+### h17.2 运行与配置
+
+```powershell
+# 桥（本机，默认 127.0.0.1:21121）
+F:\LayaProject\server\re\bin\node.exe F:\LayaProject\chat\bridge.cjs
+# 页面
+http://127.0.0.1:21121/            # 聊天
+http://127.0.0.1:21121/codex.html  # 配置
+```
+
+`chat/config.json`（首次自动生成随机 token，已 gitignore）：
+- `mode=local`：bridge 直接跑 `codex exec`（推荐；继承 `~/.codex` 登录态）。
+- `mode=relay`：bridge 在云上时，经 `https://normalgame.cn/apim` 的 `codex.chat` 调本机 Codex。
+- `wechat.enabled=true` 需要苍何代理 `apiKey` + `proxyUrl`；`POST /api/wechat/login` 返回二维码，扫码后自动 `registerWebhook`。
+- `codex.cwd`/`model` 是默认值，单次请求可覆盖；模型列表读 `~/.codex/model-catalog.local.json`。
+
+### h17.3 部署（normalgame / ECS）
+
+- **配置页（已完成）**：`node chat/deploy/sync-codex-html.cjs --deploy` 会把 `codex.html/chat.html` 同步到 `server/cloud/public` 并 `wrangler deploy`（必须带 `NODE_OPTIONS=--dns-result-order=ipv4first`，否则 wrangler 报 API hostname 解析失败）。线上验证：`https://www.normalgame.cn/codex.html` 200，标题 `Codex 远程同步 · 配置`。
+- **桥公网**：`chat/deploy/frpc-codex-snippet.toml` 增加 21121→5002 隧道；ECS nginx 加 `chat/deploy/nginx-codex.conf` 的 `location /codex-api/`。页面 API Base 填 `https://normalgame.cn/codex-api`。
+- **ECS 服务**：`chat/deploy/install-ecs.sh` 安装 `/home/ftpu/codex-chat` + systemd `codex-chat`；需先把 `chat/` 与 `server/re/codex.js` 打成 `/tmp/codex-chat.tar.gz`。
+- **阿里云登录**：`local/open_workbench.cjs` / `local/type_cmd.cjs` 走可见 Edge 9228。**当前 9228 的阿里云会话已过期**（`account.aliyun.com` 登录页；Profile 1 cookies 无 login ticket），需在登录窗口完成账密/扫码；登录后再执行 ECS 脚本。不要把阿里云密码写进代码或文档。
+
+### h17.4 验证（本轮实测）
+
+```
+node chat/test/e2e.cjs   -> 17 pass / 0 fail
+```
+覆盖：桥启动/帮助、微信登录+webhook 注册、Web 对话、私聊→Codex→回发、重复 newMsgId 去重、群聊回群、配置保存、模型列表、ECS URL、UI 截图（`chat/test/ui-chat.png`、`ui-codex.png`，已 view_image 目检）。
+生产页：`node chat/test/shoturl.cjs https://www.normalgame.cn/codex.html chat/test/prod-codex.png` → 190KB 截图目检通过。
+真实 Codex：`/apim` 的 `codex.chat` 两轮（H17A → 追问仍回 H17A，thread 相同）PASS，证明 `resume` 续聊有效。
+
+### h17.5 坑与规则
+
+- `codex exec` 必须 `stdio:['ignore','pipe','pipe']`；否则进程等待 stdin 永久挂起（实测）。
+- 解析 JSONL 只认 `{...}` 行；`thread.started` 取 thread_id，`item.completed/agent_message` 取文本；`turn.completed` 取 usage。
+- `where codex` 在工作目录含 `codex.js` 时可能返回 js 文件；`resolveBin()` 必须执行 `--version` 并校验 `codex-cli`。
+- 桥默认会话文件 `chat/data/sessions.json`，relay 默认 `server/re/codex-sessions.json`；E2E 用独立 `sessionsPath`，避免污染。
+- Web 聊天页 SSE 在截图/无网环境加 `?noevents=1`，否则 headless 虚拟时间不结束导致 0B 截图。
+- 微信通道没有 apiKey 时不要假装已连通；页面显示“未配置”，测试走 `chat/mock-proxy.cjs`。
+- 所有 `/api/*` 必须带 `X-Cx-Token`；不要把 token/apiKey 写进前端源码或 git。
+- 不轮询云函数：聊天/微信状态均为本地进程或 SSE；云端仅做 `/apim` 调用。

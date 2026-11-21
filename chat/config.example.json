@@ -1,0 +1,35 @@
+{
+  "port": 21121,
+  "host": "127.0.0.1",
+  "token": "",
+  "mode": "local",
+  "relay": {
+    "url": "https://normalgame.cn/apim",
+    "token": "",
+    "timeoutMs": 660000
+  },
+  "codex": {
+    "bin": "",
+    "sessionsPath": "",
+    "cwd": "F:/LayaProject",
+    "model": "qwen4-max-preview",
+    "sandbox": "workspace-write",
+    "timeoutMs": 600000
+  },
+  "wechat": {
+    "enabled": false,
+    "apiKey": "",
+    "proxyUrl": "",
+    "accountId": "default",
+    "deviceType": "ipad",
+    "proxy": "2",
+    "webhookHost": "",
+    "webhookPort": 18790,
+    "webhookPath": "/webhook/wechat"
+  },
+  "ecs": {
+    "regionId": "cn-shenzhen",
+    "instanceId": "i-wz9ai3ubuaio96cedrf4",
+    "workbenchUrl": ""
+  }
+}

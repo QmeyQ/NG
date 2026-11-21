@@ -32,6 +32,18 @@
 	"assets__added": {},
 	"routes": [
 		{
+			"pattern": "normalgame.cn/codex.html",
+			"zone_name": "normalgame.cn",
+			"custom_domain": false,
+			"enabled": true
+		},
+		{
+			"pattern": "normalgame.cn/chat.html",
+			"zone_name": "normalgame.cn",
+			"custom_domain": false,
+			"enabled": true
+		},
+		{
 			"pattern": "www.normalgame.cn",
 			"zone_name": "normalgame.cn",
 			"custom_domain": true,

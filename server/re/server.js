@@ -5,6 +5,8 @@
 const http = require('http'); const fs = require('fs'); const path = require('path');
 const cp = require('child_process'); const crypto = require('crypto');
 const { LayaMcp } = require('./mcp.js');
+const { CodexBridge } = require('./codex.js');
+const codex = new CodexBridge({ log: (...a) => log('CODEX', ...a) });
 const CFG = JSON.parse(fs.readFileSync(path.join(__dirname, 'config.json'), 'utf8'));
 const PORT = CFG.port || 21119; const TOKEN = CFG.token; const PROJ = CFG.projectDir || process.cwd();
 const MAX_BODY = (CFG.maxBodyMb || 64) * 1024 * 1024;
@@ -13,7 +15,7 @@ const LOG = path.join(__dirname, CFG.logFile || 'relay.log');
 function log(...a) { const line = '[' + new Date().toISOString() + '] ' + a.join(' '); try { fs.appendFileSync(LOG, line + '\n'); } catch (e) { } console.log(line); }
 
 const HELP = {
-    service: 're-relay (AI 远程中转)', version: '1.0',
+    service: 're-relay (AI 远程中转)', version: '1.1',
     description: '远端 AI 通过服务器 /apim 调用本接口, 全权处理本机 LayaAir 项目: 文件读写/终端命令/LayaAir IDE MCP 接管。',
     endpoint: 'POST http://<服务器>/apim  (Content-Type: application/json)',
     auth: '每次请求必须带 token: 放在 JSON body 的 token 字段, 或请求头 X-Re-Token, 或 Authorization: Bearer <token>。token 见 re/config.json。',
@@ -40,7 +42,15 @@ const HELP = {
         'laya.build': { desc: '触发 IDE 构建/发布', params: { platform: '可选, 如 web' }, example: { action: 'laya.build', platform: 'web' } },
         'laya.find': { desc: '按关键字查资源', params: { keyword: '必填' }, example: { action: 'laya.find', keyword: 'menu' } },
         'laya.open': { desc: '打开场景/预制体', params: { id: '必填, 资源id或路径' }, example: { action: 'laya.open', id: 'assets/ui/menu.ls' } },
-        'laya.eval': { desc: 'IDE UI 进程执行 JS', params: { code: '必填, 自带返回值的表达式' }, example: { action: 'laya.eval', code: '1+1' } }
+        'laya.eval': { desc: 'IDE UI 进程执行 JS', params: { code: '必填, 自带返回值的表达式' }, example: { action: 'laya.eval', code: '1+1' } },
+        'codex.status': { desc: 'Codex CLI 状态/模型/会话', params: {}, example: { action: 'codex.status' } },
+        'codex.models': { desc: '可用模型列表', params: {}, example: { action: 'codex.models' } },
+        'codex.config.get': { desc: '读取 Codex 桥配置', params: {}, example: { action: 'codex.config.get' } },
+        'codex.config.set': { desc: '修改 Codex 桥配置(bin/cwd/model/sandbox/timeoutMs)', params: { patch: '必填, 对象' }, example: { action: 'codex.config.set', patch: { model: 'qwen3.8-max', cwd: 'F:/LayaProject' } } },
+        'codex.chat': { desc: '以 peer 为会话键执行一次 Codex 对话(自动续聊)', params: { text: '必填', peer: '可选, 默认 default', cwd: '可选', model: '可选', sandbox: '可选', timeoutMs: '可选' }, example: { action: 'codex.chat', peer: 'wechat:wxid_x', text: '检查项目状态' } },
+        'codex.history': { desc: '读取某个 peer 的对话历史', params: { peer: '必填', limit: '可选' }, example: { action: 'codex.history', peer: 'default' } },
+        'codex.sessions': { desc: '列出所有 Codex 会话', params: {}, example: { action: 'codex.sessions' } },
+        'codex.cancel': { desc: '取消当前 Codex 子进程', params: { peer: '可选' }, example: { action: 'codex.cancel' } }
     }
 };
 
@@ -70,7 +80,15 @@ const handlers = {
     'laya.build': async (p) => ({ result: await laya.callTool('ide-build', { platform: p.platform || 'web' }) }),
     'laya.find': async (p) => { need(p, ['keyword'], 'laya.find'); return { result: await laya.callTool('ide-find-assets', { keyword: p.keyword }) }; },
     'laya.open': async (p) => { need(p, ['id'], 'laya.open'); return { result: await laya.callTool('ide-open-scene', { id: p.id }) }; },
-    'laya.eval': async (p) => { need(p, ['code'], 'laya.eval'); return { result: await laya.callTool('ide-ui-eval', { code: p.code }) }; }
+    'laya.eval': async (p) => { need(p, ['code'], 'laya.eval'); return { result: await laya.callTool('ide-ui-eval', { code: p.code }) }; },
+    'codex.status': () => codex.status(),
+    'codex.models': () => ({ models: codex.models() }),
+    'codex.config.get': () => ({ config: codex.cfg() }),
+    'codex.config.set': (p) => { need(p, ['patch'], 'codex.config.set'); return { config: codex.save(p.patch) }; },
+    'codex.chat': (p) => { need(p, ['text'], 'codex.chat'); return codex.chat({ peer: p.peer || 'default', text: p.text, cwd: p.cwd, model: p.model, sandbox: p.sandbox, timeoutMs: p.timeoutMs, via: 'relay' }); },
+    'codex.history': (p) => { need(p, ['peer'], 'codex.history'); return codex.history(p.peer, p.limit); },
+    'codex.sessions': () => ({ sessions: codex.sessions() }),
+    'codex.cancel': (p) => codex.cancel(p.peer)
 };
 
 function getToken(req, body) { return (body && body.token) || req.headers['x-re-token'] || (req.headers.authorization || '').replace(/^Bearer\s+/i, '') || new URL(req.url, 'http://x').searchParams.get('token') || ''; }

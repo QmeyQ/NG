@@ -56,6 +56,20 @@ window.__DOC_FILES["nodes/aidev.js"]={
         "use_custom_color": true,
         "color": [0.8, 0.3, 0.3]
       },
+      "aiF": {
+        "location": [-870, 430],
+        "width": 300,
+        "height": 220,
+        "name": "aiF",
+        "label": "AI 辅助：Codex 远程同步聊天 + 微信通道",
+        "type": "Group",
+        "desc": "AI 辅助分支(aif)：提取 OpenClaw/龙虾微信插件协议 → chat/ 独立桥 → Codex CLI 远程会话 → chat.html/codex.html → normalgame 静态发布 + 阿里云 ECS。详见 docs/nodes/aif.js 与 h17。",
+        "inputs": [{"name": "AI辅助指令", "type": "Event"}],
+        "outputs": [{"name": "辅助完成", "type": "Event"}],
+        "use_custom_color": true,
+        "color": [0.25, 0.65, 0.85],
+        "node_tree_file": "nodes/aif.js"
+      },
       "aiPlan": {
         "location": [
           -600,
@@ -446,6 +460,26 @@ window.__DOC_FILES["nodes/aidev.js"]={
       }
     },
     "links": [
+      {
+        "from_node": "ai14",
+        "from_socket": "纪律就绪",
+        "from_socket_identifier": "纪律就绪",
+        "from_socket_type": "Event",
+        "to_node": "aiF",
+        "to_socket": "AI辅助指令",
+        "to_socket_identifier": "AI辅助指令",
+        "to_socket_type": "Event"
+      },
+      {
+        "from_node": "aiF",
+        "from_socket": "辅助完成",
+        "from_socket_identifier": "辅助完成",
+        "from_socket_type": "Event",
+        "to_node": "ai12",
+        "to_socket": "测试反馈",
+        "to_socket_identifier": "测试反馈",
+        "to_socket_type": "Event"
+      },
       {
         "from_node": "aiPlan",
         "from_socket": "策划完成",
