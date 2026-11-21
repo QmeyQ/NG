@@ -58,7 +58,7 @@ a{color:var(--blue)}
         <div class="field" style="flex:1"><label>访问令牌 Token</label><input id="token" type="password" placeholder="cx-..."></div>
       </div>
       <div class="actions"><button class="btn primary" id="testBtn">测试连接</button><button class="btn" id="loadBtn">读取当前配置</button><span id="verBadge" class="badge">-</span></div>
-      <div class="note">首次部署：桥服务运行在本机 PC，服务器 nginx 以 /codex-api/ 反代到 frp 5002 → 21121。页面不替换 index.html。</div>
+      <div class="note">生产：桥服务运行在 ECS /home/ftpu/codex-chat，nginx /codex-api/ 反代 127.0.0.1:21121；页面不替换 index.html。</div>
     </div>
 
     <div class="card half">
@@ -85,20 +85,26 @@ a{color:var(--blue)}
     </div>
 
     <div class="card full">
-      <h2><span class="n">3</span>微信通道（openclaw-wechat 协议）</h2>
+      <h2><span class="n">3</span>微信通道（官方 iLink 扫码 / 苍何代理）</h2>
       <div class="row">
+        <div class="field" style="flex:1"><label>通道</label><select id="wxProvider"><option value="ilink">官方 iLink（扫码直连，推荐）</option><option value="canghe">苍何代理（需 API Key）</option></select></div>
         <div class="field" style="flex:0 0 150px"><label>启用</label><select id="wxEnabled"><option value="false">关闭</option><option value="true">启用</option></select></div>
-        <div class="field" style="flex:2"><label>API Key（苍何 wc_live_…）</label><input id="wxApiKey" type="password" placeholder="wc_live_..."></div>
-        <div class="field" style="flex:2"><label>Proxy URL</label><input id="wxProxyUrl" placeholder="http://代理服务器:3000"></div>
       </div>
-      <div class="row">
-        <div class="field"><label>Webhook Host（公网 IP/域名）</label><input id="wxWebhookHost" placeholder="47.119.120.119"></div>
-        <div class="field"><label>Webhook 端口</label><input id="wxWebhookPort" type="number" value="18790"></div>
-        <div class="field"><label>Webhook 路径</label><input id="wxWebhookPath" value="/webhook/wechat"></div>
-        <div class="field"><label>设备</label><select id="wxDevice"><option value="ipad">ipad</option><option value="mac">mac</option></select></div>
+      <div class="note" id="ilinkHint">官方 iLink：点击“获取登录二维码”，用手机微信扫码并确认即可，**不需要 API Key / 代理 / webhook**。登录凭证保存在 chat/data/weixin.json。</div>
+      <div id="cangheFields">
+        <div class="row">
+          <div class="field" style="flex:2"><label>API Key（苍何 wc_live_…）</label><input id="wxApiKey" type="password" placeholder="wc_live_..."></div>
+          <div class="field" style="flex:2"><label>Proxy URL</label><input id="wxProxyUrl" placeholder="http://代理服务器:3000"></div>
+        </div>
+        <div class="row">
+          <div class="field"><label>Webhook Host（公网 IP/域名）</label><input id="wxWebhookHost" placeholder="47.119.120.119"></div>
+          <div class="field"><label>Webhook 端口</label><input id="wxWebhookPort" type="number" value="18790"></div>
+          <div class="field"><label>Webhook 路径</label><input id="wxWebhookPath" value="/webhook/wechat"></div>
+          <div class="field"><label>设备</label><select id="wxDevice"><option value="ipad">ipad</option><option value="mac">mac</option></select></div>
+        </div>
       </div>
       <div class="actions"><button class="btn primary" id="saveWechat">保存微信配置</button><button class="btn" id="wxLogin">获取登录二维码</button><button class="btn ghost" id="wxStatus">刷新状态</button><span id="wxBadge" class="badge">-</span></div>
-      <div class="qr" id="qrBox" style="display:none"><img id="qrImg" alt="微信登录二维码"><div><div id="qrText" style="font-size:12px;color:var(--dim)"></div><a id="qrLink" target="_blank" rel="noreferrer">打开二维码链接</a></div></div>
+      <div class="qr" id="qrBox" style="display:none"><div id="qrCanvas" style="background:#fff;padding:8px;border-radius:10px"></div><div><div id="qrText" style="font-size:12px;color:var(--dim)"></div><a id="qrLink" target="_blank" rel="noreferrer">打开二维码链接</a></div></div>
     </div>
 
     <div class="card full">
@@ -109,7 +115,7 @@ a{color:var(--blue)}
         <div class="field" style="flex:2"><label>Workbench URL（留空自动生成）</label><input id="ecsUrl" placeholder="https://ecs-workbench.aliyun.com/..."></div>
       </div>
       <div class="actions"><button class="btn primary" id="openTerm">打开阿里云远程终端</button><button class="btn" id="saveEcs">保存 ECS 配置</button><button class="btn warn" id="copyDeploy">复制 ECS 部署命令</button></div>
-      <div class="note" id="deployNote">部署：登录阿里云 Workbench → 在 /home/ftpu/html 写入 codex.html（不覆盖 index.html）→ nginx 增加 location /codex-api/ 反代到本机 frp 5002。</div>
+      <div class="note" id="deployNote">已部署：/home/ftpu/codex-chat + systemd codex-chat；nginx /codex-api/ → 127.0.0.1:21121；本页不替换 index.html。</div>
     </div>
 
     <div class="card full">
@@ -120,6 +126,7 @@ a{color:var(--blue)}
   </div>
 </div>
 <div class="toast" id="toast"></div>
+<script src="qrcode.js"></script>
 <script>
 (function(){
 const $=id=>document.getElementById(id);
@@ -128,6 +135,7 @@ function base(){
   const raw=($('apiBase').value||'').trim().replace(/\/+$/,'');
   if(/^https?:\/\//i.test(raw))return raw;
   if(raw)return location.origin+raw;
+  if(/normalgame\.cn$/i.test(location.hostname))return location.origin+'/codex-api';
   return location.origin;
 }
 function log(t){const e=$('log');e.textContent+=('['+new Date().toLocaleTimeString()+'] '+t+'\n');e.scrollTop=e.scrollHeight}
@@ -154,9 +162,10 @@ async function loadConfig(){
     $('mode').value=c.mode||'local';$('relayUrl').value=rel.url||'';$('relayToken').value=rel.token||'';
     $('cwd').value=x.cwd||'';$('sandbox').value=x.sandbox||'workspace-write';$('timeoutMs').value=x.timeoutMs||600000;$('bin').value=x.bin||'';
     if(x.model){const o=[...$('model').options].find(y=>y.value===x.model);if(o)o.selected=true;else fillModels([{slug:x.model,label:x.model}],x.model)}
-    $('wxEnabled').value=String(!!w.enabled);$('wxApiKey').value=w.apiKey||'';$('wxProxyUrl').value=w.proxyUrl||'';$('wxWebhookHost').value=w.webhookHost||'';$('wxWebhookPort').value=w.webhookPort||18790;$('wxWebhookPath').value=w.webhookPath||'/webhook/wechat';$('wxDevice').value=w.deviceType||'ipad';
+    $('wxProvider').value=w.provider||'ilink';$('wxEnabled').value=String(!!w.enabled);$('wxApiKey').value=w.apiKey||'';$('wxProxyUrl').value=w.proxyUrl||'';$('wxWebhookHost').value=w.webhookHost||'';$('wxWebhookPort').value=w.webhookPort||18790;$('wxWebhookPath').value=w.webhookPath||'/webhook/wechat';$('wxDevice').value=w.deviceType||'ipad';
     $('ecsRegion').value=e.regionId||'';$('ecsInstance').value=e.instanceId||'';$('ecsUrl').value=e.workbenchUrl||'';
     if(r.wechat)wxBadge(r.wechat);
+    syncWxProvider();
     log('已读取配置');
   }catch(e){log('读取配置失败: '+e.message)}
 }
@@ -169,7 +178,15 @@ function wxBadge(w){
   if(w.login&&w.login.qrCodeUrl)showQr(w.login.qrCodeUrl,w.login.status);
 }
 function showQr(url,status){
-  $('qrBox').style.display='flex';$('qrImg').src=url;$('qrLink').href=url;$('qrText').textContent=status==='logged_in'?'已登录':('扫码登录 · 状态 '+status);
+  $('qrBox').style.display='flex';$('qrLink').href=url||'#';
+  const box=$('qrCanvas');box.innerHTML='';
+  if(url&&typeof qrcode==='function'){try{const q=qrcode(0,'M');q.addData(url);q.make();box.innerHTML=q.createSvgTag({cellSize:5,margin:2});}catch(e){box.textContent=url}}
+  $('qrText').textContent=status==='logged_in'?'已登录':('扫码登录 · 状态 '+status);
+}
+function syncWxProvider(){
+  const p=$('wxProvider').value;
+  $('cangheFields').style.display=p==='canghe'?'block':'none';
+  $('ilinkHint').style.display=p==='ilink'?'block':'none';
 }
 async function wxLogin(){
   try{const r=await api('/api/wechat/login',{method:'POST',body:{}});const w=r.wechat||{};wxBadge(w);if(w.qrCodeUrl)showQr(w.qrCodeUrl,w.status);log('微信登录: '+(w.status||''));startPoll();toast('请扫码登录')}
@@ -191,11 +208,12 @@ $('loadBtn').onclick=()=>loadConfig();
 $('reloadModels').onclick=()=>loadModels();
 $('saveCodex').onclick=()=>save({codex:{cwd:$('cwd').value.trim(),model:$('model').value,sandbox:$('sandbox').value,timeoutMs:Number($('timeoutMs').value)||600000,bin:$('bin').value.trim()}},'Codex 配置已保存');
 $('saveMode').onclick=()=>save({mode:$('mode').value,relay:{url:$('relayUrl').value.trim(),token:$('relayToken').value.trim()}},'运行模式已保存');
-$('saveWechat').onclick=()=>save({wechat:{enabled:$('wxEnabled').value==='true',apiKey:$('wxApiKey').value.trim(),proxyUrl:$('wxProxyUrl').value.trim(),webhookHost:$('wxWebhookHost').value.trim(),webhookPort:Number($('wxWebhookPort').value)||18790,webhookPath:$('wxWebhookPath').value.trim()||'/webhook/wechat',deviceType:$('wxDevice').value}},'微信配置已保存');
+$('saveWechat').onclick=()=>save({wechat:{provider:$('wxProvider').value,enabled:$('wxEnabled').value==='true',botType:'3',botAgent:'Codex/1.0',apiKey:$('wxApiKey').value.trim(),proxyUrl:$('wxProxyUrl').value.trim(),webhookHost:$('wxWebhookHost').value.trim(),webhookPort:Number($('wxWebhookPort').value)||18790,webhookPath:$('wxWebhookPath').value.trim()||'/webhook/wechat',deviceType:$('wxDevice').value}},'微信配置已保存');
+$('wxProvider').onchange=syncWxProvider;
 $('saveEcs').onclick=()=>save({ecs:{regionId:$('ecsRegion').value.trim(),instanceId:$('ecsInstance').value.trim(),workbenchUrl:$('ecsUrl').value.trim()}},'ECS 配置已保存');
 $('wxLogin').onclick=wxLogin;$('wxStatus').onclick=wxStatus;$('openTerm').onclick=openTerm;$('copyDeploy').onclick=copyDeploy;
 $('clearLog').onclick=()=>$('log').textContent='';
-const QQ=new URLSearchParams(location.search);$('apiBase').value=QQ.get('api')||localStorage.getItem('cx_api')||'';$('token').value=QQ.get('token')||localStorage.getItem('cx_token')||'';
+const QQ=new URLSearchParams(location.search);$('apiBase').value=QQ.get('api')||localStorage.getItem('cx_api')||'';$('token').value=QQ.get('token')||localStorage.getItem('cx_token')||'';if(QQ.get('qr'))showQr(QQ.get('qr'),'wait');
 if($('token').value)test().catch(()=>{});else log('请填写 API Base 与 Token 后测试连接');
 })();
 </script>

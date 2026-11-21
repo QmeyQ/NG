@@ -284,13 +284,16 @@ Worker=网关+IP/历史风控(历史改用户行 history 点查)。
 
 ## h17 AI 辅助：Codex 远程同步聊天 + 微信通道 + codex.html（2026-11-21）
 
+> 微信通道默认走**腾讯官方 `@tencent-weixin/openclaw-weixin` 的 iLink 扫码直连**（不需 API Key）；`@canghe/openclaw-wechat` 仅作 fallback。
+
 > 定位：AI 辅助分支（aidev 图 `aiF`）。目标是在不改动游戏主链路的前提下，把 OpenClaw（龙虾）的微信插件提取为 Codex 的远程同步聊天通道，并提供 normalgame 上的配置页与阿里云 ECS 部署路径。
 
 ### h17.1 架构（低耦合，改哪块只读哪行）
 
 | 分支 | 文件 | 职责 |
 |---|---|---|
-| 微信通道 | `chat/plugin/wechat.cjs` | 提取自 `freestylefly/openclaw-wechat`（MIT）：ProxyClient、`/webhook/wechat`、60001/80001 归一化、newMsgId 去重、2000 字分段 |
+| 微信通道(默认) | `chat/plugin/weixin.cjs` | 腾讯官方 iLink：`get_bot_qrcode → get_qrcode_status → getupdates → sendmessage`，扫码登录，token 存 `chat/data/weixin.json` |
+| 微信通道(fallback) | `chat/plugin/wechat.cjs` | `freestylefly/openclaw-wechat`（MIT）Proxy API + 60001/80001 webhook + 去重 |
 | 编排 | `chat/bridge.cjs` | 微信 ↔ Codex ↔ Web；HTTP/SSE；配置；登录二维码；ECS 终端 URL |
 | Codex 会话 | `server/re/codex.js` | `codex exec --json`，按 peer 自动 `resume <threadId>`；relay 与 bridge 共用 |
 | 中继 | `server/re/server.js` | 新增 `codex.status/models/config.get/set/chat/history/sessions/cancel`；经 `/apim` 调用 |
@@ -318,10 +321,13 @@ http://127.0.0.1:21121/codex.html  # 配置
 `chat/config.json`（首次自动生成随机 token，已 gitignore）：
 - `mode=local`：bridge 直接跑 `codex exec`（推荐；继承 `~/.codex` 登录态）。
 - `mode=relay`：bridge 在云上时，经 `https://normalgame.cn/apim` 的 `codex.chat` 调本机 Codex。
-- `wechat.enabled=true` 需要苍何代理 `apiKey` + `proxyUrl`；`POST /api/wechat/login` 返回二维码，扫码后自动 `registerWebhook`。
+- 默认 `wechat.provider=ilink`：`POST /api/wechat/login` 返回官方二维码，扫码确认即可，**无需 API Key/proxy/webhook**；登录后自动长轮询。
+- `wechat.provider=canghe` 才需要苍何 `apiKey + proxyUrl` 并注册 webhook。
 - `codex.cwd`/`model` 是默认值，单次请求可覆盖；模型列表读 `~/.codex/model-catalog.local.json`。
 
 ### h17.3 部署（normalgame / ECS）
+
+> 实际生产部署已完成，见 h17.6；本节保留通用步骤。
 
 - **配置页（已完成）**：`node chat/deploy/sync-codex-html.cjs --deploy` 会把 `codex.html/chat.html` 同步到 `server/cloud/public` 并 `wrangler deploy`（必须带 `NODE_OPTIONS=--dns-result-order=ipv4first`，否则 wrangler 报 API hostname 解析失败）。线上验证：`https://www.normalgame.cn/codex.html` 200，标题 `Codex 远程同步 · 配置`。
 - **桥公网**：`chat/deploy/frpc-codex-snippet.toml` 增加 21121→5002 隧道；ECS nginx 加 `chat/deploy/nginx-codex.conf` 的 `location /codex-api/`。页面 API Base 填 `https://normalgame.cn/codex-api`。
@@ -338,6 +344,7 @@ node chat/test/e2e.cjs   -> 17 pass / 0 fail
 覆盖：桥启动/帮助、微信登录+webhook 注册、Web 对话、私聊→Codex→回发、重复 newMsgId 去重、群聊回群、配置保存、模型列表、ECS URL、UI 截图（`chat/test/ui-chat.png`、`ui-codex.png`，已 view_image 目检）。
 生产页：`node chat/test/shoturl.cjs https://www.normalgame.cn/codex.html chat/test/prod-codex.png` → 190KB 截图目检通过。
 真实 Codex：`/apim` 的 `codex.chat` 两轮（H17A → 追问仍回 H17A，thread 相同）PASS，证明 `resume` 续聊有效。
+官方 iLink：`node chat/test/ilink.cjs` **6/6**（真实拿到 `liteapp.weixin.qq.com` 二维码、状态 wait、配置页 qrcode.js 渲染）。
 
 ### h17.5 坑与规则
 
@@ -346,6 +353,17 @@ node chat/test/e2e.cjs   -> 17 pass / 0 fail
 - `where codex` 在工作目录含 `codex.js` 时可能返回 js 文件；`resolveBin()` 必须执行 `--version` 并校验 `codex-cli`。
 - 桥默认会话文件 `chat/data/sessions.json`，relay 默认 `server/re/codex-sessions.json`；E2E 用独立 `sessionsPath`，避免污染。
 - Web 聊天页 SSE 在截图/无网环境加 `?noevents=1`，否则 headless 虚拟时间不结束导致 0B 截图。
-- 微信通道没有 apiKey 时不要假装已连通；页面显示“未配置”，测试走 `chat/mock-proxy.cjs`。
+- 默认 iLink **不需要 apiKey**；页面点“获取登录二维码”扫码即可。只有 `provider=canghe` 才需要苍何 key，测试走 `chat/mock-proxy.cjs`。
 - 所有 `/api/*` 必须带 `X-Cx-Token`；不要把 token/apiKey 写进前端源码或 git。
 - 不轮询云函数：聊天/微信状态均为本地进程或 SSE；云端仅做 `/apim` 调用。
+
+### h17.6 生产部署（2026-11-21 已完成）
+
+- **站点入口**：`https://normalgame.cn/codex`（配置页）/ `https://normalgame.cn/chat`（聊天页）。
+  - Cloudflare 会把 `*.html` 307 到无扩展名路径，所以 ECS 上实际文件是 `/home/ftpu/html/codex/index.html`、`/home/ftpu/html/chat/index.html`（同时保留 `codex.html/chat.html`）。qrcode.js 在 `/home/ftpu/html/qrcode.js` 与 `/codex/qrcode.js`。
+- **ECS 桥**：`/home/ftpu/codex-chat`，systemd `codex-chat`（enabled + active），Node 18.20.6。
+  - `chat/config.json`：`mode=relay`、`relay.url=http://127.0.0.1/apim`、`wechat.provider=ilink`。
+  - nginx `/etc/nginx/sites-enabled/default` 的 80 与 443 两个 server 块均加 `location /codex-api/ { proxy_pass http://127.0.0.1:21121/; }`；备份 `/root/default.bak.codex`。
+- **链路**：浏览器 `normalgame.cn/codex-api` → nginx → ECS 21121 桥 → `127.0.0.1/apim` → frps 5001 → 本机 re-relay 21119 → 本机 Codex CLI。
+- **实测**：`/codex-api/api/status` 返回 `mode=relay`、codex-cli 0.169；`/codex-api/api/chat` 真实返回 `ECSOK`；官方 iLink 二维码在 ECS 桥生成并 `qrcode.js` 渲染。
+- **注意**：ECS 上 `install-ecs.sh` 的 tar 步骤已改为可选（`codex.bundle` 直接写文件）；systemd 用 `/usr/bin/env node`，避免路径差异。

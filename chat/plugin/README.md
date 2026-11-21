@@ -1,9 +1,23 @@
 # 微信通道来源与差异
 
-- 上游：`https://github.com/freestylefly/openclaw-wechat`（MIT），OpenClaw/龙虾 微信 Channel 插件，包名 `@canghe/openclaw-wechat`。
-- 本目录 `vendor/openclaw-wechat/` 保留上游 `src/`、`index.ts`、`openclaw.plugin.json`，仅用于协议对照与许可证留存。
-- 本目录 `plugin/wechat.cjs` 是**去 SDK 独立化**实现：
-  - 保留：`ProxyClient` 的 `/v1/iPadLogin`、`/v1/getIPadLoginInfo`、`/v1/sendText`、`/v1/sendImage2`、`/v1/getAddressList`、`/v1/webhook/register`；`60001/80001` 消息映射；`data.*` 与扁平负载两种 webhook 格式；`newMsgId` 去重；2000 字分段。
-  - 去掉：`openclaw/plugin-sdk` 的 routing/reply dispatcher；改为 `onMessage` 回调，由 `chat/bridge.cjs` 转发给 Codex。
-  - 增强：webhook 同时挂在 bridge 端口 `/webhook/wechat`，便于单端口穿透；登录轮询状态可查询；`registerWebhook` 同时带 `wcId`。
-- 上游许可证：MIT（见 `vendor/openclaw-wechat/package.json` 与 README）。
+本目录有两条通道，默认走**官方 iLink 扫码直连**：
+
+## 1. 官方 iLink（默认，扫码即可）
+
+- 上游：腾讯 `@tencent-weixin/openclaw-weixin` 2.4.10（MIT），源码在 `vendor/openclaw-weixin/`。
+- 独立实现：`plugin/weixin.cjs`
+  - 登录：`POST https://ilinkai.weixin.qq.com/ilink/bot/get_bot_qrcode?bot_type=3` → `qrcode/qrcode_img_content`
+  - 状态：`GET /ilink/bot/get_qrcode_status?qrcode=...`（长轮询）→ `wait/scaned/confirmed/expired/scaned_but_redirect`
+  - 收消息：`POST {baseurl}/ilink/bot/getupdates`（`get_updates_buf` 增量，35s 长轮询）
+  - 发消息：`POST {baseurl}/ilink/bot/sendmessage`（`message_type=2,message_state=2,item_list[{type:1,text_item}]`）
+  - 头：`iLink-App-Id: bot`、`iLink-App-ClientVersion`、`AuthorizationType: ilink_bot_token`、`Authorization: Bearer <bot_token>`、`X-WECHAT-UIN`
+- **不需要 API Key / 代理 / webhook**。扫码确认后 token 存 `chat/data/weixin.json`，随后长轮询收消息。
+- 依赖 Node >= 20 的 fetch；无 openclaw SDK 依赖。
+
+## 2. 苍何代理（可选 fallback）
+
+- 上游：`freestylefly/openclaw-wechat`（MIT），源码在 `vendor/openclaw-wechat/`。
+- 独立实现：`plugin/wechat.cjs`。保留 `/v1/iPadLogin`、`/v1/sendText`、`60001/80001` webhook 等协议。
+- 需要苍何代理 `apiKey + proxyUrl`；仅当没有官方 iLink 环境时使用。
+
+`chat/config.json` 的 `wechat.provider` 选择：`ilink`（默认）/ `canghe`。

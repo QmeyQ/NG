@@ -26,7 +26,7 @@ function writeConfig() {
         port: PORT, host: '127.0.0.1', token: TOKEN, mode: 'local',
         relay: { url: 'https://normalgame.cn/apim', token: '' },
         codex: { bin: '', sessionsPath: path.join(TEST, 'e2e-sessions.json'), cwd: ROOT, model: 'qwen4-max-preview', sandbox: 'read-only', timeoutMs: 30000 },
-        wechat: { enabled: true, apiKey: 'wc_test_key', proxyUrl: 'http://127.0.0.1:' + PROXY, accountId: 'default', deviceType: 'ipad', proxy: '2', webhookHost: '127.0.0.1', webhookPort: 18791, webhookPath: '/webhook/wechat' },
+        wechat: { provider: 'canghe', enabled: true, apiKey: 'wc_test_key', proxyUrl: 'http://127.0.0.1:' + PROXY, accountId: 'default', deviceType: 'ipad', proxy: '2', webhookHost: '127.0.0.1', webhookPort: 18791, webhookPath: '/webhook/wechat' },
         ecs: { regionId: 'cn-shenzhen', instanceId: 'i-test' }
     };
     fs.writeFileSync(CFG, JSON.stringify(cfg, null, 2));

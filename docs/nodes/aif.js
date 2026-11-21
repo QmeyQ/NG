@@ -24,7 +24,7 @@ window.__DOC_FILES["nodes/aif.js"]={
       "fChannel": {
         "location": [320, 0], "width": 280, "height": 210,
         "name": "fChannel", "label": "微信通道（龙虾协议）", "type": "流程",
-        "desc": "chat/plugin/wechat.cjs 从 freestylefly/openclaw-wechat 提取：ProxyClient(/v1/iPadLogin,/v1/getIPadLoginInfo,/v1/sendText,/v1/sendImage2,/v1/webhook/register)；webhook 60001/80001；data.{fromUser,fromGroup,content,newMsgId}；newMsgId 30 分钟去重；2000 字分段；群聊回 fromGroup。",
+        "desc": "默认 chat/plugin/weixin.cjs = 腾讯官方 iLink 扫码直连：get_bot_qrcode → get_qrcode_status(长轮询) → getupdates(增量 buf) → sendmessage；无 API Key；token 存 chat/data/weixin.json。fallback chat/plugin/wechat.cjs = freestylefly/openclaw-wechat 苍何 Proxy(需 apiKey+proxyUrl，60001/80001 webhook)。",
         "inputs": [{"name": "边界与验收", "type": "Event"}],
         "outputs": [{"name": "微信通道", "type": "Event"}]
       },
