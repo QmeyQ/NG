@@ -1,0 +1,59 @@
+{
+  "name": "@canghe/openclaw-wechat",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "OpenClaw WeChat channel plugin via Proxy API",
+  "license": "MIT",
+  "files": [
+    "index.ts",
+    "src",
+    "openclaw.plugin.json"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/woniu/openclaw-wechat.git"
+  },
+  "keywords": [
+    "openclaw",
+    "wechat",
+    "微信",
+    "chatbot",
+    "ai",
+    "claude"
+  ],
+  "openclaw": {
+    "extensions": [
+      "./index.ts"
+    ],
+    "channel": {
+      "id": "wechat",
+      "label": "WeChat",
+      "selectionLabel": "WeChat (微信)",
+      "docsPath": "/channels/wechat",
+      "docsLabel": "wechat",
+      "blurb": "WeChat channel via Proxy API. 购买 API Key 请联系客服",
+      "order": 80
+    },
+    "install": {
+      "npmSpec": "@canghe/openclaw-wechat",
+      "localPath": ".",
+      "defaultChoice": "npm"
+    }
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "openclaw": ">=2026.2.9",
+    "tsx": "^4.7.0",
+    "typescript": "^5.3.0",
+    "zod": "^3.22.4"
+  },
+  "peerDependencies": {
+    "openclaw": ">=2026.2.9"
+  },
+  "scripts": {
+    "test": "npx tsx test-channel.ts",
+    "test:plugin": "npx tsx test-plugin.ts",
+    "typecheck": "tsc --noEmit"
+  }
+}

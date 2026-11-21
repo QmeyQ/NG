@@ -1,5 +1,5 @@
 {
-  "phase": "commercial-audit-round1-done",
+  "phase": "ai-assist-codex-wechat-deployed",
   "done": [
     "h2 tsc baseline",
     "h3 tests 116 pass",
@@ -63,13 +63,20 @@
     "mc3drive 转发等待窗口放宽(9/9)",
     "羽毛球 PVP 7/7(音效补齐 hit.MP3/hitF.MP3 + Au 容错 + 双端球位一致 + 无未捕获异常)",
     "磁盘清理 34GB(233 个测试 profile)",
-    "g2 单机14/14(离线atk40)/联机19/19; 社交11/11; 离线121/121; tsc基线; doccheck0"
+    "g2 单机14/14(离线atk40)/联机19/19; 社交11/11; 离线121/121; tsc基线; doccheck0",
+    "AI辅助: 提取 openclaw-wechat(MIT) 到 chat/vendor/openclaw-wechat + 独立通道 chat/plugin/wechat.cjs(ProxyClient/webhook 60001/80001/去重/分段)",
+    "relay: server/re/codex.js + codex.status/models/config.get/set/chat/history/sessions/cancel; codex exec --json + resume(stdio ignore)",
+    "chat/bridge.cjs + chat/public/chat.html(微信式列表/未读/新建/SSE) + codex.html(工作目录/模型/微信/ECS)",
+    "chat/test/e2e.cjs 17/17 PASS + ui-chat/ui-codex 截图目检",
+    "codex.html/chat.html 发布 https://www.normalgame.cn/codex.html (Cloudflare Worker assets, 未替换 index) + 生产截图目检",
+    "h17 + docs/nodes/aif.js(aiF) + h12 模块行 + doccheck 0"
   ],
   "next": [
-    "商城购买金币实测",
-    "对局内点头像加好友/屏蔽ID 实测",
-    "生产上传(需用户)后 prod 全量复验",
-    "更多边界: 断线重连/退群/身价到账"
+    "阿里云 ECS 登录后部署 chat bridge (chat/deploy/install-ecs.sh)",
+    "微信 apiKey/proxyUrl 配置后真实扫码登录联调",
+    "frpc 21121→5002 + nginx /codex-api/ 配置",
+    "真实 Codex 长任务/多会话并发验证",
+    "对局内点头像加好友/屏蔽ID 等原待办继续"
   ],
   "blocked": [
     "load.ls publish (served from ECS)",
@@ -79,5 +86,5 @@
   "failed": [],
   "last_output": "social3drive 11/11 PASS: addFriendInput/btn_申请好友 -> B req A, A reqAccept_0 -> friends=1, B 刷新 -> friend_0, msgInput+btn_发送 -> detail msgs=1 no duplicate, A refresh sees message, server fA/fB persisted, no exceptions | bundle 1,526,650B | tsc baseline | offline 121 pass",
   "note": "LayaProject=小游戏平台; NG2=branch origin/room",
-  "updatedAt": "2026-11-21T10:32:30.865Z"
+  "updatedAt": "2026-11-21T13:00:59.061Z"
 }

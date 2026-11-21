@@ -75,3 +75,22 @@ curl -X POST http://47.119.120.119/apim -H "X-Re-Token: re-8aed85a4f4191c251fe53
 ## 补充配置（已完成）
 - **HTTPS /apim**：nginx 443 server 块（normalgame.cn，证书 /etc/nginx/ssl/normalgame.cn.pem/key）也加了 `location /apim { proxy_pass http://127.0.0.1:5001/; ... }`。HTTP 与 HTTPS 均可调用。实测 `POST https://normalgame.cn/apim` exec 成功。备份 /root/default.bak.re2。
 - **FTP 修复**：本机连不上服务器 FTP 的根因——vsftpd `listen_ipv6=YES` 导致 PASV 返回 `0,0,0,0`（忽略 pasv_address），客户端无法建立数据连接。改 `listen=YES`/`listen_ipv6=NO` 并重启 vsftpd 后，PASV 正确返回公网 IP 47.119.120.119，被动端口 1024-1048 数据连接实测 OK。备份 /root/vsftpd.conf.bak.re。FTP 客户端请用**被动模式(PASV)**。
+
+## Codex 远程会话（v1.1，2026-11-21）
+
+| action | 说明 | 必填参数 |
+|---|---|---|
+| codex.status | Codex 版本 / 模型 / 会话 | — |
+| codex.models | 模型列表（读 ~/.codex/model-catalog.local.json） | — |
+| codex.config.get / set | 读/改 bin、cwd、model、sandbox、timeoutMs | set: patch |
+| codex.chat | 以 peer 为键执行一次 `codex exec`，自动 resume | text（peer/cwd/model/sandbox 可选） |
+| codex.history | 某 peer 的对话历史 | peer |
+| codex.sessions | 所有会话 | — |
+| codex.cancel | 取消当前子进程 | peer 可选 |
+
+```bash
+curl -X POST https://normalgame.cn/apim -H "X-Re-Token: <token>" -H "Content-Type: application/json" \
+  -d '{"action":"codex.chat","peer":"wechat:wxid_x","text":"检查项目状态"}'
+```
+
+实现：`re/codex.js`，`codex exec --json` + `resume <threadId>`；stdin 必须关闭（否则会等待输入）。会话文件 `re/codex-sessions.json`（本地，勿提交）。

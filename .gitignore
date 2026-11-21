@@ -26,3 +26,16 @@ dragonbones-local-web/DragonBonesJS-master/
 # AGC server credential (never commit; lives in te.zip bundle only)
 **/agc-apiclient-*.json
 server/upstorage/te_src/
+
+# chat runtime / test artifacts
+chat/config.json
+chat/data/
+chat/*.log
+chat/vendor/openclaw-wechat-master/
+chat/vendor/*.zip
+chat/test/*.png
+chat/test/edge-*/
+chat/test/e2e-config.json
+chat/test/e2e-sessions.json
+server/re/codex-config.json
+server/re/codex-sessions.json
