@@ -47,3 +47,4 @@ chat/test/ilink-qr.txt
 chat/test/mobileshot.cjs
 chat/test/wxpage*.cjs
 chat/service/chat_service.log
+tools/blender/blender_mcp_start.log

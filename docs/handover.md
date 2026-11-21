@@ -394,3 +394,13 @@ node chat/test/e2e.cjs   -> 17 pass / 0 fail
 - 卸载：管理员运行 `chat/service/uninstall.bat`（仅删服务，保留 chat/ 配置）。
 - 状态：`chat/service/nssm.exe status CodexChat`。
 - 与 ReAPI/ReFrp 服务互不影响；服务名独立。
+
+## h18 Blender MCP：姿态动画调整/创造（2026-11-22 已验证）
+
+- **安装**：`mcp-for-blender 2.3.1`（ahujasid/mcp-for-blender，MIT）到 `C:\Users\mien\.codex\blender-mcp\.venv`；Blender addon `mcp_for_blender.py` 安装到 `%APPDATA%\Blender Foundation\Blender\5.3\scripts\addons` 并启用。
+- **Codex 配置**：`~/.codex/config.toml` 增加 `[mcp_servers.blender]` → venv `mcp-for-blender.exe --host 127.0.0.1 --port 9876`；**需完全重启 Codex 才出现 `mcp__blender__*` 工具**。
+- **启动**：`F:\LayaProject\tools\blender\start_blender_mcp.bat`（可带 .blend 路径）。Blender 5.3 Alpha 正常启动时 addon auto-start 不触发，launcher 用 `bpy.app.timers` 2s 后 `bpy.ops.blendermcp.start_server()`，端口 9876 稳定监听。
+- **能力**：`execute_blender_code`（完整 bpy：骨骼/姿态/关键帧/约束/修改器）、`look`（返回 PNG）、`get_scene_info`、`generate_3d` 等。
+- **实测**：MCP 创建 `MCP_PoseRig`（root→spine→arm）+ `MCP_PoseAction`，帧 1/20/40 关键帧，`layers=1 slots=1 fcurves=6`；帧20 `spine=(0.5,0,0.6)`、`arm=(0,0,0.3)`；再改为 `spine=(0.2,0.3,0.4)` 重新 keyframe 成功。`look` 返回 173KB PNG。
+- **目录**：`tools/blender/{start_blender_mcp.bat,blender_mcp_start.py,README.md}`；日志 `tools/blender/blender_mcp_start.log`。
+- **注意**：Blender 5.x 的 Action 是分层/槽位结构，`action.fcurves` 不存在；统计 fcurve 用 `action.layers[*].strips[*].channelbags[*].fcurves`。
