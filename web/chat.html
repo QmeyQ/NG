@@ -89,7 +89,7 @@ select,input,textarea{font-family:inherit}
     <div class="brand">Codex 远程同步<small>微信通道 · Web 对话 · 本地会话</small></div>
     <div class="spacer"></div>
     <span class="pill"><span id="dot" class="dot"></span><span id="statusText">连接中…</span></span>
-    <a class="link" href="codex.html">配置</a>
+    <a class="link" href="/codex">配置</a>
   </div>
   <div class="main">
     <aside class="side">
@@ -149,7 +149,7 @@ const API_BASE=(localStorage.getItem('cx_api')||new URLSearchParams(location.sea
 const state={token:localStorage.getItem('cx_token')||new URLSearchParams(location.search).get('token')||'',convs:[],active:null,models:[],sending:false,hist:{},unread:{}};
 function toast(t){const e=$('toast');e.textContent=t;e.classList.add('show');clearTimeout(toast._t);toast._t=setTimeout(()=>e.classList.remove('show'),2200)}
 async function api(path,opts){
-  opts=opts||{};opts.headers=Object.assign({'X-Cx-Token':state.token},opts.headers||{});
+  opts=opts||{};const tk=(state.token||'').trim();opts.headers=Object.assign({},opts.headers||{});if(tk&&/^[\x20-\x7E]+$/.test(tk))opts.headers['X-Cx-Token']=tk;
   if(opts.body&&typeof opts.body!=='string'){opts.headers['Content-Type']='application/json';opts.body=JSON.stringify(opts.body)}
   const r=await fetch(API_BASE+path,opts);
   let j;try{j=await r.json()}catch(e){throw new Error('HTTP '+r.status)}
