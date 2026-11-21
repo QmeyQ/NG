@@ -1,5 +1,5 @@
 {
-  "phase": "ai-assist-codex-wechat-deployed",
+  "phase": "ai3d-workflow-ready",
   "done": [
     "h2 tsc baseline",
     "h3 tests 116 pass",
@@ -89,9 +89,11 @@
     "Qoder+Blender 一键启动 start_qoder_blender.bat + 用户 Startup 自启(QoderBlenderMCP.lnk) 已安装",
     "Qoder MCP 自动拉起: qoder_mcp_wrapper.bat (检测9876→启动Blender→前台MCP), 冷启动4.8s, tools 10 + scene PASS",
     "修复 Qoder cmd.exe 必须用反斜杠路径(正斜杠导致 syntax error)",
-    "Qoder 正确配置路径修正: ~/.qoder/settings.json 顶层 mcpServers; UI 在 Connectors→Custom Connectors, blender Ready + 10 tools"
+    "Qoder 正确配置路径修正: ~/.qoder/settings.json 顶层 mcpServers; UI 在 Connectors→Custom Connectors, blender Ready + 10 tools",
+    "ai3d 3D素材工作流落图: docs/nodes/ai3d.js(m0→m8) + aidev.ai3d 分支(ai14→ai3d→ai12) + handover h19/h12 模块行/h18 指针; boy.blend 经 MCP 盘点(9 NLA 轨, back/left 小数端点, racket parent=pole, assets FBX 9 takes, web 缺 back.lani, packstage nor 来自 dist/web-1107 基线)"
   ],
   "next": [
+    "按 ai3d 工作流执行 boy 全部动画优化(循环连续性/姿势/卡点/球拍朝向; 红线:不强制插入起始动画帧) → 导出可见 FBX → 替换 IDE 发布(release/web + dist/web-1107 同步) → nor.br 重发布 → 上传复验 → 回填",
     "用户扫码登录官方微信 iLink 后验证真实微信收发",
     "用户扫码登录官方微信 iLink 后验证收发消息",
     "真实 Codex 长任务/多会话并发验证",
@@ -105,5 +107,5 @@
   "failed": [],
   "last_output": "social3drive 11/11 PASS: addFriendInput/btn_申请好友 -> B req A, A reqAccept_0 -> friends=1, B 刷新 -> friend_0, msgInput+btn_发送 -> detail msgs=1 no duplicate, A refresh sees message, server fA/fB persisted, no exceptions | bundle 1,526,650B | tsc baseline | offline 121 pass",
   "note": "LayaProject=小游戏平台; NG2=branch origin/room",
-  "updatedAt": "2026-11-21T18:25:44.485Z"
+  "updatedAt": "11/22/2026, 03:06:07"
 }

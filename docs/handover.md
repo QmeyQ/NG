@@ -104,6 +104,7 @@ Worker=网关+IP/历史风控(历史改用户行 history 点查)。
 | 网关/IP/历史风控 | `src/libs/server/cloud.ts`(teSafe/teWrite) | Worker `server/cloud/src/agc.js` | — | cloud-registration.test.cjs |
 | PVP 协议(帧/消息/角色) | `src/libs/gobe/msg.ts`+`pvpProto.ts`+`roleSync.ts` | (GOBE 实时, 非 te) | game/badm.ls | (对局驱动) |
 | 资源网络加载 | `src/libs/res.js`+`load.ts` | Worker /res 令牌 | — | res-loader.test.js |
+| 3D 角色素材/动画 | `3d/model/*.blend`(源) + `assets/nor/boy.fbx`(导入源) | — | `web/nor/boy@0.lh`+`boy/*.lani`+`ani.controller` | ai3d 工作流(m0→m8) + 浏览器探针 |
 | AI 辅助/远程聊天 | `chat/*` + `server/re/codex.js` | relay `codex.*` | `chat/public/codex.html`(发布 `www.normalgame.cn/codex.html`) | `chat/test/e2e.cjs`(17) |
 
 **解耦契约**：
@@ -407,3 +408,62 @@ node chat/test/e2e.cjs   -> 17 pass / 0 fail
 - **Qoder**：`C:\Users\mien\.qoder\mcp.json` 已加 `blender` stdio 条目（venv `mcp-for-blender.exe --host 127.0.0.1 --port 9876`，备份 `mcp.json.bak-blender`）；Qoder 端 `tools/list` 10 个工具、`get_scene_info` 实测 PASS。
 - **一键/自启**：`tools/blender/start_qoder_blender.bat` 先确保 9876 再启动 Qoder；`install_qoder_blender_autostart.bat` 已写入用户 Startup（`QoderBlenderMCP.lnk`），登录自动启动 Blender(最小化)+Qoder；卸载用 `uninstall_qoder_blender_autostart.bat`。
 - **Qoder 自动拉起**：Qoder App 实际配置是 `C:\Users\mien\.qoder\settings.json` 顶层 `mcpServers`（不是 `~/.qoder/mcp.json`，也不是 AppData settings.json 的 `mcp.servers`）；blender = `cmd.exe /c tools/blender/qoder_mcp_wrapper.bat`。UI 在 **Settings → Extension management → Connectors → Custom Connectors**，不在 Provided by Plugins。实测 Blender 关闭冷启动约 4.8s，`tools/list` 10 工具 + `get_scene_info` PASS，Qoder UI 显示 `blender Ready`。**cmd.exe 必须反斜杠**。
+
+- **3D 素材工作流**：完整链路（库存盘点→boy 动画优化→导出可见 FBX→替换 IDE 发布→资源包重发布）见 `docs/nodes/ai3d.js`（aidev.ai3d 分支）与 h19。
+
+## h19 3D 素材 AI 工作流（Blender MCP → boy 动画优化 → 替换 IDE 发布 → 资源包重发布）
+
+> 权威子树 `docs/nodes/ai3d.js`（m0→m8），挂 aidev 分支：ai14 纪律就绪 → ai3d（3D素材指令）；ai3d 素材发布完成 → ai12 回填。本节为可读镜像（2026-11-22 用户要求建立）。
+
+### 源文件（用户明确）
+- 羽毛球游戏角色源文件**全部**在 `F:\LayaProject\3d\model`：boy.blend/boy.fbx、girl.blend/girl1.blend/girl1.fbx、cha.blend、racket.blend/racket.fbx、通用骨架.blend、贴图 boycolor/boynor/Racket.1001-1002.png、remap_*.bmap/本地混元映射.bmap。
+- boy.blend 库存（2026-11-22 MCP 实测）：30fps；骨架 pole（130 骨，Mixamo 命名 + LP/RP 球拍挂点）；可见对象 body+racket+pole，body.001 隐藏（不导出）。
+- NLA 9 轨（=FBX take 名）：stand(1-31→standa 1-30)、diving(1-205)、jumphit(1-28→downupremap_off.003_off)、hitoff(1-66→hitoff_off_off 1-90)、up(1-24)、back(1-25.6)、right(1-51→moveh_off.001)、left(1-51.8→moveh_off_off)、down(1-27)；up/back/down 共享 downupremap_off_off(1-150)。
+- 发布现状：web/nor/boy/ 仅 8 个 .lani（缺 back）；ani.controller 8 个 clip 状态（stand/up/down/left/right/hitoff/jumphit/diving）；游戏状态表 `src/badm/obj/ani.ts`（17 核心 + extras，双端 ID 同源）。
+
+### Blender MCP 调用（m1；2026-11-22 连通验证 addon 2.0 / protocol 16 / Blender 5.4 Alpha）
+- 先 `mcp__blender__get_addon_status` 检连通；安装/启动/自启细节见 h18 与 `tools/blender/README.md`。
+- 启动 `tools\blender\start_blender_mcp.bat [blend路径]`；socket 127.0.0.1:9876；Codex `~/.codex/config.toml [mcp_servers.blender]`（venv mcp-for-blender.exe --host 127.0.0.1 --port 9876，改后完全重启 Codex）；Qoder 经 settings.json 顶层 mcpServers + qoder_mcp_wrapper.bat 自动拉起。
+- 工具：`execute_blender_code`（完整 bpy：骨骼/姿态/关键帧/约束/NLA/导出）、`get_scene_info`、`look`（视口/多角度/帧条 PNG，必须 view_image 目检）。
+- 打开源文件：`bpy.ops.wm.open_mainfile(filepath=r"F:\LayaProject\3d\model\boy.blend")`。
+- Blender 5.x：fcurves 在 `action.layers[*].strips[*].channelbags[*].fcurves`（action.fcurves 不存在）；NLA 采样需 `track.mute=False` + `scene.frame_set(f)` 求值。
+
+### 当前任务：优化 boy 全部动画（m2 诊断 / m3 自动调帧）
+四类问题（用户明确）：
+1. **循环卡顿**：首尾帧姿态不闭合 + 小数 strip 端点（back=25.599998 / left=51.80008）+ 共享 action 截断（up/back/down 同 action 不同区间）。
+2. **运动姿势怪异**：重定向残留（_off 后缀 action、mixamo.com 源）致肢体扭曲/重心漂移。
+3. **没适配原游戏卡点**：`src/badm/mag/mag.ts` 时间驱动击球链 = 滑动 → HIT_WINDUP 前摇（minW=cha.upTime*300ms，自动出手阈值 upTime*200ms）→ 松手/超时 _executeHit（出手=前摇结束，ball.hitAt 轨迹起算）→ HIT_RECOVERY 后摇（recoveryDuration）。hitoff/jumphit 触球帧必须落在前摇结束时刻（upTime=1 ≈ 300ms@30fps ≈ 第 9 帧，以实际 cha.upTime 为准），后摇段覆盖 recoveryDuration。
+4. **球拍拿反**：racket mesh 对象级 parent=pole（无 parent_bone），查 RP/RightHand 顶点组与局部旋转，拍面应朝向击球方向。
+
+修复硬规则：循环轨首尾帧姿态闭合 + strip 端点整数化 + 共享 action 拆独立区间；一次性轨（diving/jumphit/hitoff）起止与 stand 衔接（游戏 crossFade 0.05s）；触球帧对齐卡点；球拍经骨骼旋转/顶点权重修正，禁止整体镜像网格。诊断=逐轨 frame_set 采样首尾帧骨骼矩阵差 + 逐帧角速度峰值 + look 帧条目检，产出逐轨问题清单再修。
+**红线（用户明确 2026-11-22）：不强制插入起始动画帧**——禁止在帧 0/1 插关键帧凑导出，必须修真实姿态与区间。每轨修完 look 复检 + 首尾帧差断言；`bpy.ops.wm.save_as_mainfile` 同路径保存（.blend1 自动备份）。
+
+### 导出（m4；用户明确：导出可见）
+```python
+bpy.ops.export_scene.fbx(filepath=r"F:\LayaProject\3d\model\boy.fbx",
+    use_visible=True, bake_anim=True,
+    bake_anim_use_nla_strips=True, bake_anim_use_all_actions=True,
+    bake_anim_simplify_factor=0, add_leaf_bones=False)
+```
+- use_visible 排除隐藏 body.001；take = 9 轨名 + pole|action 名（与现有 assets/nor/boy.fbx 一致，已解析验证）。
+- 断言：FBX 二进制 `\x00\x01AnimStack` take 列表 = 9 轨；IDE 导入后对比 rest pose 防轴/缩放漂移。
+- 替换 `assets/nor/boy.fbx`，保留 .meta（uuid d342d960-d9b9-4c66-9521-99cdc3497c71 + remappedMaterials）。
+
+### 替换 IDE 发布（m5）
+- `node local/layamcp.cjs call ide-build '{"platform":"web"}'` → release/web/nor/boy@0.lh + boy/*.lani（应为 9 含 back）。
+- **关键**：packstage.cjs 的 nor 树来自 dist/web-1107 基线（只 overlay ui/menu.ls + game/badm.ls）→ 必须把 release/web/nor/boy@0.lh 与 boy/*.lani 同步覆盖到 `dist/web-1107/nor/`（替换 IDE 发布基线），否则新动画进不了包。
+- 核对 boy@0.lh Animator clip 引用与 ani.controller（assets/nor + web/nor）路径；back 无游戏状态引用（无副作用）；如需补方向状态（up_right 等）须同时补 girl1 同名 clip（双角色共用 controller），否则 controller 不动。IDE 不可用：停止并回填，禁止手写 .lani 二进制。
+
+### 资源包重发布（m6）+ 上传复验（m7）
+```
+node local/packstage.cjs
+node tool/assetsCollect.js local/packstage --dst F:/LayaProject/web
+node tool/tmpPack.js                                        # nor.br + nor.manifest.json
+Python/pythoncore-3.14-64/python.exe local/doupload.py      # PUB_FORCE=1, h6 华为云 sgf-rhq1y
+```
+- 核对 nor.br 含 boy@0.lh + boy/9.lani + node_0.005.lm，nor.manifest.json 尺寸/哈希更新；令牌不变 → res.ts/index.html 无需改。
+- 浏览器复验（h5/ai13 硬规则）：`__qa.pve()/__qa.toMatch()` 进对局；断言 stand 循环无卡顿（首尾帧姿态差）、四向移动切换、出手=前摇结束（~300ms）、球拍朝向正确；每个关键状态截图 + view_image 目检（循环首尾对比/触球帧/球拍特写）；动画资源双端同源，PVP 改动须双客户端 mcdrive 复验；生产复验走真实 CDN。
+- 发布需明确授权（aidev 纪律）；失败即停。
+
+### 回填（m8）
+- 回填本节 + h12 模块行 + ai3d 节点树 + `docs/auto/state.json`（phase/done/next/updatedAt）；记录逐轨帧区间变更、修复断言、导出 take 列表、IDE 发布产物、dist 同步、nor.br 尺寸/哈希、上传时间戳、探针断言数与截图路径。未回填 = 本轮未完成；下一轮从 state.json next 续跑。

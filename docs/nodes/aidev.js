@@ -44,30 +44,64 @@ window.__DOC_FILES["nodes/aidev.js"]={
     "name": "AI 开发辅助 子树",
     "nodes": {
       "ai14": {
-        "location": [-880, -4.19],
+        "location": [
+          -880,
+          -4.19
+        ],
         "width": 260,
         "name": "ai14",
         "label": "工作流优先纪律(硬规则)",
         "type": "规则",
         "desc": "【用户明确 2026-11-19】所有工作必须基于工作流开展, 禁止凭记忆/ improvisation: ①每轮开工先读 docs/handover.md h0(登录态)/h12(模块地图, 改哪块读哪行)/h13(授权与续跑)/h15(验收硬规则) + docs/auto/state.json(从 next 续跑) + 本图对应分支节点; ②执行沿工作流链路: 策划(aiPlan)→实现→h2 tsc→h3 离线测试→h4 打包→h5/ai13 浏览器实测(联机按 ai13 第6条双客户端)→h6-h8 部署→生产复验→ai12 回填; ③每轮结束回填 handover/节点/state.json, 未回填=本轮未完成; ④发现工作流与代码不符: 先修工作流或先修代码使两者一致, 不允许绕过; ⑤遗忘/偏离工作流导致功能不符=验收失败重做。",
-        "inputs": [{ "name": "开发指令", "type": "Event" }],
-        "outputs": [{ "name": "纪律就绪", "type": "Event" }],
+        "inputs": [
+          {
+            "name": "开发指令",
+            "type": "Event"
+          }
+        ],
+        "outputs": [
+          {
+            "name": "纪律就绪",
+            "type": "Event"
+          }
+        ],
         "height": 190,
         "use_custom_color": true,
-        "color": [0.8, 0.3, 0.3]
+        "color": [
+          0.8,
+          0.3,
+          0.3
+        ]
       },
       "aiF": {
-        "location": [-870, 430],
+        "location": [
+          -870,
+          430
+        ],
         "width": 300,
         "height": 220,
         "name": "aiF",
         "label": "AI 辅助：Codex 远程同步聊天 + 微信通道",
         "type": "Group",
         "desc": "AI 辅助分支(aif)：提取 OpenClaw/龙虾微信插件协议 → chat/ 独立桥 → Codex CLI 远程会话 → chat.html/codex.html → normalgame 静态发布 + 阿里云 ECS。详见 docs/nodes/aif.js 与 h17。",
-        "inputs": [{"name": "AI辅助指令", "type": "Event"}],
-        "outputs": [{"name": "辅助完成", "type": "Event"}],
+        "inputs": [
+          {
+            "name": "AI辅助指令",
+            "type": "Event"
+          }
+        ],
+        "outputs": [
+          {
+            "name": "辅助完成",
+            "type": "Event"
+          }
+        ],
         "use_custom_color": true,
-        "color": [0.25, 0.65, 0.85],
+        "color": [
+          0.25,
+          0.65,
+          0.85
+        ],
         "node_tree_file": "nodes/aif.js"
       },
       "aiPlan": {
@@ -408,17 +442,34 @@ window.__DOC_FILES["nodes/aidev.js"]={
         ]
       },
       "ai13": {
-        "location": [-153.71, 700.0],
+        "location": [
+          -153.71,
+          700
+        ],
         "width": 240,
         "name": "ai13",
         "label": "截图目视自检(硬规则)",
         "type": "规则",
         "desc": "【完成验收硬规则(用户明确 2026-11-19)】游戏/玩法/UI 任何改动, 宣称完成前必须: (1)真实浏览器跑对应探针覆盖全路径(入口→模式→对局→控制→伤害→结算→退出→重进); (2)每个关键状态截图, AI 必须自己 view_image 逐张目视核对 UI/布局/状态(血条位置/角色对齐/残留节点/按钮可见/文本正确), 自主发现 bug; (3)数值断言与目视核对双通过才算完成, 矛盾即失败; (4)多人通讯改动必须多浏览器实例多账号实测(mcdrive/mc3drive), 禁止单端臆测; (5)只靠用户反馈发现问题=验收失败; (6)联机/多人功能必须双独立账号双客户端(双 profile/双 CDP/真实 GOBE)真实跑全链路: 建房/匹配→双方进房→回合轮流→伤害→结算→再来一局→退出离房; 控制方式=植入代码(page.ev 调游戏 API)+真实鼠标拖拽/点击混合; 单客户端自测不算联机验证; 探针 local/g2mcdrive.cjs(g2)与 mcdrive/mc3drive(社交)。探针清单: local/g2selftest.cjs(g2单机全路径+6截图+14断言), g2fireprobe.cjs(控制/时钟诊断), play_probe.cjs(拖拽控制), g2probe.cjs(入口链路), prod_g2.cjs/prod_g2full.cjs(生产CDN复验, full 14断言+6截图), mcdrive.cjs/mc3drive.cjs(社交多客户端)。headless Edge 坑: 加 --no-sandbox(AppContainer 崩溃 0xC0000005), boot 失败重试一次; CDP 轮询必须走 exec_command 的 node(node_repl 回环 EACCES)。",
-        "inputs": [{ "name": "测试反馈", "type": "Event" }],
-        "outputs": [{ "name": "目视通过", "type": "Event" }],
+        "inputs": [
+          {
+            "name": "测试反馈",
+            "type": "Event"
+          }
+        ],
+        "outputs": [
+          {
+            "name": "目视通过",
+            "type": "Event"
+          }
+        ],
         "height": 160,
         "use_custom_color": true,
-        "color": [0.8, 0.4, 0.2]
+        "color": [
+          0.8,
+          0.4,
+          0.2
+        ]
       },
       "ai12": {
         "location": [
@@ -457,6 +508,37 @@ window.__DOC_FILES["nodes/aidev.js"]={
           0.4,
           0.9
         ]
+      },
+      "ai3d": {
+        "location": [
+          -870,
+          700
+        ],
+        "width": 300,
+        "height": 220,
+        "name": "ai3d",
+        "label": "3D 素材 AI 工作流（Blender MCP）",
+        "type": "Group",
+        "desc": "3D 素材分支(ai3d)：Blender MCP 调 boy.blend 全部动画(循环连续性/姿势/游戏卡点/球拍朝向) → 自动调帧(不强制插入起始帧) → 导出可见对象 FBX → 替换 IDE 发布(release/web+dist 基线) → nor.br 重发布 → 复验回填。详见 docs/nodes/ai3d.js 与 h19。",
+        "inputs": [
+          {
+            "name": "3D素材指令",
+            "type": "Event"
+          }
+        ],
+        "outputs": [
+          {
+            "name": "素材发布完成",
+            "type": "Event"
+          }
+        ],
+        "use_custom_color": true,
+        "color": [
+          0.85,
+          0.55,
+          0.2
+        ],
+        "node_tree_file": "nodes/ai3d.js"
       }
     },
     "links": [
@@ -678,6 +760,26 @@ window.__DOC_FILES["nodes/aidev.js"]={
         "to_node": "__group_out__",
         "to_socket": "上线",
         "to_socket_identifier": "上线",
+        "to_socket_type": "Event"
+      },
+      {
+        "from_node": "ai14",
+        "from_socket": "纪律就绪",
+        "from_socket_identifier": "纪律就绪",
+        "from_socket_type": "Event",
+        "to_node": "ai3d",
+        "to_socket": "3D素材指令",
+        "to_socket_identifier": "3D素材指令",
+        "to_socket_type": "Event"
+      },
+      {
+        "from_node": "ai3d",
+        "from_socket": "素材发布完成",
+        "from_socket_identifier": "素材发布完成",
+        "from_socket_type": "Event",
+        "to_node": "ai12",
+        "to_socket": "测试反馈",
+        "to_socket_identifier": "测试反馈",
         "to_socket_type": "Event"
       }
     ]
