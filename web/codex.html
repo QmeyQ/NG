@@ -38,6 +38,24 @@ input:focus,select:focus,textarea:focus{border-color:var(--blue)}
 .toast{position:fixed;left:50%;bottom:22px;transform:translateX(-50%) translateY(16px);background:#0f1720;border:1px solid var(--line);padding:9px 14px;border-radius:9px;opacity:0;transition:.25s;z-index:60;font-size:12.5px}
 .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
 a{color:var(--blue)}
+@media(max-width:600px){
+  body{overflow-x:hidden}
+  .wrap{padding:14px 10px 42px}
+  .head{flex-wrap:wrap;gap:8px}
+  .head .spacer{display:none}
+  h1{font-size:17px}
+  .sub{font-size:11px}
+  .card{padding:12px}
+  .grid{grid-template-columns:1fr}
+  .half,.third,.full{grid-column:1/-1}
+  .row{flex-direction:column;gap:0}
+  .row>*{min-width:0;width:100%}
+  .field{min-width:0}
+  .actions{gap:6px}
+  .actions .btn{flex:1 1 calc(50% - 3px);min-width:0;white-space:normal;text-align:center;padding:8px 6px;font-size:12px}
+  .qr{flex-direction:column;align-items:flex-start}
+  #qrCanvas svg{width:min(72vw,260px);height:auto}
+}
 </style>
 </head>
 <body>
@@ -84,7 +102,7 @@ a{color:var(--blue)}
       <div class="note">local：适合本机直接运行；relay：桥部署在云上时，经现有 /apim 隧道调用本机 Codex。</div>
     </div>
 
-    <div class="card full">
+    <div class="card full" id="s3">
       <h2><span class="n">3</span>微信通道（官方 iLink 扫码 / 苍何代理）</h2>
       <div class="row">
         <div class="field" style="flex:1"><label>通道</label><select id="wxProvider"><option value="ilink">官方 iLink（扫码直连，推荐）</option><option value="canghe">苍何代理（需 API Key）</option></select></div>
@@ -104,7 +122,17 @@ a{color:var(--blue)}
         </div>
       </div>
       <div class="actions"><button class="btn primary" id="saveWechat">保存微信配置</button><button class="btn" id="wxLogin">获取登录二维码</button><button class="btn ghost" id="wxStatus">刷新状态</button><span id="wxBadge" class="badge">-</span></div>
-      <div class="qr" id="qrBox" style="display:none"><div id="qrCanvas" style="background:#fff;padding:8px;border-radius:10px"></div><div><div id="qrText" style="font-size:12px;color:var(--dim)"></div><a id="qrLink" target="_blank" rel="noreferrer">打开二维码链接</a></div></div>
+      <div class="qr" id="qrBox" style="display:none">
+        <div id="qrCanvas" style="background:#fff;padding:8px;border-radius:10px"></div>
+        <div style="display:flex;flex-direction:column;gap:8px;min-width:220px">
+          <div id="qrText" style="font-size:12px;color:var(--dim)"></div>
+          <a id="wxOpenBtn" class="btn primary" style="text-decoration:none;text-align:center" href="#">在微信中打开并授权</a>
+          <button class="btn" id="wxCopyBtn" type="button">复制授权链接</button>
+          <button class="btn ghost" id="qrToggleBtn" type="button">显示二维码</button>
+          <a id="qrLink" target="_blank" rel="noreferrer" style="font-size:12px">打开二维码链接</a>
+          <div class="note" id="mobileHint" style="display:none;margin-top:4px">手机端：点“在微信中打开并授权”。若未自动跳转，点“复制授权链接”，粘贴到微信任意聊天窗口打开。</div>
+        </div>
+      </div>
     </div>
 
     <div class="card full">
@@ -177,11 +205,16 @@ function wxBadge(w){
   const b=$('wxBadge');b.textContent=w.loggedIn?'已登录':(w.configured?(w.login&&w.login.status||'未登录'):'未配置');b.className='badge '+(w.loggedIn?'ok':'');
   if(w.login&&w.login.qrCodeUrl)showQr(w.login.qrCodeUrl,w.login.status);
 }
+function isMobile(){return /Android|iPhone|iPad|iPod|Mobile|HarmonyOS/i.test(navigator.userAgent)}
 function showQr(url,status){
-  $('qrBox').style.display='flex';$('qrLink').href=url||'#';
+  $('qrBox').style.display='flex';$('qrLink').href=url||'#';$('wxOpenBtn').href=url||'#';
   const box=$('qrCanvas');box.innerHTML='';
+  const mobile=isMobile();
+  box.style.display=mobile?'none':'block';
+  $('qrToggleBtn').style.display=mobile?'inline-block':'none';
+  $('mobileHint').style.display=mobile?'block':'none';
   if(url&&typeof qrcode==='function'){try{const q=qrcode(0,'M');q.addData(url);q.make();box.innerHTML=q.createSvgTag({cellSize:5,margin:2});}catch(e){box.textContent=url}}
-  $('qrText').textContent=status==='logged_in'?'已登录':('扫码登录 · 状态 '+status);
+  $('qrText').textContent=(status==='logged_in'?'已登录':('状态 '+status))+(mobile?' · 手机端直接点“在微信中打开并授权”':' · 用手机微信扫码');
 }
 function syncWxProvider(){
   const p=$('wxProvider').value;
@@ -211,9 +244,11 @@ $('saveMode').onclick=()=>save({mode:$('mode').value,relay:{url:$('relayUrl').va
 $('saveWechat').onclick=()=>save({wechat:{provider:$('wxProvider').value,enabled:$('wxEnabled').value==='true',botType:'3',botAgent:'Codex/1.0',apiKey:$('wxApiKey').value.trim(),proxyUrl:$('wxProxyUrl').value.trim(),webhookHost:$('wxWebhookHost').value.trim(),webhookPort:Number($('wxWebhookPort').value)||18790,webhookPath:$('wxWebhookPath').value.trim()||'/webhook/wechat',deviceType:$('wxDevice').value}},'微信配置已保存');
 $('wxProvider').onchange=syncWxProvider;
 $('saveEcs').onclick=()=>save({ecs:{regionId:$('ecsRegion').value.trim(),instanceId:$('ecsInstance').value.trim(),workbenchUrl:$('ecsUrl').value.trim()}},'ECS 配置已保存');
+$('wxCopyBtn').onclick=()=>{const u=$('wxOpenBtn').href;navigator.clipboard.writeText(u).then(()=>toast('授权链接已复制，可粘贴到微信打开')).catch(()=>toast('复制失败，请长按链接复制'))};
+$('qrToggleBtn').onclick=()=>{const b=$('qrCanvas');b.style.display=b.style.display==='none'?'block':'none'};
 $('wxLogin').onclick=wxLogin;$('wxStatus').onclick=wxStatus;$('openTerm').onclick=openTerm;$('copyDeploy').onclick=copyDeploy;
 $('clearLog').onclick=()=>$('log').textContent='';
-const QQ=new URLSearchParams(location.search);$('apiBase').value=QQ.get('api')||localStorage.getItem('cx_api')||'';$('token').value=QQ.get('token')||localStorage.getItem('cx_token')||'';if(QQ.get('qr'))showQr(QQ.get('qr'),'wait');
+const QQ=new URLSearchParams(location.search);$('apiBase').value=QQ.get('api')||localStorage.getItem('cx_api')||'';$('token').value=QQ.get('token')||localStorage.getItem('cx_token')||'';if(QQ.get('qr'))showQr(QQ.get('qr'),'wait');if(QQ.get('scroll'))setTimeout(()=>{const e=document.getElementById(QQ.get('scroll'));if(e)e.scrollIntoView({block:'start'})},900);
 if($('token').value)test().catch(()=>{});else log('请填写 API Base 与 Token 后测试连接');
 })();
 </script>
