@@ -382,3 +382,15 @@ node chat/test/e2e.cjs   -> 17 pass / 0 fail
 - Token 头只发 ASCII：`tokenValue()` 过滤非 ASCII，避免 `fetch` 抛 “String contains non ISO-8859-1 code point”。
 - 聊天页入口：`/codex` 的“打开聊天”改为绝对 `/chat`；同时 ECS 增加 `/codex/chat/index.html` 与 `/codex/chat.html` 兼容，修掉 `/codex/chat.html` 404。
 - 会话只读公开：`GET /api/conversations`、`GET /api/history`、`GET /api/models` 免 Token；`POST /api/chat` 仍需 Token。`chat/test/chatpage.cjs` 实测：`/chat` 列表含 `wechat:o9cq...@im.wechat`（微信），点开历史 2 条消息。
+
+### h17.8 CodexChat 开机自启（NSSM，2026-11-22）
+
+- 目录：`chat/service/`（从 `server/re/frp/nssm.exe` 拷贝）。
+- 右键管理员运行 `chat/service/ontask.bat`：
+  - 服务 `CodexChat` = `server/re/bin/node.exe chat/bridge.cjs`
+  - AppDirectory `F:\LayaProject`，自动启动，崩溃 5s 重启
+  - 日志 `chat/service/chat_service.log`（10MB 轮转）
+  - 安装前 `kill_manual.ps1` 停掉手动 21121 bridge，避免端口冲突
+- 卸载：管理员运行 `chat/service/uninstall.bat`（仅删服务，保留 chat/ 配置）。
+- 状态：`chat/service/nssm.exe status CodexChat`。
+- 与 ReAPI/ReFrp 服务互不影响；服务名独立。
