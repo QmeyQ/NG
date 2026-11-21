@@ -367,3 +367,13 @@ node chat/test/e2e.cjs   -> 17 pass / 0 fail
 - **链路**：浏览器 `normalgame.cn/codex-api` → nginx → ECS 21121 桥 → `127.0.0.1/apim` → frps 5001 → 本机 re-relay 21119 → 本机 Codex CLI。
 - **实测**：`/codex-api/api/status` 返回 `mode=relay`、codex-cli 0.169；`/codex-api/api/chat` 真实返回 `ECSOK`；官方 iLink 二维码在 ECS 桥生成并 `qrcode.js` 渲染。
 - **注意**：ECS 上 `install-ecs.sh` 的 tar 步骤已改为可选（`codex.bundle` 直接写文件）；systemd 用 `/usr/bin/env node`，避免路径差异。
+
+### h17.7 手机端授权（2026-11-21 补）
+
+- 手机端打开 `https://normalgame.cn/codex` 时，页面自动识别移动 UA：
+  - 默认**隐藏二维码**（自己扫自己无意义），显示 **“在微信中打开并授权”** 按钮，`href = qrcode_img_content`（`https://liteapp.weixin.qq.com/q/...`），由微信 universal link 调起授权。
+  - 旁边保留 **“复制授权链接”**（未自动跳转时粘贴到微信任意聊天窗口打开）与 **“显示二维码”**（需要另一台手机扫时用）。
+  - 桌面端仍显示二维码。
+- 二维码本地生成：`chat/public/qrcode.js`（`qrcode-generator` MIT），不依赖外部二维码 API/CDN。
+- 手机端 CSS：`@media(max-width:600px)` 单列布局、按钮 50% 换行、`#qrCanvas svg` 自适应 72vw，修复此前右侧溢出。
+- 生产验证：`https://normalgame.cn/codex` 移动 UA 截图布局通过；页面包含 `wxOpenBtn/mobileHint`，`/codex-api/api/wechat/login` 返回官方二维码。
