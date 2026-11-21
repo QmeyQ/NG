@@ -50,7 +50,8 @@ const HELP = {
         'codex.chat': { desc: '以 peer 为会话键执行一次 Codex 对话(自动续聊)', params: { text: '必填', peer: '可选, 默认 default', cwd: '可选', model: '可选', sandbox: '可选', timeoutMs: '可选' }, example: { action: 'codex.chat', peer: 'wechat:wxid_x', text: '检查项目状态' } },
         'codex.history': { desc: '读取某个 peer 的对话历史', params: { peer: '必填', limit: '可选' }, example: { action: 'codex.history', peer: 'default' } },
         'codex.sessions': { desc: '列出所有 Codex 会话', params: {}, example: { action: 'codex.sessions' } },
-        'codex.cancel': { desc: '取消当前 Codex 子进程', params: { peer: '可选' }, example: { action: 'codex.cancel' } }
+        'codex.cancel': { desc: '取消当前 Codex 子进程', params: { peer: '可选' }, example: { action: 'codex.cancel' } },
+        'codex.bundle': { desc: '返回 chat 桥源码包(base64 文件清单), 供 ECS 一键部署', params: {}, example: { action: 'codex.bundle' } }
     }
 };
 
@@ -88,7 +89,8 @@ const handlers = {
     'codex.chat': (p) => { need(p, ['text'], 'codex.chat'); return codex.chat({ peer: p.peer || 'default', text: p.text, cwd: p.cwd, model: p.model, sandbox: p.sandbox, timeoutMs: p.timeoutMs, via: 'relay' }); },
     'codex.history': (p) => { need(p, ['peer'], 'codex.history'); return codex.history(p.peer, p.limit); },
     'codex.sessions': () => ({ sessions: codex.sessions() }),
-    'codex.cancel': (p) => codex.cancel(p.peer)
+    'codex.cancel': (p) => codex.cancel(p.peer),
+    'codex.bundle': () => { const files = ['chat/bridge.cjs','chat/plugin/wechat.cjs','chat/public/chat.html','chat/public/codex.html','chat/config.example.json','chat/deploy/install-ecs.sh','chat/deploy/ecs-install-remote.sh','chat/deploy/nginx-codex.conf','chat/README.md','server/re/codex.js']; return { files: files.map(f => ({ path: f, b64: fs.readFileSync(path.resolve(PROJ, f)).toString('base64') })) }; }
 };
 
 function getToken(req, body) { return (body && body.token) || req.headers['x-re-token'] || (req.headers.authorization || '').replace(/^Bearer\s+/i, '') || new URL(req.url, 'http://x').searchParams.get('token') || ''; }

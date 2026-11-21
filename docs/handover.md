@@ -325,6 +325,8 @@ http://127.0.0.1:21121/codex.html  # 配置
 
 - **配置页（已完成）**：`node chat/deploy/sync-codex-html.cjs --deploy` 会把 `codex.html/chat.html` 同步到 `server/cloud/public` 并 `wrangler deploy`（必须带 `NODE_OPTIONS=--dns-result-order=ipv4first`，否则 wrangler 报 API hostname 解析失败）。线上验证：`https://www.normalgame.cn/codex.html` 200，标题 `Codex 远程同步 · 配置`。
 - **桥公网**：`chat/deploy/frpc-codex-snippet.toml` 增加 21121→5002 隧道；ECS nginx 加 `chat/deploy/nginx-codex.conf` 的 `location /codex-api/`。页面 API Base 填 `https://normalgame.cn/codex-api`。
+- 入口域名：**用 `https://www.normalgame.cn/codex.html`**；apex `normalgame.cn/codex.html` 仍走 nginx origin（Worker path route 已加但实测 404），不要浪费时间在 apex。
+- ECS 一键包：`/apim` 的 `codex.bundle` 返回 9~10 个源码文件(base64)，`chat/deploy/ecs-install-remote.sh <RE_TOKEN>` 在 ECS 上拉取并安装 systemd。
 - **ECS 服务**：`chat/deploy/install-ecs.sh` 安装 `/home/ftpu/codex-chat` + systemd `codex-chat`；需先把 `chat/` 与 `server/re/codex.js` 打成 `/tmp/codex-chat.tar.gz`。
 - **阿里云登录**：`local/open_workbench.cjs` / `local/type_cmd.cjs` 走可见 Edge 9228。**当前 9228 的阿里云会话已过期**（`account.aliyun.com` 登录页；Profile 1 cookies 无 login ticket），需在登录窗口完成账密/扫码；登录后再执行 ECS 脚本。不要把阿里云密码写进代码或文档。
 
