@@ -70,9 +70,7 @@ tools\blender\start_blender_mcp.bat
 
 ## Qoder（MCP 自动拉起 Blender）
 
-Qoder 的 MCP 配置指向 wrapper，**调用 MCP 时由 wrapper 自己拉起 Blender**，不需要手动先开：
-
-`C:\Users\mien\.qoder\mcp.json`：
+Qoder App 的实际配置是 **`C:\Users\mien\.qoder\settings.json` 顶层的 `mcpServers`**（不是 `~/.qoder/mcp.json`，也不是 AppData 下 settings.json 的 `mcp.servers`）。
 
 ```json
 {
@@ -81,17 +79,30 @@ Qoder 的 MCP 配置指向 wrapper，**调用 MCP 时由 wrapper 自己拉起 Bl
       "type": "stdio",
       "command": "C:\\Windows\\System32\\cmd.exe",
       "args": ["/c", "F:\\LayaProject\\tools\\blender\\qoder_mcp_wrapper.bat"],
-      "env": { "PYTHONIOENCODING": "utf-8" }
+      "cwd": "F:\\LayaProject",
+      "env": { "PYTHONIOENCODING": "utf-8" },
+      "timeout": 60000
     }
   }
 }
 ```
 
-- `qoder_mcp_wrapper.bat`：检查 9876；未监听则用 PowerShell `Start-Process` 启动 Blender（最小化，独立 stdio），等待最多 30s；然后在前台启动 `mcp-for-blender.exe`，把 stdio 留给 Qoder。
-- 关键：wrapper 不向 stdout 输出任何内容，否则会污染 MCP JSON-RPC。
-- 关键：Qoder 配置里的 `cmd.exe` 必须用**反斜杠** `C:\Windows\System32\cmd.exe`；用 `C:/Windows/...` 会报 “The syntax of the command is incorrect.”。
-- 实测：Blender 关闭状态下，Qoder 配置直接 spawn → wrapper 自动启动 Blender → MCP `initialize` + `tools/list`（10 个工具）+ `get_scene_info` 成功，冷启动约 4.8s。
-- 原 `mcp.json` 备份：`mcp.json.bak-blender`、`mcp.json.bak-wrapper`。
+已备份为 `.qoder\settings.json.bak-blender`。
+
+### Qoder UI 在哪里看
+
+- 打开 **Settings → Extension management → Connectors**。
+- 在 **Custom Connectors** 里应看到 **blender · Ready · STDIO**，展开 `Tools (10)`。
+- 你之前贴的 `office-docx / office-excel / office` 是 **Provided by Plugins**，和 Blender 无关；MCP 在 **Connectors** 分组。
+- 聊天里的工具选择器也要展开 **Connectors/MCP**，不是 “Provided by Plugins”。
+
+### 自动拉起
+
+`qoder_mcp_wrapper.bat`：检查 9876 → 未监听则 PowerShell `Start-Process` 启动 Blender（最小化、独立 stdio）→ 等待最多 30s → 前台运行 `mcp-for-blender.exe`。Qoder 调用 blender MCP 时会自动执行，无需手动开 Blender。
+
+- 关键：wrapper 不向 stdout 输出任何内容。
+- 关键：`cmd.exe` 必须用反斜杠 `C:\Windows\System32\cmd.exe`，正斜杠会报 syntax error。
+- 实测：Blender 关闭状态冷启动约 4.8s，`tools/list` 10 个工具 + `get_scene_info` PASS；Qoder UI 显示 `blender Ready`。
 
 ## 一键启动 / 开机自启
 

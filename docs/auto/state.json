@@ -88,7 +88,8 @@
     "Qoder MCP 配置: ~/.qoder/mcp.json 增加 blender stdio (mcp-for-blender 9876), tools/list 10 + get_scene_info PASS",
     "Qoder+Blender 一键启动 start_qoder_blender.bat + 用户 Startup 自启(QoderBlenderMCP.lnk) 已安装",
     "Qoder MCP 自动拉起: qoder_mcp_wrapper.bat (检测9876→启动Blender→前台MCP), 冷启动4.8s, tools 10 + scene PASS",
-    "修复 Qoder cmd.exe 必须用反斜杠路径(正斜杠导致 syntax error)"
+    "修复 Qoder cmd.exe 必须用反斜杠路径(正斜杠导致 syntax error)",
+    "Qoder 正确配置路径修正: ~/.qoder/settings.json 顶层 mcpServers; UI 在 Connectors→Custom Connectors, blender Ready + 10 tools"
   ],
   "next": [
     "用户扫码登录官方微信 iLink 后验证真实微信收发",
@@ -104,5 +105,5 @@
   "failed": [],
   "last_output": "social3drive 11/11 PASS: addFriendInput/btn_申请好友 -> B req A, A reqAccept_0 -> friends=1, B 刷新 -> friend_0, msgInput+btn_发送 -> detail msgs=1 no duplicate, A refresh sees message, server fA/fB persisted, no exceptions | bundle 1,526,650B | tsc baseline | offline 121 pass",
   "note": "LayaProject=小游戏平台; NG2=branch origin/room",
-  "updatedAt": "2026-11-21T18:11:29.547Z"
+  "updatedAt": "2026-11-21T18:25:44.485Z"
 }
