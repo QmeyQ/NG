@@ -90,7 +90,7 @@ a{color:var(--blue)}
         <div class="field" style="flex:1"><label>通道</label><select id="wxProvider"><option value="ilink">官方 iLink（扫码直连，推荐）</option><option value="canghe">苍何代理（需 API Key）</option></select></div>
         <div class="field" style="flex:0 0 150px"><label>启用</label><select id="wxEnabled"><option value="false">关闭</option><option value="true">启用</option></select></div>
       </div>
-      <div class="note" id="ilinkHint">官方 iLink：点击“获取登录二维码”，用手机微信扫码并确认即可，**不需要 API Key / 代理 / webhook**。登录凭证保存在 chat/data/weixin.json。</div>
+      <div class="note" id="ilinkHint">官方 iLink：点击“获取登录二维码”，用手机微信扫码并确认即可，不需要 API Key / 代理 / webhook。登录凭证保存在 chat/data/weixin.json。</div>
       <div id="cangheFields">
         <div class="row">
           <div class="field" style="flex:2"><label>API Key（苍何 wc_live_…）</label><input id="wxApiKey" type="password" placeholder="wc_live_..."></div>
@@ -219,3 +219,4 @@ if($('token').value)test().catch(()=>{});else log('请填写 API Base 与 Token 
 </script>
 </body>
 </html>
+
