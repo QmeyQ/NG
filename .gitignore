@@ -22,3 +22,7 @@ server/re/config.json
 server/re/frpc.toml
 dragonbones-local-web/DragonBonesJS-master/
 *.bak-*
+
+# AGC server credential (never commit; lives in te.zip bundle only)
+**/agc-apiclient-*.json
+server/upstorage/te_src/
