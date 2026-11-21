@@ -54,6 +54,22 @@ async function resolveCredential(env) {
 export default {
   async fetch(request, env, ctx) {
     const path = new URL(request.url).pathname;
+    // ==== /packs/* Range emulation via /_packs/ asset subrequest (2026-11-22) ====
+    if (path.startsWith('/packs/')) {
+      if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: corsHeaders() });
+      const pname = path.slice('/packs/'.length);
+      const pq = new URL(request.url).search;
+      const ar = await fetch(new URL('/_packs/' + pname + pq, request.url).toString(), { method: 'GET' });
+      if (!ar.ok) return ar;
+      const buf = await ar.arrayBuffer();
+      const hh = new Headers({ 'Content-Type': 'application/octet-stream', 'Accept-Ranges': 'bytes', 'Cache-Control': 'public, max-age=86400' });
+      Object.entries(corsHeaders()).forEach(([k, v]) => hh.set(k, v));
+      if (request.method === 'HEAD') { hh.set('Content-Length', String(buf.byteLength)); return new Response(null, { status: 200, headers: hh }); }
+      const rg = request.headers.get('range');
+      if (rg) { const mm = /bytes=(\d*)-(\d*)/.exec(rg); if (mm) { const s0 = mm[1] === '' ? 0 : parseInt(mm[1], 10); const e0 = mm[2] === '' ? buf.byteLength - 1 : Math.min(parseInt(mm[2], 10), buf.byteLength - 1); hh.set('Content-Range', 'bytes ' + s0 + '-' + e0 + '/' + buf.byteLength); hh.set('Content-Length', String(e0 - s0 + 1)); return new Response(buf.slice(s0, e0 + 1), { status: 206, headers: hh }); } }
+      hh.set('Content-Length', String(buf.byteLength));
+      return new Response(buf, { status: 200, headers: hh });
+    }
 
     // ================= 静态资源跨域 =================
     if (path.startsWith('/js/')) {

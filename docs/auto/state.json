@@ -1,5 +1,5 @@
 {
-  "phase": "ai3d-workflow-ready",
+  "phase": "boy-anim-fixed-delivery-partial",
   "done": [
     "h2 tsc baseline",
     "h3 tests 116 pass",
@@ -93,9 +93,14 @@
     "ai3d 3D素材工作流落图: docs/nodes/ai3d.js(m0→m8) + aidev.ai3d 分支(ai14→ai3d→ai12) + handover h19/h12 模块行/h18 指针; boy.blend 经 MCP 盘点(9 NLA 轨, back/left 小数端点, racket parent=pole, assets FBX 9 takes, web 缺 back.lani, packstage nor 来自 dist/web-1107 基线)",
     "Codex IDE 会话同步: state_5.sqlite threads(source=vscode) -> ide:* 列表/历史/resume",
     "relay codex.ideThreads/ideHistory/ideChat; 本机 IDEOK/IDEOK2 + 生产 PRODIDEOK2 成功",
-    "chat UI IDE 会话 kind=ide 头像 I; chatpage_ide.cjs PASS"
+    "chat UI IDE 会话 kind=ide 头像 I; chatpage_ide.cjs PASS",
+    "boy 动画重建(mcp_strafe_left/right, mcp_run_up/down, mcp_stand_idle; 循环gap=0/根位移=0/摆幅±0.096/弹跳0.02/脚滑0.03) + racket 绑定修复(parent_inverse+modifier) + FBX 9takes 导出 + IDE flushChanges 重导入 + library 组装发布产物(release+dist) + nor.br 重打 + CF www 交付上线(www 入口新动画, prod_animprobe 复验)",
+    "net.ts 全量200整包降级补丁 + worker/jsonc 恢复 git 原版(assets-first) + www 静态镜像补齐(load.ls/internal/game/ui/scroll png/fileconfig) + CF 部署 234dfe05(root/packs/apim 全200)"
   ],
   "next": [
+    "向用户确认实际游玩入口(apex web / 微信小游戏 wxgame / IDE 预览)并索取 ECS FTP 密码或阿里云 Workbench 登录(可见 Edge 9228)以更新 apex index+packs",
+    "girl1 共用 boy controller 的观感问题 + hitoff/jumphit/diving 旧重定向动作重建(下一轮 ai3d)",
+    "apex normalgame.cn 仍旧包: 需用户提供 ECS FTP 密码或阿里云 Workbench 登录(可见Edge 9228)后更新 /home/ftpu/html/index.html+packs; 或用户确认改用 www 入口",
     "按 ai3d 工作流执行 boy 全部动画优化(循环连续性/姿势/卡点/球拍朝向; 红线:不强制插入起始动画帧) → 导出可见 FBX → 替换 IDE 发布(release/web + dist/web-1107 同步) → nor.br 重发布 → 上传复验 → 回填",
     "用户扫码登录官方微信 iLink 后验证真实微信收发",
     "用户扫码登录官方微信 iLink 后验证收发消息",
@@ -108,9 +113,10 @@
     "AGC 上传受阻：publish.py 需浏览器可执行路径(exit 103)，且 9227 当前无 cslp 云存储 iframe"
   ],
   "failed": [
-    "git push origin Badminton3D 网络失败(GitHub 443 连接重置/超时, 已重试2次); 本地提交 a3097b42 已落盘, 待网络恢复补推"
+    "git push origin Badminton3D 网络失败(GitHub 443 连接重置/超时, 已重试2次); 本地提交 a3097b42 已落盘, 待网络恢复补推",
+    "www 生产 headless 复验仍卡 ui 包启动(206 已通但 Res.load 未发起下载, 疑 boot 序/storage 在 https origin 差异, 未决); apex 仍旧包(ECS index 需 FTP/Workbench 凭据)"
   ],
   "last_output": "social3drive 11/11 PASS: addFriendInput/btn_申请好友 -> B req A, A reqAccept_0 -> friends=1, B 刷新 -> friend_0, msgInput+btn_发送 -> detail msgs=1 no duplicate, A refresh sees message, server fA/fB persisted, no exceptions | bundle 1,526,650B | tsc baseline | offline 121 pass",
   "note": "LayaProject=小游戏平台; NG2=branch origin/room",
-  "updatedAt": "2026-11-21T19:32:41.298Z"
+  "updatedAt": "11/22/2026, 05:31:58"
 }

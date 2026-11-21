@@ -2,11 +2,11 @@
   "out": "ui.br",
   "magic": "BRP1",
   "version": "1.0",
-  "fileCount": 30,
-  "rawSize": 2974146,
-  "containerSize": 2975087,
-  "brSize": 2325105,
-  "ratio": 0.7815,
+  "fileCount": 31,
+  "rawSize": 3142523,
+  "containerSize": 3143491,
+  "brSize": 2440855,
+  "ratio": 0.7765,
   "files": [
     {
       "path": "dialog/bg.png",
@@ -81,6 +81,10 @@
       "size": 560
     },
     {
+      "path": "main/12+.png",
+      "size": 168361
+    },
+    {
       "path": "main/battle.png",
       "size": 151388
     },
@@ -126,7 +130,7 @@
     },
     {
       "path": "menu.ls",
-      "size": 53716
+      "size": 53732
     }
   ]
 }

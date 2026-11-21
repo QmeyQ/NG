@@ -2,11 +2,11 @@
   "out": "nor.br",
   "magic": "BRP1",
   "version": "1.0",
-  "fileCount": 56,
-  "rawSize": 6123151,
-  "containerSize": 6124813,
-  "brSize": 5298995,
-  "ratio": 0.8652,
+  "fileCount": 62,
+  "rawSize": 6317690,
+  "containerSize": 6319516,
+  "brSize": 5230412,
+  "ratio": 0.8277,
   "files": [
     {
       "path": "ani.controller",
@@ -37,44 +37,56 @@
       "size": 853
     },
     {
+      "path": "boy/back.lani",
+      "size": 56619
+    },
+    {
       "path": "boy/diving.lani",
-      "size": 232004
+      "size": 48087
     },
     {
       "path": "boy/down.lani",
-      "size": 28608
+      "size": 56619
     },
     {
       "path": "boy/hitoff.lani",
-      "size": 53028
+      "size": 86717
     },
     {
       "path": "boy/jumphit.lani",
-      "size": 31375
+      "size": 75417
     },
     {
       "path": "boy/left.lani",
-      "size": 52832
+      "size": 56391
     },
     {
       "path": "boy/node_0.005.lm",
-      "size": 216603
+      "size": 282709
     },
     {
       "path": "boy/right.lani",
-      "size": 53508
+      "size": 56392
     },
     {
       "path": "boy/stand.lani",
-      "size": 22316
+      "size": 50807
     },
     {
       "path": "boy/up.lani",
-      "size": 25699
+      "size": 56515
     },
     {
       "path": "boy@0.lh",
-      "size": 81610
+      "size": 62759
+    },
+    {
+      "path": "chat.html",
+      "size": 17520
+    },
+    {
+      "path": "codex.html",
+      "size": 21766
     },
     {
       "path": "court/floor.lm",
@@ -149,6 +161,14 @@
       "size": 3044
     },
     {
+      "path": "game/select.ls",
+      "size": 4069
+    },
+    {
+      "path": "game/trace.ls",
+      "size": 3041
+    },
+    {
       "path": "gan.lmat",
       "size": 200
     },
@@ -207,6 +227,10 @@
     {
       "path": "net.png",
       "size": 7424
+    },
+    {
+      "path": "qrcode.js",
+      "size": 56694
     },
     {
       "path": "racket/racket.lm",

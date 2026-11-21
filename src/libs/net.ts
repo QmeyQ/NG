@@ -555,6 +555,23 @@ export class Net {
                 const res = await pFetch(t.url, { headers, cache: 'no-store', signal: fc.signal });
                 Timer.clear(tid);
 
+                if (res.status === 200) {
+                    // 服务器忽略 Range(如 CF assets 全量 200): 降级整包单分片模式(2026-11-22)
+                    const abF = await res.arrayBuffer();
+                    if (i !== 0) return true;
+                    const cdF = new Uint8Array(abF);
+                    t.tot = cdF.length; t.cSize = cdF.length;
+                    t.chunks = [false]; t.failCnt = [0];
+                    const blobF = mkBlob([cdF]);
+                    await new Promise<void>((resolve, reject) => {
+                        this.storage.setFile(ckKey(t.key, 0), blobF, (ok) => ok ? resolve() : reject(new Error('整包保存失败')));
+                    });
+                    t.chunks[0] = true;
+                    completedCount = 1; totalDownloaded = cdF.length; t.anyS = true;
+                    saveChunkState(); updateProgress();
+                    return true;
+                }
+
                 if (!res.ok && res.status !== 206) {
                     if (res.status === 200) throw new Error('服务器不支持Range');
                     throw new Error(`HTTP ${res.status}`);

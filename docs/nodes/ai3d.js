@@ -149,7 +149,7 @@ window.__DOC_FILES["nodes/ai3d.js"]={
         "name": "m4",
         "label": "FBX 导出(仅可见对象)",
         "type": "流程",
-        "desc": "导出硬参数(用户明确：导出可见、不强制插入起始动画帧)：bpy.ops.export_scene.fbx(filepath=r\"F:\\LayaProject\\3d\\model\\boy.fbx\", use_visible=True, bake_anim=True, bake_anim_use_nla_strips=True, bake_anim_use_all_actions=True, bake_anim_simplify_factor=0, add_leaf_bones=False)——use_visible 排除隐藏 body.001；take 名=NLA 轨名(stand/diving/jumphit/hitoff/up/back/right/left/down 共9)+pole|action 名 take，与现有 assets/nor/boy.fbx 一致。导出断言：解析 FBX 二进制 \\x00\\x01AnimStack 取 take 列表=9 轨；可见对象=body/pole/racket；轴/缩放与旧 FBX 一致(IDE 导入后对比 rest pose 防漂移)。导出后替换 assets/nor/boy.fbx(保留 .meta uuid d342d960-d9b9-4c66-9521-99cdc3497c71 与 remappedMaterials)。",
+        "desc": "导出硬参数(用户明确：导出可见、不强制插入起始动画帧)：bpy.ops.export_scene.fbx(filepath=r\"F:\\LayaProject\\3d\\model\\boy.fbx\", use_visible=True, bake_anim=True, bake_anim_use_nla_strips=True, bake_anim_use_all_actions=True, bake_anim_simplify_factor=0, add_leaf_bones=False)——use_visible 排除隐藏 body.001；take 名=NLA 轨名(stand/diving/jumphit/hitoff/up/back/right/left/down 共9)+pole|action 名 take，与现有 assets/nor/boy.fbx 一致。导出断言：解析 FBX 二进制 \\x00\\x01AnimStack 取 take 列表=9 轨；可见对象=body/pole/racket；轴/缩放与旧 FBX 一致(IDE 导入后对比 rest pose 防漂移)。导出后替换 assets/nor/boy.fbx(保留 .meta uuid d342d960-d9b9-4c66-9521-99cdc3497c71 与 remappedMaterials)。 【实测坑 2026-11-22】①FBX 导出器跳过 mute 的 NLA 轨→导出前必须全轨 unmute(导完再恢复预览 mute)；②Blender 5.4 插值在关键帧点上(kp.interpolation)，FCurve.interpolation 已移除；③新建 action 无 slot 直到首次 keyframe_insert；NLA strip 换 action 必须同时设 action_slot 且 action_frame_start=1(旧 strip 残留 afs=173 会采样越界=静止)；旧 strip 内部状态可能失效→删 strip 重建(tr.strips.new)最稳。",
         "inputs": [
           {
             "name": "帧调整完成",
@@ -173,7 +173,7 @@ window.__DOC_FILES["nodes/ai3d.js"]={
         "name": "m5",
         "label": "替换 IDE 发布",
         "type": "流程",
-        "desc": "assets/nor/boy.fbx 替换后触发 IDE 重导入+发布：node local/layamcp.cjs call ide-build '{\"platform\":\"web\"}' → release/web/nor/boy@0.lh + boy/*.lani(应为9含back)。【关键】packstage.cjs 的 nor 树来自 dist/web-1107 基线且只 overlay ui/menu.ls+game/badm.ls——必须把 release/web/nor/boy@0.lh 与 boy/*.lani 同步覆盖到 dist/web-1107/nor/(替换 IDE 发布基线)，否则新动画进不了包。核对：boy@0.lh Animator clip 引用 boy/*.lani 全存在；ani.controller(assets/nor+web/nor)8 状态 clip 路径有效；back 为新增 clip 无游戏状态引用(无副作用)；如需补方向状态(up_right 等)须同时补 girl1 同名 clip(双角色共用 controller)，否则 controller 保持不动。IDE 不可用：停止并回填，禁止手写 .lani 二进制。",
+        "desc": "assets/nor/boy.fbx 替换后触发 IDE 重导入+发布：node local/layamcp.cjs call ide-build '{\"platform\":\"web\"}' → release/web/nor/boy@0.lh + boy/*.lani(应为9含back)。【关键】packstage.cjs 的 nor 树来自 dist/web-1107 基线且只 overlay ui/menu.ls+game/badm.ls——必须把 release/web/nor/boy@0.lh 与 boy/*.lani 同步覆盖到 dist/web-1107/nor/(替换 IDE 发布基线)，否则新动画进不了包。核对：boy@0.lh Animator clip 引用 boy/*.lani 全存在；ani.controller(assets/nor+web/nor)8 状态 clip 路径有效；back 为新增 clip 无游戏状态引用(无副作用)；如需补方向状态(up_right 等)须同时补 girl1 同名 clip(双角色共用 controller)，否则 controller 保持不动。IDE 不可用：停止并回填，禁止手写 .lani 二进制。 【实测坑 2026-11-22】①IDE 发布 tree-shake 掉仅运行时加载的资源(badm.ls 不引用 boy)→release/web/nor 无 boy；必须从 library 导入缓存组装发布产物：library/d3/<uuid>@0.lh 重写引用(@laniN→boy/<take>.lani、@lm0→boy/node_0.005.lm、材质uuid→body.lmat)后写 release/web/nor 与 dist/web-1107/nor 双份；②lani 索引=take 名字母序(旧16take/新9take 均验证)；③外部替换 assets fbx 后 IDE 不自动重导入→ide-ui-eval 调 Editor.assetDb.flushChanges() 触发(reimport/refreshFolder 单独无效)；④ide-ui-eval 上下文=渲染窗口 Editor 对象(assetDb/reimport/flushChanges/getAssetSync 路径相对 assets 如 nor/boy.fbx)，无 Editor.Message，代码非 async 函数体(用 Promise 链/最后一表达式)。",
         "inputs": [
           {
             "name": "导出完成",
@@ -221,7 +221,7 @@ window.__DOC_FILES["nodes/ai3d.js"]={
         "name": "m7",
         "label": "上传+浏览器复验(硬规则)",
         "type": "流程",
-        "desc": "发布需明确授权(aidev 纪律)。h6 上传：Python/pythoncore-3.14-64/python.exe local/doupload.py(PUB_FORCE=1 覆盖华为云 sgf-rhq1y nor.br；登录态已持久化，先探测后执行)；令牌不变→res.ts/index.html 无需改。h5 浏览器复验：探针进对局(__qa.pve()/__qa.toMatch())，断言 stand 循环无卡顿(首尾帧姿态差)、四向移动切换、击球卡点(出手=前摇结束约300ms)、球拍朝向正确；按 ai13 硬规则每个关键状态截图+view_image 目检(循环首尾对比/触球帧/球拍特写)；动画资源双端同源(ani.ts 稳定状态 ID 表)，PVP 改动须双客户端 mcdrive 复验；生产复验走真实 CDN。失败即停并回填。",
+        "desc": "发布需明确授权(aidev 纪律)。h6 上传：Python/pythoncore-3.14-64/python.exe local/doupload.py(PUB_FORCE=1 覆盖华为云 sgf-rhq1y nor.br；登录态已持久化，先探测后执行)；令牌不变→res.ts/index.html 无需改。h5 浏览器复验：探针进对局(__qa.pve()/__qa.toMatch())，断言 stand 循环无卡顿(首尾帧姿态差)、四向移动切换、击球卡点(出手=前摇结束约300ms)、球拍朝向正确；按 ai13 硬规则每个关键状态截图+view_image 目检(循环首尾对比/触球帧/球拍特写)；动画资源双端同源(ani.ts 稳定状态 ID 表)，PVP 改动须双客户端 mcdrive 复验；生产复验走真实 CDN。失败即停并回填。 【实测坑 2026-11-22】publish.py upload() 以\"文件名出现在目录列表\"判成功→PUB_FORCE 覆盖重传时同名已在列表=假成功(覆盖确认弹窗未点, 实际未提交)；必须 local/reupload_verify.py：上传后循环点覆盖确认(确定/确认/覆盖)+源站回读断言(Range GET 带唯一 cb 参数, Content-Range total==本地字节)。回读通过后再查_plain URL_：若仍旧字节=CDN 缓存→ResList URL 加 ver 参数+重编 bundle 上传。客户端按 size 比对触发重下载(res_idx)。另：PVE 待机时游戏每帧把角色 crossFade 回 stand，探针直接 crossFade 会被覆盖→移动动画实测须真实输入驱动或回合中截图。 【交付改道 2026-11-22】华为上传端点不可用+publish.py 假成功→改 CF 交付：www.normalgame.cn 根 index+/packs/+新 bundle(ResList 指 www/packs?v=20261122b)；apex index 在 ECS nginx 需 FTP/Workbench 凭据(待用户)；apex worker 路由透传方案已验证不可行(1003/1019/DNS 无权限)并回退, relay /apim 保持 200。",
         "inputs": [
           {
             "name": "资源包就绪",

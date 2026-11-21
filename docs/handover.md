@@ -489,3 +489,21 @@ Python/pythoncore-3.14-64/python.exe local/doupload.py      # PUB_FORCE=1, h6 �
   - IDE 线程正在 Codex 中打开时 resume 报 active writer；需先关闭/切走该对话。
   - 必须按线程的 `model_provider/model` resume，不能强行用当前默认模型。
   - `server/re/codex-config.json` 曾残留 `timeoutMs=30000`，导致 IDE resume 30s 超时；已改 600000 / workspace-write。
+
+### 实测坑与修正（2026-11-22 执行轮补充）
+- **Blender 导出**：导出前全 NLA 轨 unmute（导出器跳过 mute 轨）；5.4 插值在 kp.interpolation；NLA strip 换 action 需设 action_slot + action_frame_start=1，旧 strip 失效时删除重建。
+- **IDE 重导入**：外部替换 assets/nor/boy.fbx 后须 `ide-ui-eval` 调 `Editor.assetDb.flushChanges()`（reimport/refreshFolder 单独无效）；ide-ui-eval 上下文为渲染窗口（Editor.assetDb，无 Editor.Message，非 async 函数体）。
+- **IDE tree-shake**：badm.ls 不引用 boy → release/web/nor 无 boy；发布产物从 library/d3/<uuid>@0.lh 组装（@laniN→boy/<take>.lani 字母序映射、@lm0→boy/node_0.005.lm、材质uuid→body.lmat），双写 release/web/nor 与 dist/web-1107/nor。
+- **上传假成功**：publish.py upload() 以文件名在列表判成功，覆盖重传=假成功（覆盖确认弹窗未点）。用 `local/reupload_verify.py`（点确认+源站 Range 回读断言）；回读通过后若 plain URL 仍旧字节=CDN 缓存→ResList 加 ver 参数重编 bundle。
+- **探针**：PVE 待机每帧 crossFade 回 stand，直接 crossFade 无效；移动动画须真实输入驱动或回合中截图。badmdrive 的 GOBE 100105 为测试账号态问题（与动画无关）。
+- **遗留观察**：ani.controller 只引用 boy/*.lani，girl1 模板共用同一 controller→girl 也播 boy clips（_girl  Rig 比例不同观感差）；girl 侧球拍观感异常待专项。hitoff/jumphit/diving 仍为旧重定向 action（RP 未键控→球拍随手走），待下一轮重建。
+
+### 生产交付链路（2026-11-22 实测改道）
+- **华为云上传端点当前网络不可用**：控制台上传静默挂起(2KB 也超时)；publish.py upload() 还有"文件名在列表=成功"的假成功缺陷(覆盖确认/失败弹窗未处理)。下载正常。
+- **生产拓扑**：apex normalgame.cn = CF 代理→ECS nginx(/home/ftpu/html/index.html，全资源华为直链)；www.normalgame.cn = CF worker(assets=server/cloud/public)。CF assets 静态优先于 worker。
+- **改道交付(已上线)**：www.normalgame.cn 根目录 serve 新 index.html(bundle 相对路径) + /packs/nor.br|ui.br(v=20261122b) + /js/bundle.js(ResList 指 www/packs)。**www 入口已带新动画**。
+- **apex 仍旧包**：其 index 在 ECS nginx，更新需 FTP 密码或阿里云 Workbench 登录(均已过期/未知=凭据边界，待用户)。曾试 apex/* worker 路由+透传：裸 IP fetch 被 CF 1003、resolveOverride 1019、OAuth 无 DNS 写权限→**已回退 apex 路由**(relay /apim 恢复 200)。教训：wrangler rollback 只回脚本不回 routes；routes 由 deploy 同步。
+- 探针：local/prod_animprobe.cjs(www 生产引擎复验)；local/reupload_verify.py / reupload_delete.py / upload_seq.py(华为上传诊断，含覆盖确认+回读断言)。
+
+- **CF assets 不支持 Range**(全量 200)：res 分片下载原抛"服务器不支持Range"→ `src/libs/net.ts` downloadChunk 加全量 200 降级整包单分片模式(2026-11-22)；worker 保持 git 原版 + assets-first(静态优先)，勿加 run_worker_first(env.ASSETS 绑定实测不可用/1101)。
+- www 静态镜像清单(public/)：index.html(生产 apex 版改 bundle 相对路径)、js/bundle.js、packs/{nor,ui}.br、load.ls、fileconfig.json、internal/、game/、ui/(含从 ui.br 解出的 internal/UI 图片与生成的 scroll 皮肤占位 png)。
