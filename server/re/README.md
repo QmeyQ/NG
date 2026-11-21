@@ -12,7 +12,7 @@
 - 服务器 nginx 需配置 `location /apim { proxy_pass http://127.0.0.1:5001/; }`。
 
 ## 鉴权
-token 在 `re/config.json`：`re-8aed85a4f4191c251fe5396246fb49d9`
+token 在 `re/config.json`：`<RE_TOKEN>`
 每次请求携带：JSON body `token` 字段，或请求头 `X-Re-Token`，或 `Authorization: Bearer <token>`。
 
 ## 调用
@@ -47,12 +47,12 @@ path 相对路径基于项目根 `F:/LayaProject`，也接受绝对路径。
 ## 示例
 ```bash
 curl -X POST http://47.119.120.119/apim -H "Content-Type: application/json" \
-  -d '{"token":"re-8aed85a4f4191c251fe5396246fb49d9","action":"exec","cmd":"node local/layamcp.cjs list"}'
+  -d '{"token":"<RE_TOKEN>","action":"exec","cmd":"node local/layamcp.cjs list"}'
 
-curl -X POST http://47.119.120.119/apim -H "X-Re-Token: re-8aed85a4f4191c251fe5396246fb49d9" \
+curl -X POST http://47.119.120.119/apim -H "X-Re-Token: <RE_TOKEN>" \
   -d '{"action":"laya.build","platform":"web"}'
 
-curl -X POST http://47.119.120.119/apim -H "X-Re-Token: re-8aed85a4f4191c251fe5396246fb49d9" \
+curl -X POST http://47.119.120.119/apim -H "X-Re-Token: <RE_TOKEN>" \
   -d '{"action":"fs.read","path":"src/index.ts"}'
 ```
 
@@ -94,3 +94,4 @@ curl -X POST https://normalgame.cn/apim -H "X-Re-Token: <token>" -H "Content-Typ
 ```
 
 实现：`re/codex.js`，`codex exec --json` + `resume <threadId>`；stdin 必须关闭（否则会等待输入）。会话文件 `re/codex-sessions.json`（本地，勿提交）。
+
