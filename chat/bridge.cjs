@@ -196,7 +196,8 @@ const server = http.createServer(async (req, res) => {
         const body = req.method === 'POST' ? await readBody(req).catch(e => ({ __error: e.message })) : {};
         if (body && body.__error) return sendJson(res, 400, { ok: false, error: body.__error, help: HELP });
         const publicWx = ((p === '/api/wechat/login' || p === '/api/wechat/connect') && req.method === 'POST') || (p === '/api/wechat/status' && req.method === 'GET');
-        if (!publicWx && !auth(req, body)) return sendJson(res, 401, { ok: false, error: 'token 缺失/错误 (X-Cx-Token)', help: HELP });
+        const publicRead = req.method === 'GET' && (p === '/api/conversations' || p === '/api/history' || p === '/api/models');
+        if (!publicWx && !publicRead && !auth(req, body)) return sendJson(res, 401, { ok: false, error: 'token 缺失/错误 (X-Cx-Token)', help: HELP });
         if (req.method === 'POST' && p === '/api/wechat/login' && !allowWxLogin(req)) return sendJson(res, 429, { ok: false, error: '二维码获取过于频繁，请 12 秒后再试', help: HELP });
         try {
             if (req.method === 'GET' && p === '/api/status') {

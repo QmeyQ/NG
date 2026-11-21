@@ -380,3 +380,5 @@ node chat/test/e2e.cjs   -> 17 pass / 0 fail
 - 免 Token 登录：`/api/wechat/login`、`/api/wechat/status` 为公开接口（登录 12s/IP 限流）；其余 `/api/*` 仍需 `X-Cx-Token`。
 - **字段名坑**：服务端返回 `qrcodeUrl`（小写 c），页面曾写 `qrCodeUrl` 导致二维码不渲染；已统一为 `qrcodeUrl`。`chat/test/wxlogin-page.cjs` 实测：点“获取登录二维码”→ `qrCanvas` SVG 23110B、`wxOpenBtn.href` 为 `liteapp.weixin.qq.com`。
 - Token 头只发 ASCII：`tokenValue()` 过滤非 ASCII，避免 `fetch` 抛 “String contains non ISO-8859-1 code point”。
+- 聊天页入口：`/codex` 的“打开聊天”改为绝对 `/chat`；同时 ECS 增加 `/codex/chat/index.html` 与 `/codex/chat.html` 兼容，修掉 `/codex/chat.html` 404。
+- 会话只读公开：`GET /api/conversations`、`GET /api/history`、`GET /api/models` 免 Token；`POST /api/chat` 仍需 Token。`chat/test/chatpage.cjs` 实测：`/chat` 列表含 `wechat:o9cq...@im.wechat`（微信），点开历史 2 条消息。

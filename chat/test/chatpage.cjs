@@ -1,0 +1,9 @@
+'use strict';
+const cp=require('child_process'),path=require('path');const {getJson,Page,sleep}=require('../../local/cdpkit.cjs');
+const port=9245,prof=path.join(__dirname,'edge-chat-'+Date.now());const edge='C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe';
+(async()=>{const child=cp.spawn(edge,['--headless=new','--no-sandbox','--disable-gpu','--remote-debugging-port='+port,'--user-data-dir='+prof,'--window-size=1400,900','about:blank'],{windowsHide:true,stdio:'ignore'});let tabs=null;for(let i=0;i<30;i++){await sleep(400);try{tabs=await getJson('http://127.0.0.1:'+port+'/json/list');if(tabs&&tabs.length)break}catch(e){}}const pg=tabs.find(x=>x.type==='page');const p=await new Page(pg.webSocketDebuggerUrl).open();await p.send('Page.navigate',{url:'https://normalgame.cn/chat'});await sleep(6000);
+await p.ev(`(()=>{const b=document.getElementById('tokenLater');if(b)b.click();return true})()`);await sleep(2500);
+const list=await p.ev(`(()=>{const cs=[...document.querySelectorAll('.conv')].map(x=>({id:x.dataset.id,title:x.querySelector('.conv-title')?.textContent||'',kind:x.querySelector('.av')?.textContent||''}));return cs})()`);console.log('convs',JSON.stringify(list));
+const wx=list.find(x=>x.id&&x.id.startsWith('wechat:'));if(!wx){console.log('FAIL no wechat conv');try{child.kill()}catch(e){}process.exit(1)}
+await p.ev(`(()=>{const e=[...document.querySelectorAll('.conv')].find(x=>x.dataset.id==='${wx.id}');if(e)e.click();return true})()`);await sleep(2500);
+const msgs=await p.ev(`(()=>[...document.querySelectorAll('.msg .b')].map(x=>x.textContent).slice(0,4))()`);console.log('msgs',JSON.stringify(msgs));const pass=msgs.length>0;console.log(pass?'PASS':'FAIL');try{child.kill()}catch(e){}process.exit(pass?0:1)})().catch(e=>{console.log('ERR',e.message);process.exit(1)});
