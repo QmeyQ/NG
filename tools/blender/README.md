@@ -86,3 +86,22 @@ tools\blender\start_blender_mcp.bat
 ```
 
 使用前先运行 `tools\blender\start_blender_mcp.bat`，再打开 Qoder。Qoder 会启动 `mcp-for-blender`，连接 Blender 9876。已验证 `tools/list` 10 个工具、`get_scene_info` 成功。
+
+## 一键启动 / 开机自启
+
+- 一键启动 Blender MCP + Qoder：
+  ```bat
+  F:\LayaProject\tools\blender\start_qoder_blender.bat
+  ```
+  会先检查 9876；未启动则用 Blender 5.3 + MCP startup script 启动，等端口就绪后启动 Qoder。
+- 安装开机自启（当前用户 Startup，不需要管理员）：
+  ```bat
+  F:\LayaProject\tools\blender\install_qoder_blender_autostart.bat
+  ```
+  已安装：`%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\QoderBlenderMCP.lnk`  
+  登录 Windows 后自动启动 Blender（最小化）+ Qoder。
+- 取消自启：
+  ```bat
+  F:\LayaProject\tools\blender\uninstall_qoder_blender_autostart.bat
+  ```
+- 若 Qoder 已经在运行、但 Blender 是后启动的，Qoder 的 MCP 连接可能不会自动重连；重载/重启 Qoder 即可。

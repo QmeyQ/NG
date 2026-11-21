@@ -405,3 +405,4 @@ node chat/test/e2e.cjs   -> 17 pass / 0 fail
 - **目录**：`tools/blender/{start_blender_mcp.bat,blender_mcp_start.py,README.md}`；日志 `tools/blender/blender_mcp_start.log`。
 - **注意**：Blender 5.x 的 Action 是分层/槽位结构，`action.fcurves` 不存在；统计 fcurve 用 `action.layers[*].strips[*].channelbags[*].fcurves`。
 - **Qoder**：`C:\Users\mien\.qoder\mcp.json` 已加 `blender` stdio 条目（venv `mcp-for-blender.exe --host 127.0.0.1 --port 9876`，备份 `mcp.json.bak-blender`）；Qoder 端 `tools/list` 10 个工具、`get_scene_info` 实测 PASS。
+- **一键/自启**：`tools/blender/start_qoder_blender.bat` 先确保 9876 再启动 Qoder；`install_qoder_blender_autostart.bat` 已写入用户 Startup（`QoderBlenderMCP.lnk`），登录自动启动 Blender(最小化)+Qoder；卸载用 `uninstall_qoder_blender_autostart.bat`。
