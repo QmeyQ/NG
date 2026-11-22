@@ -248,7 +248,7 @@ async function ideSyncTick() {
                 else items = await appserver.itemsList(activeIdePeer.slice(4), 50);
                 const entries = (items && items.data) || [];
                 const sig = JSON.stringify(entries.map(e => [(e.item || {}).id, (e.item || {}).text || '', (e.item || {}).aggregatedOutput || '', (e.item || {}).status || '', e.completedAtMs || 0]));
-                if (sig !== lastItemsSig) { lastItemsSig = sig; broadcast('items', { peer: activeIdePeer, items: entries }); }
+                if (sig !== lastItemsSig && entries.length) { lastItemsSig = sig; broadcast('items', { peer: activeIdePeer, items: entries }); }
             } catch (e) { }
         }
                 if (snap.active && Array.isArray(snap.active.messages)) {
@@ -391,6 +391,7 @@ const server = http.createServer(async (req, res) => {
                 if ((CONFIG.mode || 'local') === 'relay') {
                     let r; let live = true;
                     try { r = await relayCall('codex.ideItemsLive', { threadId, limit: 50 }); } catch (e) { live = false; try { r = await relayCall('codex.ideItems', { threadId, limit: 50 }); } catch (e2) { return sendJson(res, 500, { ok: false, error: String(e2.message) }); } }
+                    if (!live && !((r && r.data) || []).length) return sendJson(res, 502, { ok: false, error: 'live 解析失败且 appserver 无数据(不返回空, 防前端闪烁)' });
                     return sendJson(res, 200, { ok: true, live, items: r });
                 }
                 try { const r = await appserver.itemsList(threadId, 50); return sendJson(res, 200, { ok: true, items: r }); } catch (e) { return sendJson(res, 500, { ok: false, error: String(e.message) }); }

@@ -109,16 +109,18 @@ select,input,textarea{font-family:inherit}
 .item-status.running{color:var(--warn)}
 .item-status.done{color:var(--acc)}
 .item-status.fail{color:#e5484d}
-.turn{max-width:min(760px,86%);display:flex;flex-direction:column;gap:4px;margin:4px 0;padding:10px 12px;border-radius:14px;background:#101a24;border:1px solid #1f2c3a;font-size:13px}
-.turn.running{border-color:#6b5227}
-.turn-head{display:flex;align-items:center;gap:8px;font-weight:700}
-.turn-head .turn-time{font-size:10.5px;color:var(--dim);font-weight:400}
-.turn-main{white-space:pre-wrap;word-break:break-word}
-.turn-quote{font-size:11.5px;color:var(--dim);border-left:2px solid #2a3a4a;padding-left:8px;margin-bottom:4px}
-.turn-details{margin-top:4px;border-top:1px dashed #22303f;padding-top:6px}
-.turn-details summary{cursor:pointer;font-size:11.5px;color:var(--dim);user-select:none}
-.turn-details[open] summary{color:var(--txt)}
-.turn-items{display:flex;flex-direction:column;gap:4px;margin-top:4px}
+.turn{max-width:min(760px,86%);display:flex;flex-direction:column;gap:8px;margin:6px 0}
+.turn.running .agentmsg .b{border-color:#6b5227}
+.agentmsg{align-self:flex-start}
+.agentmsg .b{cursor:pointer}
+.agentmsg .b:hover{border-color:#31506e}
+.ta-text{white-space:pre-wrap;word-break:break-word}
+.ta-text+.ta-text{margin-top:8px;border-top:1px dashed #22303f;padding-top:8px}
+.ta-text.dim{color:var(--dim)}
+.ta-proc{margin-top:8px;border-top:1px dashed #22303f;padding-top:8px;display:flex;flex-direction:column;gap:6px}
+.ta-proc .item{max-width:100%}
+.ta-hint{color:var(--dim);margin-left:8px;user-select:none}
+.meta .run{color:var(--warn)}
 .toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%) translateY(20px);background:#0f1720;border:1px solid var(--line);color:var(--txt);padding:9px 14px;border-radius:9px;opacity:0;pointer-events:none;transition:.25s;z-index:80;font-size:12.5px}
 .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
 @media(max-width:760px){.side{width:120px;min-width:120px}.side .search{display:none}.conv-last,.conv-time{display:none}.brand small{display:none}.chat-tools .sel{display:none}}
@@ -221,7 +223,7 @@ function cacheRead(k,d){try{return JSON.parse(localStorage.getItem(k))??d}catch(
 function cacheWrite(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}}
 function cacheMsgs(peer){return cacheRead(CACHE.msgs+peer,[])}
 function cacheMsgsWrite(peer,msgs){cacheWrite(CACHE.msgs+peer,msgs.slice(-200))}
-const state={openTurns:{},items:{},queues:{},queueOpen:false,token:localStorage.getItem('cx_token')||new URLSearchParams(location.search).get('token')||'',convs:[],active:null,models:[],sending:false,hist:{},unread:{}};
+const state={openTurns:{},items:{},itemSig:{},queues:{},queueOpen:false,token:localStorage.getItem('cx_token')||new URLSearchParams(location.search).get('token')||'',convs:[],active:null,models:[],sending:false,hist:{},unread:{}};
 function toast(t){const e=$('toast');e.textContent=t;e.classList.add('show');clearTimeout(toast._t);toast._t=setTimeout(()=>e.classList.remove('show'),2200)}
 async function api(path,opts){
   opts=opts||{};const tk=(state.token||'').trim();opts.headers=Object.assign({},opts.headers||{});if(tk&&/^[\x20-\x7E]+$/.test(tk))opts.headers['X-Cx-Token']=tk;
@@ -290,6 +292,16 @@ async function openConv(id){
   try{const r=await api('/api/history?peer='+encodeURIComponent(id)+(since?'&since='+since:''));const newMsgs=(r.history&&r.history.messages)||[];if(newMsgs.length){const merged=cached.concat(newMsgs).slice(-200);cacheMsgsWrite(id,merged);renderMsgs(merged)}}catch(e){if(!cached.length)$('msgs').innerHTML='<div class="empty"><div>'+esc(e.message)+'</div></div>'}
 }
 
+function itemsSig(arr){return JSON.stringify((arr||[]).map(e=>{const it=e.item||{};return [it.id,it.status,(it.text||'').length,(it.aggregatedOutput||'').length,e.completedAtMs||0]}))}
+function renderItemsIfChanged(peer,arr){
+  if(!String(peer).startsWith('ide:'))return false;
+  const sig=itemsSig(arr);
+  if(sig===state.itemSig[peer])return false;
+  state.itemSig[peer]=sig;
+  state.items[peer]=arr;
+  if(state.active===peer)renderItems(arr);
+  return true;
+}
 function flatText(arr){return (arr||[]).map(x=>typeof x==='string'?x:(x&&(x.text!=null?x.text:(x.summary!=null?x.summary:'')))).filter(Boolean)}
 function itemText(it){
   if(!it)return '';
@@ -322,16 +334,29 @@ function renderItems(items){
   box.innerHTML=groups.map(function(g,i){
     const its=g.items;const last=its[its.length-1]||{};
     const user=its.find(function(e){return (e.item||{}).type==='userMessage'});
-    const agent=its.find(function(e){return (e.item||{}).type==='agentMessage'});
+    const agents=its.filter(function(e){return (e.item||{}).type==='agentMessage'});
+    const proc=its.filter(function(e){const t=(e.item||{}).type;return t!=='userMessage'&&t!=='agentMessage'});
     const running=its.some(function(e){const it=e.item||{};const done=(it.status==='completed'||it.status==='failed')||(it.exitCode!==null&&it.exitCode!==undefined);return (it.type==='commandExecution'||it.type==='mcpToolCall')&&!done});
-    const open=!!state.openTurns[g.turnId]||(running&&i===groups.length-1);
-    const main=agent?itemText(agent.item):(user?itemText(user.item):'');
-    const quote=(user&&agent)?('<div class="turn-quote">'+esc(itemText(user.item))+'</div>'):'';
-    const others=its.filter(function(e){const ty=(e.item||{}).type;return ty!=='agentMessage'});
-    const details=others.length?('<details class="turn-details"'+(open?' open':'')+'><summary>'+(running?'执行中 ':'执行过程 ')+others.length+' 项</summary><div class="turn-items">'+others.map(itemHtml).join('')+'</div></details>'):'';
-    return '<div class="turn'+(running?' running':'')+'" data-turn="'+esc(g.turnId)+'"><div class="item-head">'+esc(agent?'Codex':(user?'用户':'活动'))+'<span class="item-status '+(running?'running':'done')+'">'+(running?'执行中':'完成')+'</span><span class="turn-time">'+fmtTime(last.startedAtMs||last.completedAtMs||Date.now())+'</span></div>'+quote+(main?'<div class="turn-main">'+esc(main)+'</div>':'')+details+'</div>';
+    const open=Object.prototype.hasOwnProperty.call(state.openTurns,g.turnId)?!!state.openTurns[g.turnId]:(running&&i===groups.length-1);
+    const userHtml=user?('<div class="msg me"><div class="b">'+esc(itemText(user.item))+'</div><div class="meta">我 · '+fmtTime(user.startedAtMs||user.completedAtMs||Date.now())+'</div></div>'):'';
+    const texts=agents.map(function(a){const t=itemText(a.item);return '<div class="ta-text">'+esc(t)+'</div>'}).join('');
+    const procHtml=proc.length?('<div class="ta-proc"'+(open?'':' style="display:none"')+'>'+proc.map(itemHtml).join('')+'</div>'):'';
+    const hint=proc.length?('<span class="ta-hint">'+(open?'▾':'▸')+' 执行过程 '+proc.length+' 项 · 点击消息收展</span>'):'';
+    return '<div class="turn'+(running?' running':'')+'" data-turn="'+esc(g.turnId)+'">'+userHtml+
+      '<div class="msg agentmsg" data-turn="'+esc(g.turnId)+'"><div class="b">'+(texts||'<div class="ta-text dim">（处理中…）</div>')+procHtml+'</div>'+
+      '<div class="meta">Codex · <span class="'+(running?'run':'')+'">'+(running?'执行中':'完成')+'</span> · '+fmtTime(last.completedAtMs||last.startedAtMs||Date.now())+hint+'</div></div></div>';
   }).join('');
-  box.querySelectorAll('.turn-details').forEach(function(d){d.addEventListener('toggle',function(){const turn=this.closest('.turn');if(!turn)return;const id=turn.getAttribute('data-turn');if(id)state.openTurns[id]=this.open})});
+  box.querySelectorAll('.agentmsg .b').forEach(function(b){
+    b.addEventListener('click',function(){
+      try{const sel=window.getSelection();if(sel&&sel.type==='Range')return}catch(e){}
+      const m=this.closest('.agentmsg');const k=m&&m.getAttribute('data-turn');if(!k)return;
+      const proc=m.querySelector('.ta-proc');if(!proc)return;
+      const willOpen=proc.style.display==='none';
+      proc.style.display=willOpen?'':'none';
+      state.openTurns[k]=willOpen;
+      const hint=m.querySelector('.ta-hint');if(hint)hint.textContent=(willOpen?'▾':'▸')+' 执行过程 '+m.querySelectorAll('.ta-proc .item').length+' 项 · 点击消息收展';
+    });
+  });
   const near=box.scrollHeight-box.scrollTop-box.clientHeight<80;
   if(near)box.scrollTop=box.scrollHeight;
 }
@@ -340,8 +365,8 @@ async function loadItems(peer){
   try{
     const r=await api('/api/ide/items?peer='+encodeURIComponent(peer));
     const arr=(r.items&&r.items.data)||[];
-    state.items[peer]=arr;
-    if(state.active===peer)renderItems(arr);
+    if(!arr.length&&(state.items[peer]||[]).length)return; // 空结果不覆盖已有数据(防闪烁)
+    renderItemsIfChanged(peer,arr);
   }catch(e){
     if(state.active===peer){$('msgs').innerHTML='<div class="empty"><div>&#9888;</div><div>'+esc(e.message)+'</div></div>';}
   }
@@ -404,14 +429,15 @@ async function boot(){
   if(state.convs.length)openConv(state.convs[0].id);
   if(new URLSearchParams(location.search).get('noevents')==='1')return;
   setInterval(function(){if(state.active&&String(state.active).startsWith('ide:'))loadQueue(state.active)},5000);
+  setInterval(function(){if(state.active&&String(state.active).startsWith('ide:'))loadItems(state.active)},2000); // 每页独立拉取, 不依赖 bridge 全局 active(多标签互不干扰)
   const es=new EventSource(API_BASE+'/api/events');
   es.addEventListener('message',ev=>{try{const m=JSON.parse(ev.data);const isIde=String(m.peer||'').startsWith('ide:');if(m.peer===state.active&&state.sending===false&&!isIde)appendMsg(m);else if(m.peer!==state.active){state.unread[m.peer]=(state.unread[m.peer]||0)+1;renderConvs();loadConvs()}}catch(e){}});
   es.addEventListener('conversations',()=>loadConvs());
-      es.addEventListener('items',ev=>{try{const d=JSON.parse(ev.data);if(!d.peer||!Array.isArray(d.items))return;state.items[d.peer]=d.items;if(d.peer===state.active)renderItems(d.items)}catch(e){}});
+      es.addEventListener('items',ev=>{try{const d=JSON.parse(ev.data);if(!d.peer||!Array.isArray(d.items))return;if(!d.items.length&&(state.items[d.peer]||[]).length)return;renderItemsIfChanged(d.peer,d.items)}catch(e){}});
   es.addEventListener('ideEvent',ev=>{try{const d=JSON.parse(ev.data);if(!d.peer||!Array.isArray(state.items[d.peer]))return;const arr=state.items[d.peer];const m=d.method||'';const pr=d.params||{};
     if(m==='item/started'||m==='item/completed'){const idx=arr.findIndex(e=>(e.item||{}).id===(pr.item||{}).id);if(idx>=0)arr[idx]={...arr[idx],item:pr.item,startedAtMs:pr.startedAtMs||arr[idx].startedAtMs,completedAtMs:pr.completedAtMs||arr[idx].completedAtMs};else arr.unshift({turnId:pr.turnId,item:pr.item,startedAtMs:pr.startedAtMs,completedAtMs:pr.completedAtMs})}
     else if(m==='item/agentMessage/delta'||m==='item/commandExecution/outputDelta'){const idx=arr.findIndex(e=>(e.item||{}).id===pr.itemId);if(idx>=0){const it=arr[idx].item;if(m==='item/agentMessage/delta')it.text=(it.text||'')+(pr.delta||'');else it.aggregatedOutput=(it.aggregatedOutput||'')+(pr.delta||'')}}
-    if(d.peer===state.active)renderItems(arr)}catch(e){}});
+    if(d.peer===state.active)renderItemsIfChanged(d.peer,arr)}catch(e){}});
   es.addEventListener('history',ev=>{try{const h=JSON.parse(ev.data);if(!h.peer||!Array.isArray(h.messages))return;cacheMsgsWrite(h.peer,h.messages);const c=state.convs.find(x=>x.id===h.peer);if(c){const last=h.messages[h.messages.length-1];if(last)c.last=String(last.text||'').slice(0,80);if(h.peer!==state.active){state.unread[h.peer]=(state.unread[h.peer]||0)+1;renderConvs()}}if(h.peer===state.active&&!String(h.peer).startsWith('ide:'))renderMsgs(h.messages)}catch(e){}});
 }
 $('tokenSave').onclick=()=>{state.token=$('tokenInput').value.trim();localStorage.setItem('cx_token',state.token);$('tokenDlg').classList.remove('show');boot()};

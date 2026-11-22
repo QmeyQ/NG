@@ -577,3 +577,13 @@ Python/pythoncore-3.14-64/python.exe local/doupload.py      # PUB_FORCE=1, h6 �
 2. 改 \`chat/bridge.cjs\` 或 \`chat/public/chat.html\` → \`codex.bundle\` → ECS 写入 → \`systemctl restart codex-chat\` → cp chat.html 到 \`/home/ftpu/html/{chat,codex}/\`（工作流 h17.6 命令）。
 3. 复跑 h21.3 测试。
 
+### h21.6 第二轮修正（2026-11-22 用户实测反馈后）
+
+> 用户反馈：用户消息没合并成原聊天气泡、界面闪烁混乱、会话一会空白一会出消息、收展不要搞成按钮。
+
+- **渲染重设计**：turn 不再是"大卡片+details按钮"——改为标准聊天结构：**用户消息 = 原样右对齐绿底气泡(.msg.me)，Codex 回复 = 左侧气泡(.agentmsg)**，执行过程(命令/思考/工具)收在 Codex 气泡内部(.ta-proc)。**点击消息本体即收展**(无 summary/按钮；meta 尾部仅文字提示"▸ 执行过程 N 项")，执行中的 turn 默认展开，openTurns 记住手动选择；选中文本时不误触发(selection guard)。
+- **用户消息强制保留**：ideItemsLive 超出 limit 的 turn 用户消息不再被截掉(强制插回该 turn 最前)——长轮次(几十条命令)也能看到"我"的提问气泡。
+- **闪烁根因**：页面轮询曾每 2s 无条件重渲整个消息区(数据没变也重渲→滚动跳动/闪烁)。加 itemsSig 签名守卫：数据没变不重渲。chatpage_stable.cjs 实测：标记元素 12s 存活、0 空白、0 滚动跳动。
+- **空白/交替出错根因**：a) bridge 曾广播空 items 数组(live 失败回退 appserver 为空时)→前端整片抹白；b) 多标签共享 bridge 全局 activeIdePeer 互相争抢。修复：bridge 只广播非空；/api/ide/items 回退空时返回 502 而非空 ok；前端空结果不覆盖已有数据；**页面每 2s 独立拉取自己打开的会话**(不再依赖全局 active)。
+- **带宽保护**：ideItemsLive 截断超长文本(command 2000/文本 6000/输出 4000 字符)，50 项轮询负载可控。
+- 验收：turns(1 turn/1 用户气泡/0 旧details)、items、stable(0重渲/0空白/0滚动跳)、realtime2(执行中→完成翻转) 全 PASS；audit 确认用户气泡 align=flex-end/绿底、agent 气泡 cursor=pointer、运行中琥珀色边框。

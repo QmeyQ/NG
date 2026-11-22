@@ -325,6 +325,8 @@ class CodexBridge {
 
     // 实时 items: 直接解析 rollout JSONL, 执行中的命令/推理/消息立即可见(app-server items/list 只返回已完成项)。
     // 返回格式与 appserver.itemsList 一致: {data:[{turnId,item,startedAtMs,completedAtMs}...]}(最新在前)。
+    static _cap(x, n) { const v = x == null ? '' : String(x); return v.length > n ? v.slice(0, n) + '\n…(' + v.length + '字符, 截断)' : v; }
+
     async ideItemsLive(threadId, limit) {
         let meta; for (let i = 0; ; i++) { try { meta = this.ideThread(threadId); break; } catch (e) { if (i >= 2 || !/busy|locked/i.test(String(e.message))) throw e; await new Promise(r => setTimeout(r, 60)); } }
         const file = meta.rolloutPath;
@@ -376,7 +378,7 @@ class CodexBridge {
                     const id = p.id || (role + '-' + t0);
                     const existing = byId.get(id) || (role === 'user' ? userByTurn.get(turnId) : null);
                     if (existing) { existing.startedAtMs = existing.startedAtMs || t0; continue; }
-                    const it = role === 'user' ? { type: 'userMessage', id, content: [{ type: 'text', text: txt }] } : { type: 'agentMessage', id, text: txt };
+                    const it = role === 'user' ? { type: 'userMessage', id, content: [{ type: 'text', text: CodexBridge._cap(txt, 6000) }] } : { type: 'agentMessage', id, text: CodexBridge._cap(txt, 6000) };
                     const e = push({ turnId, item: it, startedAtMs: t0, completedAtMs: t0 });
                     if (role === 'user') userByTurn.set(turnId, e);
                 } else if (p.type === 'reasoning') {
@@ -393,7 +395,7 @@ class CodexBridge {
                     const t0v = ts(o);
                     let it;
                     if (name === 'exec_command') {
-                        it = { type: 'commandExecution', id: callId, command: String(args.cmd != null ? args.cmd : ''), cwd: String(args.workdir || args.cwd || meta.cwd || ''), status: 'running' };
+                        it = { type: 'commandExecution', id: callId, command: CodexBridge._cap(args.cmd != null ? args.cmd : '', 2000), cwd: String(args.workdir || args.cwd || meta.cwd || ''), status: 'running' };
                     } else {
                         it = { type: 'mcpToolCall', id: callId, name, arguments: args, status: 'running' };
                     }
@@ -409,8 +411,8 @@ class CodexBridge {
                     const exitCode = em ? Number(em[1]) : null;
                     const oi = raw.indexOf('Output:\n');
                     const body = oi >= 0 ? raw.slice(oi + 8) : raw;
-                    if (it.type === 'commandExecution') { it.aggregatedOutput = body; it.exitCode = exitCode; it.status = (exitCode === 0 || exitCode === null) ? 'completed' : 'failed'; }
-                    else { it.output = body; it.status = 'completed'; }
+                    if (it.type === 'commandExecution') { it.aggregatedOutput = CodexBridge._cap(body, 4000); it.exitCode = exitCode; it.status = (exitCode === 0 || exitCode === null) ? 'completed' : 'failed'; }
+                    else { it.output = CodexBridge._cap(body, 4000); it.status = 'completed'; }
                     e.completedAtMs = ts(o);
                 }
             } else if (o.type === 'event_msg' && p.type === 'item_completed') {
@@ -452,7 +454,20 @@ class CodexBridge {
             }
         }
         const lim = Math.max(1, Number(limit) || 50);
-        const data = out.slice(-lim).reverse();
+        const data = out.slice(-lim);
+        // 强制保留每个出现 turn 的用户消息(不被 limit 截掉), 插到该 turn 最前
+        const turnIds = new Set(data.map(e => e.turnId));
+        const extras = [];
+        for (let i = out.length - 1; i >= 0; i--) {
+            const e = out[i];
+            if ((e.item || {}).type === 'userMessage' && turnIds.has(e.turnId) && data.indexOf(e) < 0) extras.push(e);
+        }
+        for (const e of extras) {
+            let idx = data.findIndex(x => x.turnId === e.turnId);
+            if (idx < 0) idx = 0;
+            data.splice(idx, 0, e);
+        }
+        data.reverse();
         return { data, limit: lim, total: out.length, live: true };
     }
 

@@ -191,3 +191,4 @@ bash /tmp/ecs.sh <RE_TOKEN> http://127.0.0.1/apim
 - 实时：\`codex.ideItemsLive\`（relay）直接解析 rollout JSONL——执行中的命令**立即**出现为"执行中"，完成后自动翻转为"完成/失败"；bridge 每秒 diff 广播 SSE \`items\`。
 - 折叠状态跨刷新保持（\`state.openTurns\`）；执行中的轮次默认展开；向上翻阅时不强制拉底。
 - 测试：\`node chat/test/chatpage_turns.cjs\`、\`node chat/test/chatpage_turn_realtime2.cjs RT-<任意标记>\`（需另一会话同时发含 \`<标记>-SLEEP\` 的长命令）。
+- 第二轮：用户消息=原样右对齐绿底气泡；Codex 回复=左侧气泡，过程收在消息内，**点击消息本体收展**（无按钮）；执行中的轮次默认展开。数据不变不重渲（签名守卫），多标签每页独立 2s 拉取互不干扰，空数据不广播不覆盖。

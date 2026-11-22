@@ -23,7 +23,7 @@ const PEER='ide:01a1e104-2412-7060-8f8e-dd72c6540f08';
   let sawRunning=false,sawDone=false,sawAppear=false,t0=Date.now();
   while(Date.now()-t0<40000){
     const r=await p.ev(`(()=>{
-      const items=[...document.querySelectorAll('.turn-items .item')];
+      const items=[...document.querySelectorAll('.ta-proc .item')];
       const m=items.find(x=>((x.querySelector('.item-body')||{}).textContent||'').includes('${MARKER}'));
       const turn=document.querySelector('.turn');
       return JSON.stringify({items:items.length,turnRunning:turn?turn.className.includes('running'):false,
