@@ -116,19 +116,19 @@ async function listConversations() {
         };
     }).concat(ideConvs).sort((a, b) => b.updatedAt - a.updatedAt);
 }
-async function history(peer) {
+async function history(peer, since) {
     if (String(peer).startsWith('ide:')) {
         activeIdePeer = String(peer);
         const threadId = String(peer).slice(4);
         if ((CONFIG.mode || 'local') === 'relay') {
-            try { return await relayCall('codex.ideHistory', { threadId, limit: 200 }); } catch (e) { return { peer, messages: [], error: String(e.message) }; }
+            try { return await relayCall('codex.ideHistory', { threadId, limit: 200, since }); } catch (e) { return { peer, messages: [], error: String(e.message) }; }
         }
-        try { return await codex.ideHistory(threadId, 200); } catch (e) { return { peer, messages: [], error: String(e.message) }; }
+        try { return await codex.ideHistory(threadId, 200, since); } catch (e) { return { peer, messages: [], error: String(e.message) }; }
     }
     if ((CONFIG.mode || 'local') === 'relay') {
         try { return await relayCall('codex.history', { peer, limit: 200 }); } catch (e) { return { peer, messages: [], error: String(e.message) }; }
     }
-    return localHistory(peer);
+    return localHistory(peer, 200, since);
 }
 
 // ---------------- WeChat ----------------
@@ -295,7 +295,7 @@ const server = http.createServer(async (req, res) => {
                 return sendJson(res, 200, { ok: true, config: CONFIG });
             }
             if (req.method === 'GET' && p === '/api/conversations') return sendJson(res, 200, { ok: true, conversations: await listConversations() });
-            if (req.method === 'GET' && p === '/api/history') return sendJson(res, 200, { ok: true, history: await history(u.searchParams.get('peer') || 'default') });
+            if (req.method === 'GET' && p === '/api/history') return sendJson(res, 200, { ok: true, history: await history(u.searchParams.get('peer') || 'default', u.searchParams.get('since')) });
             if (req.method === 'POST' && p === '/api/chat') {
                 if (!body.text) return sendJson(res, 400, { ok: false, error: 'text 必填', help: HELP });
                 const peer = body.peer || ('web:' + Date.now());

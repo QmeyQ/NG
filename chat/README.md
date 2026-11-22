@@ -135,3 +135,11 @@ bash /tmp/ecs.sh <RE_TOKEN> http://127.0.0.1/apim
 - IDE 会话发送走 relay `codex.ideSend`：`thread/resume` + `turn/start`；若线程正在 Codex 中运行，自动 `thread/queue/add` 排队。
 - 双击会话列表打开“会话管理”：继续、复制 ID、改名、归档、取消归档。
 - 当前 Codex 正在运行的线程不能被第二个进程抢 writer，只能排队；等 Codex 释放后会处理。
+
+## 本地缓存与增量同步
+
+- 会话列表缓存：`localStorage.cx_cache_convs`
+- 每个会话消息缓存：`localStorage.cx_cache_msgs_<peer>`（最近 200 条）
+- 打开会话：先渲染缓存，再带 `since=<最后一条 ts>` 增量拉取新消息
+- SSE `history` 到达时同步写入缓存
+- 服务端 `/api/history?peer=...&since=...` 只返回 `ts > since` 的新消息

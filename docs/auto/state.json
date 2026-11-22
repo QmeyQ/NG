@@ -99,7 +99,8 @@
     "apex 交付: FTP(ftpu) 上传 index/bundle/packs 到 ECS, HTTP 回读全绿(206/5230412); ResList apex 口径 v=20261122c",
     "chat 实时同步: appserver.js(stdio JSON-RPC) + relay ideSend/ideQueue/ideSnapshot/ideManage + bridge 1s snapshot 轮询→SSE history/conversations",
     "chat IDE 会话操作: thread/resume + turn/start; active writer 自动 queue/add",
-    "chat UI 双击会话管理(继续/复制ID/改名/归档/取消归档), chatpage_manage.cjs PASS"
+    "chat UI 双击会话管理(继续/复制ID/改名/归档/取消归档), chatpage_manage.cjs PASS",
+    "chat 本地缓存+增量同步: localStorage 会话/消息缓存, /api/history since 过滤, SSE history 回写缓存"
   ],
   "next": [
     "用户真实浏览器打开 normalgame.cn 目检左右移动/待机/球拍(点\"下载\"确认重下新包); 通过后下一轮: girl1 共用 controller 观感 + hitoff/jumphit/diving 重建",
@@ -122,5 +123,5 @@
   ],
   "last_output": "social3drive 11/11 PASS: addFriendInput/btn_申请好友 -> B req A, A reqAccept_0 -> friends=1, B 刷新 -> friend_0, msgInput+btn_发送 -> detail msgs=1 no duplicate, A refresh sees message, server fA/fB persisted, no exceptions | bundle 1,526,650B | tsc baseline | offline 121 pass",
   "note": "LayaProject=小游戏平台; NG2=branch origin/room",
-  "updatedAt": "2026-11-22T04:11:10.797Z"
+  "updatedAt": "2026-11-22T04:54:14.256Z"
 }

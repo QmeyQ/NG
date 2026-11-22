@@ -170,6 +170,12 @@ select,input,textarea{font-family:inherit}
 (function(){
 const $=id=>document.getElementById(id);
 const API_BASE=(localStorage.getItem('cx_api')||new URLSearchParams(location.search).get('api')||(/normalgame\.cn$/i.test(location.hostname)?'/codex-api':'')).replace(/\/+$/,'');
+
+const CACHE={convs:'cx_cache_convs',msgs:'cx_cache_msgs_'};
+function cacheRead(k,d){try{return JSON.parse(localStorage.getItem(k))??d}catch(e){return d}}
+function cacheWrite(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}}
+function cacheMsgs(peer){return cacheRead(CACHE.msgs+peer,[])}
+function cacheMsgsWrite(peer,msgs){cacheWrite(CACHE.msgs+peer,msgs.slice(-200))}
 const state={token:localStorage.getItem('cx_token')||new URLSearchParams(location.search).get('token')||'',convs:[],active:null,models:[],sending:false,hist:{},unread:{}};
 function toast(t){const e=$('toast');e.textContent=t;e.classList.add('show');clearTimeout(toast._t);toast._t=setTimeout(()=>e.classList.remove('show'),2200)}
 async function api(path,opts){
@@ -192,7 +198,8 @@ function renderConvs(){
   document.querySelectorAll('.conv').forEach(el=>{el.onclick=()=>openConv(el.dataset.id);el.ondblclick=e=>{e.preventDefault();openManage(el.dataset.id)}});
 }
 async function loadConvs(){
-  try{const r=await api('/api/conversations');state.convs=r.conversations||[];renderConvs()}catch(e){}
+  state.convs=cacheRead(CACHE.convs,[]);renderConvs();
+  try{const r=await api('/api/conversations');state.convs=r.conversations||[];cacheWrite(CACHE.convs,state.convs);renderConvs()}catch(e){}
 }
 async function loadModels(){
   try{const r=await api('/api/models');state.models=r.models||[];$('model').innerHTML=state.models.map(m=>`<option value="${esc(m.slug)}">${esc(m.label||m.slug)}</option>`).join('')}catch(e){}
@@ -202,8 +209,9 @@ async function openConv(id){
   const c=state.convs.find(x=>x.id===id)||{id};
   $('chatTitle').textContent=c.title||id;$('chatSub').textContent=(c.kind==='wechat'?'微信会话':c.kind==='group'?'微信群':(c.kind==='ide'?'Codex IDE 会话':'Codex 会话'))+' · '+id;
   $('peerHint').textContent=id;$('send').disabled=false;
-  $('msgs').innerHTML='<div class="empty"><div>加载中…</div></div>';
-  try{const r=await api('/api/history?peer='+encodeURIComponent(id));renderMsgs((r.history&&r.history.messages)||[])}catch(e){$('msgs').innerHTML='<div class="empty"><div>'+esc(e.message)+'</div></div>'}
+  const cached=cacheMsgs(id);renderMsgs(cached);
+  const since=cached.length?cached[cached.length-1].ts||0:0;
+  try{const r=await api('/api/history?peer='+encodeURIComponent(id)+(since?'&since='+since:''));const newMsgs=(r.history&&r.history.messages)||[];if(newMsgs.length){const merged=cached.concat(newMsgs).slice(-200);cacheMsgsWrite(id,merged);renderMsgs(merged)}}catch(e){if(!cached.length)$('msgs').innerHTML='<div class="empty"><div>'+esc(e.message)+'</div></div>'}
 }
 function renderMsgs(msgs){
   if(!msgs.length){$('msgs').innerHTML='<div class="empty"><div class="big">✨</div><div>开始对话吧</div></div>';return}
@@ -254,7 +262,7 @@ async function boot(){
   const es=new EventSource(API_BASE+'/api/events');
   es.addEventListener('message',ev=>{try{const m=JSON.parse(ev.data);if(m.peer===state.active&&state.sending===false)appendMsg(m);else if(m.peer!==state.active){state.unread[m.peer]=(state.unread[m.peer]||0)+1;renderConvs();loadConvs()}}catch(e){}});
   es.addEventListener('conversations',()=>loadConvs());
-  es.addEventListener('history',ev=>{try{const h=JSON.parse(ev.data);if(h.peer===state.active&&Array.isArray(h.messages))renderMsgs(h.messages)}catch(e){}});
+  es.addEventListener('history',ev=>{try{const h=JSON.parse(ev.data);if(h.peer===state.active&&Array.isArray(h.messages)){cacheMsgsWrite(h.peer,h.messages);renderMsgs(h.messages)}}catch(e){}});
 }
 $('tokenSave').onclick=()=>{state.token=$('tokenInput').value.trim();localStorage.setItem('cx_token',state.token);$('tokenDlg').classList.remove('show');boot()};
 $('tokenLater').onclick=()=>$('tokenDlg').classList.remove('show');
