@@ -108,6 +108,17 @@ select,input,textarea{font-family:inherit}
 .item-status{font-size:10.5px;padding:1px 6px;border-radius:6px;background:#182633;color:var(--dim)}
 .item-status.running{color:var(--warn)}
 .item-status.done{color:var(--acc)}
+.item-status.fail{color:#e5484d}
+.turn{max-width:min(760px,86%);display:flex;flex-direction:column;gap:4px;margin:4px 0;padding:10px 12px;border-radius:14px;background:#101a24;border:1px solid #1f2c3a;font-size:13px}
+.turn.running{border-color:#6b5227}
+.turn-head{display:flex;align-items:center;gap:8px;font-weight:700}
+.turn-head .turn-time{font-size:10.5px;color:var(--dim);font-weight:400}
+.turn-main{white-space:pre-wrap;word-break:break-word}
+.turn-quote{font-size:11.5px;color:var(--dim);border-left:2px solid #2a3a4a;padding-left:8px;margin-bottom:4px}
+.turn-details{margin-top:4px;border-top:1px dashed #22303f;padding-top:6px}
+.turn-details summary{cursor:pointer;font-size:11.5px;color:var(--dim);user-select:none}
+.turn-details[open] summary{color:var(--txt)}
+.turn-items{display:flex;flex-direction:column;gap:4px;margin-top:4px}
 .toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%) translateY(20px);background:#0f1720;border:1px solid var(--line);color:var(--txt);padding:9px 14px;border-radius:9px;opacity:0;pointer-events:none;transition:.25s;z-index:80;font-size:12.5px}
 .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
 @media(max-width:760px){.side{width:120px;min-width:120px}.side .search{display:none}.conv-last,.conv-time{display:none}.brand small{display:none}.chat-tools .sel{display:none}}
@@ -210,7 +221,7 @@ function cacheRead(k,d){try{return JSON.parse(localStorage.getItem(k))??d}catch(
 function cacheWrite(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}}
 function cacheMsgs(peer){return cacheRead(CACHE.msgs+peer,[])}
 function cacheMsgsWrite(peer,msgs){cacheWrite(CACHE.msgs+peer,msgs.slice(-200))}
-const state={items:{},queues:{},queueOpen:false,token:localStorage.getItem('cx_token')||new URLSearchParams(location.search).get('token')||'',convs:[],active:null,models:[],sending:false,hist:{},unread:{}};
+const state={openTurns:{},items:{},queues:{},queueOpen:false,token:localStorage.getItem('cx_token')||new URLSearchParams(location.search).get('token')||'',convs:[],active:null,models:[],sending:false,hist:{},unread:{}};
 function toast(t){const e=$('toast');e.textContent=t;e.classList.add('show');clearTimeout(toast._t);toast._t=setTimeout(()=>e.classList.remove('show'),2200)}
 async function api(path,opts){
   opts=opts||{};const tk=(state.token||'').trim();opts.headers=Object.assign({},opts.headers||{});if(tk&&/^[\x20-\x7E]+$/.test(tk))opts.headers['X-Cx-Token']=tk;
@@ -279,12 +290,13 @@ async function openConv(id){
   try{const r=await api('/api/history?peer='+encodeURIComponent(id)+(since?'&since='+since:''));const newMsgs=(r.history&&r.history.messages)||[];if(newMsgs.length){const merged=cached.concat(newMsgs).slice(-200);cacheMsgsWrite(id,merged);renderMsgs(merged)}}catch(e){if(!cached.length)$('msgs').innerHTML='<div class="empty"><div>'+esc(e.message)+'</div></div>'}
 }
 
+function flatText(arr){return (arr||[]).map(x=>typeof x==='string'?x:(x&&(x.text!=null?x.text:(x.summary!=null?x.summary:'')))).filter(Boolean)}
 function itemText(it){
   if(!it)return '';
   if(it.type==='userMessage')return (it.content||[]).map(c=>c.text||'').join('\n');
   if(it.type==='agentMessage')return it.text||'';
   if(it.type==='commandExecution')return it.command||'';
-  if(it.type==='reasoning')return (it.summary||[]).concat(it.content||[]).join('\n');
+  if(it.type==='reasoning')return flatText(it.summary).concat(flatText(it.content)).join('\n');
   if(it.type==='fileChange')return (it.changes||[]).map(c=>(c.path||'')+' '+(c.kind||c.change_type||'')).join('\n');
   if(it.type==='mcpToolCall')return (it.name||it.serverName||'')+' '+(it.arguments?JSON.stringify(it.arguments).slice(0,200):'');
   return '';
@@ -293,29 +305,46 @@ function itemTitle(it){
   const map={userMessage:'用户',agentMessage:'Codex',commandExecution:'命令',reasoning:'思考',fileChange:'文件',mcpToolCall:'工具',functionCallOutput:'输出'};
   return map[it&&it.type]||'活动';
 }
+function itemHtml(e){
+  const it=e.item||{};const t=itemTitle(it);const body=itemText(it);
+  let status='';
+  if(it.type==='commandExecution'){const done=(it.status==='completed'||it.status==='failed')||(it.exitCode!==null&&it.exitCode!==undefined);status=done?('<span class="item-status '+(it.status==='failed'?'fail':'done')+'">'+(it.status==='failed'?'失败':'完成')+'</span>'):'<span class="item-status running">执行中</span>'}
+  const out=it.aggregatedOutput?'<div class="item-out">'+esc(it.aggregatedOutput)+'</div>':'';
+  const cls=it.type==='userMessage'?'user':it.type==='agentMessage'?'agent':it.type==='commandExecution'?'cmd':it.type==='reasoning'?'reason':'tool';
+  return '<div class="item '+cls+'"><div class="item-head">'+esc(t)+status+'</div>'+(body?'<div class="item-body">'+esc(body)+'</div>':'')+out+'<div class="item-meta">'+fmtTime(e.startedAtMs||e.completedAtMs||Date.now())+'</div></div>';
+}
 function renderItems(items){
   const box=$('msgs');
   if(!items||!items.length){box.innerHTML='<div class="empty"><div class="big">✨</div><div>暂无活动</div></div>';return}
   const asc=items.slice().reverse();
-  box.innerHTML=asc.map(function(e){
-    const it=e.item||{};
-    const t=itemTitle(it);const body=itemText(it);
-    let status='';
-    if(it.type==='commandExecution'){status=(it.status==='completed'||it.exitCode!==null&&it.exitCode!==undefined)?'<span class="item-status done">完成</span>':'<span class="item-status running">执行中</span>'}
-    const out=it.aggregatedOutput?'<div class="item-out">'+esc(it.aggregatedOutput)+'</div>':'';
-    const cls=it.type==='userMessage'?'user':it.type==='agentMessage'?'agent':it.type==='commandExecution'?'cmd':it.type==='reasoning'?'reason':'tool';
-    return '<div class="item '+cls+'"><div class="item-head">'+esc(t)+status+'</div>'+(body?'<div class="item-body">'+esc(body)+'</div>':'')+out+'<div class="item-meta">'+fmtTime(e.startedAtMs||e.completedAtMs||Date.now())+'</div></div>';
+  const groups=[];const idx={};
+  for(const e of asc){const k=e.turnId||('no-'+(e.item||{}).id);if(idx[k]==null){idx[k]=groups.length;groups.push({turnId:k,items:[]})}groups[idx[k]].items.push(e)}
+  box.innerHTML=groups.map(function(g,i){
+    const its=g.items;const last=its[its.length-1]||{};
+    const user=its.find(function(e){return (e.item||{}).type==='userMessage'});
+    const agent=its.find(function(e){return (e.item||{}).type==='agentMessage'});
+    const running=its.some(function(e){const it=e.item||{};const done=(it.status==='completed'||it.status==='failed')||(it.exitCode!==null&&it.exitCode!==undefined);return (it.type==='commandExecution'||it.type==='mcpToolCall')&&!done});
+    const open=!!state.openTurns[g.turnId]||(running&&i===groups.length-1);
+    const main=agent?itemText(agent.item):(user?itemText(user.item):'');
+    const quote=(user&&agent)?('<div class="turn-quote">'+esc(itemText(user.item))+'</div>'):'';
+    const others=its.filter(function(e){const ty=(e.item||{}).type;return ty!=='agentMessage'});
+    const details=others.length?('<details class="turn-details"'+(open?' open':'')+'><summary>'+(running?'执行中 ':'执行过程 ')+others.length+' 项</summary><div class="turn-items">'+others.map(itemHtml).join('')+'</div></details>'):'';
+    return '<div class="turn'+(running?' running':'')+'" data-turn="'+esc(g.turnId)+'"><div class="item-head">'+esc(agent?'Codex':(user?'用户':'活动'))+'<span class="item-status '+(running?'running':'done')+'">'+(running?'执行中':'完成')+'</span><span class="turn-time">'+fmtTime(last.startedAtMs||last.completedAtMs||Date.now())+'</span></div>'+quote+(main?'<div class="turn-main">'+esc(main)+'</div>':'')+details+'</div>';
   }).join('');
-  box.scrollTop=box.scrollHeight;
+  box.querySelectorAll('.turn-details').forEach(function(d){d.addEventListener('toggle',function(){const turn=this.closest('.turn');if(!turn)return;const id=turn.getAttribute('data-turn');if(id)state.openTurns[id]=this.open})});
+  const near=box.scrollHeight-box.scrollTop-box.clientHeight<80;
+  if(near)box.scrollTop=box.scrollHeight;
 }
 async function loadItems(peer){
-  if(!peer||!peer.startsWith('ide:'))return;
+  if(!peer||!String(peer).startsWith('ide:'))return;
   try{
     const r=await api('/api/ide/items?peer='+encodeURIComponent(peer));
     const arr=(r.items&&r.items.data)||[];
     state.items[peer]=arr;
-    renderItems(arr);
-  }catch(e){}
+    if(state.active===peer)renderItems(arr);
+  }catch(e){
+    if(state.active===peer){$('msgs').innerHTML='<div class="empty"><div>&#9888;</div><div>'+esc(e.message)+'</div></div>';}
+  }
 }
 function renderMsgs(msgs){
   if(!msgs.length){$('msgs').innerHTML='<div class="empty"><div class="big">✨</div><div>开始对话吧</div></div>';return}
@@ -376,14 +405,14 @@ async function boot(){
   if(new URLSearchParams(location.search).get('noevents')==='1')return;
   setInterval(function(){if(state.active&&String(state.active).startsWith('ide:'))loadQueue(state.active)},5000);
   const es=new EventSource(API_BASE+'/api/events');
-  es.addEventListener('message',ev=>{try{const m=JSON.parse(ev.data);if(m.peer===state.active&&state.sending===false)appendMsg(m);else if(m.peer!==state.active){state.unread[m.peer]=(state.unread[m.peer]||0)+1;renderConvs();loadConvs()}}catch(e){}});
+  es.addEventListener('message',ev=>{try{const m=JSON.parse(ev.data);const isIde=String(m.peer||'').startsWith('ide:');if(m.peer===state.active&&state.sending===false&&!isIde)appendMsg(m);else if(m.peer!==state.active){state.unread[m.peer]=(state.unread[m.peer]||0)+1;renderConvs();loadConvs()}}catch(e){}});
   es.addEventListener('conversations',()=>loadConvs());
       es.addEventListener('items',ev=>{try{const d=JSON.parse(ev.data);if(!d.peer||!Array.isArray(d.items))return;state.items[d.peer]=d.items;if(d.peer===state.active)renderItems(d.items)}catch(e){}});
   es.addEventListener('ideEvent',ev=>{try{const d=JSON.parse(ev.data);if(!d.peer||!Array.isArray(state.items[d.peer]))return;const arr=state.items[d.peer];const m=d.method||'';const pr=d.params||{};
     if(m==='item/started'||m==='item/completed'){const idx=arr.findIndex(e=>(e.item||{}).id===(pr.item||{}).id);if(idx>=0)arr[idx]={...arr[idx],item:pr.item,startedAtMs:pr.startedAtMs||arr[idx].startedAtMs,completedAtMs:pr.completedAtMs||arr[idx].completedAtMs};else arr.unshift({turnId:pr.turnId,item:pr.item,startedAtMs:pr.startedAtMs,completedAtMs:pr.completedAtMs})}
     else if(m==='item/agentMessage/delta'||m==='item/commandExecution/outputDelta'){const idx=arr.findIndex(e=>(e.item||{}).id===pr.itemId);if(idx>=0){const it=arr[idx].item;if(m==='item/agentMessage/delta')it.text=(it.text||'')+(pr.delta||'');else it.aggregatedOutput=(it.aggregatedOutput||'')+(pr.delta||'')}}
     if(d.peer===state.active)renderItems(arr)}catch(e){}});
-  es.addEventListener('history',ev=>{try{const h=JSON.parse(ev.data);if(!h.peer||!Array.isArray(h.messages))return;cacheMsgsWrite(h.peer,h.messages);const c=state.convs.find(x=>x.id===h.peer);if(c){const last=h.messages[h.messages.length-1];if(last)c.last=String(last.text||'').slice(0,80);if(h.peer!==state.active){state.unread[h.peer]=(state.unread[h.peer]||0)+1;renderConvs()}}if(h.peer===state.active)renderMsgs(h.messages)}catch(e){}});
+  es.addEventListener('history',ev=>{try{const h=JSON.parse(ev.data);if(!h.peer||!Array.isArray(h.messages))return;cacheMsgsWrite(h.peer,h.messages);const c=state.convs.find(x=>x.id===h.peer);if(c){const last=h.messages[h.messages.length-1];if(last)c.last=String(last.text||'').slice(0,80);if(h.peer!==state.active){state.unread[h.peer]=(state.unread[h.peer]||0)+1;renderConvs()}}if(h.peer===state.active&&!String(h.peer).startsWith('ide:'))renderMsgs(h.messages)}catch(e){}});
 }
 $('tokenSave').onclick=()=>{state.token=$('tokenInput').value.trim();localStorage.setItem('cx_token',state.token);$('tokenDlg').classList.remove('show');boot()};
 $('tokenLater').onclick=()=>$('tokenDlg').classList.remove('show');

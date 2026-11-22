@@ -105,7 +105,12 @@
     "chat 实时同步修正: ideSnapshot since 增量 + 每秒广播所有变化线程 history 事件; UI 自动更新缓存/列表/消息, 无需点列表",
     "chat IDE 真实状态(thread/list status) + 输入框上方等待队列条(展开/×删除/5s刷新), chatpage_queue.cjs PASS",
     "队列条无等待任务时自动隐藏(chatpage_queue_hidden.cjs PASS)",
-    "chat 实时活动流: /api/ide/items + thread/items(命令/思考/文件/工具/消息) + 每秒 items 轮询 + 本地 item/* 通知; chatpage_items PASS"
+    "chat 实时活动流: /api/ide/items + thread/items(命令/思考/文件/工具/消息) + 每秒 items 轮询 + 本地 item/* 通知; chatpage_items PASS",
+    "chat 单条消息实时活动流: renderItems 按 turnId 分组为一条 .turn 消息(头+主体+可折叠details), 执行中turn默认展开, openTurns 保持折叠状态, 滚动仅贴底跟随",
+    "chat 真实时根因修复: appserver thread/items/list 只返回已完成项; 新增 codex.ideItemsLive 直接解析 rollout JSONL(tail 4MB), function_call 开始即 running, output/item_completed 合并补全; relay action + bridge /api/ide/items 与 1s tick 均优先 live(失败回退 appserver); items 签名含 status",
+    "chat 修复 loadItems 被误删(打开 IDE 会话空白) + ide 会话 history/message SSE 不再调 renderMsgs(防活动流被擦除归0) + reasoning 数组转字符串 + failed 红色状态 + SQLite busy 重试",
+    "验收: chatpage_turns PASS(单条消息/msgs=0), chatpage_turn_realtime2 PASS(页面开着从另一会话发 10s 命令, 2s内出现执行中, 结束自动翻转完成, 零点击), items/queue/queue_hidden/manage 全 PASS(queue 测试加自清理)",
+    "本机 relay 重启(手动进程非服务): taskkill+detached spawn 46836; ECS 重部署 33558B; 前端测试加 cache-buster"
   ],
   "next": [
     "用户真实浏览器打开 normalgame.cn 目检左右移动/待机/球拍(点\"下载\"确认重下新包); 通过后下一轮: girl1 共用 controller 观感 + hitoff/jumphit/diving 重建",
@@ -126,7 +131,7 @@
     "git push origin Badminton3D 网络失败(GitHub 443 连接重置/超时, 已重试2次); 本地提交 a3097b42 已落盘, 待网络恢复补推",
     "www 备用入口 headless boot 复验未过(不作验收); headless 生产探针下载确认点击不稳(探针侧)"
   ],
-  "last_output": "social3drive 11/11 PASS: addFriendInput/btn_申请好友 -> B req A, A reqAccept_0 -> friends=1, B 刷新 -> friend_0, msgInput+btn_发送 -> detail msgs=1 no duplicate, A refresh sees message, server fA/fB persisted, no exceptions | bundle 1,526,650B | tsc baseline | offline 121 pass",
+  "last_output": "chatpage_turn_realtime2 PASS: RTMARK2-88-SLEEP 出现(执行中)→(完成) 单条消息内实时翻转; turns=1 details>0 msgs=0; items/queue/queue_hidden/manage PASS; live API first=commandExecution/running",
   "note": "LayaProject=小游戏平台; NG2=branch origin/room",
-  "updatedAt": "2026-11-22T08:49:46.550Z"
+  "updatedAt": "2026-11-22T09:42:44.148Z"
 }

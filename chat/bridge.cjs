@@ -42,6 +42,7 @@ const sseClients = new Set();
 let activeIdePeer = null;
 let lastIdeSignature = '';
 let lastActiveIdeKey = '';
+let lastItemsSig = '';
 let lastIdeSyncAt = 0;
 let ideSyncTimer = null;
 function broadcast(type, data) {
@@ -243,10 +244,10 @@ async function ideSyncTick() {
         if (activeIdePeer) {
             try {
                 let items;
-                if ((CONFIG.mode || 'local') === 'relay') items = await relayCall('codex.ideItems', { threadId: activeIdePeer.slice(4), limit: 50 });
+                if ((CONFIG.mode || 'local') === 'relay') { try { items = await relayCall('codex.ideItemsLive', { threadId: activeIdePeer.slice(4), limit: 50 }); } catch (e) { items = await relayCall('codex.ideItems', { threadId: activeIdePeer.slice(4), limit: 50 }); } }
                 else items = await appserver.itemsList(activeIdePeer.slice(4), 50);
                 const entries = (items && items.data) || [];
-                const sig = JSON.stringify(entries.map(e => [(e.item || {}).id, (e.item || {}).text || '', (e.item || {}).aggregatedOutput || '', e.completedAtMs || 0]));
+                const sig = JSON.stringify(entries.map(e => [(e.item || {}).id, (e.item || {}).text || '', (e.item || {}).aggregatedOutput || '', (e.item || {}).status || '', e.completedAtMs || 0]));
                 if (sig !== lastItemsSig) { lastItemsSig = sig; broadcast('items', { peer: activeIdePeer, items: entries }); }
             } catch (e) { }
         }
@@ -388,7 +389,9 @@ const server = http.createServer(async (req, res) => {
                 if (!peer.startsWith('ide:')) return sendJson(res, 400, { ok: false, error: 'peer 必须是 ide:*' });
                 const threadId = peer.slice(4);
                 if ((CONFIG.mode || 'local') === 'relay') {
-                    try { const r = await relayCall('codex.ideItems', { threadId, limit: 50 }); return sendJson(res, 200, { ok: true, items: r }); } catch (e) { return sendJson(res, 500, { ok: false, error: String(e.message) }); }
+                    let r; let live = true;
+                    try { r = await relayCall('codex.ideItemsLive', { threadId, limit: 50 }); } catch (e) { live = false; try { r = await relayCall('codex.ideItems', { threadId, limit: 50 }); } catch (e2) { return sendJson(res, 500, { ok: false, error: String(e2.message) }); } }
+                    return sendJson(res, 200, { ok: true, live, items: r });
                 }
                 try { const r = await appserver.itemsList(threadId, 50); return sendJson(res, 200, { ok: true, items: r }); } catch (e) { return sendJson(res, 500, { ok: false, error: String(e.message) }); }
             }

@@ -323,6 +323,149 @@ class CodexBridge {
         return { peer: 'ide:' + meta.id, threadId: meta.id, title: meta.title, cwd: meta.cwd, model: meta.model, modelProvider: meta.modelProvider, project: meta.project, messages: filtered.slice(-(Number(limit) || 200)), total: msgs.length };
     }
 
+    // 实时 items: 直接解析 rollout JSONL, 执行中的命令/推理/消息立即可见(app-server items/list 只返回已完成项)。
+    // 返回格式与 appserver.itemsList 一致: {data:[{turnId,item,startedAtMs,completedAtMs}...]}(最新在前)。
+    async ideItemsLive(threadId, limit) {
+        let meta; for (let i = 0; ; i++) { try { meta = this.ideThread(threadId); break; } catch (e) { if (i >= 2 || !/busy|locked/i.test(String(e.message))) throw e; await new Promise(r => setTimeout(r, 60)); } }
+        const file = meta.rolloutPath;
+        if (!file || !fs.existsSync(file)) throw new Error('IDE 会话 rollout 不存在: ' + file);
+        const st = fs.statSync(file);
+        const tail = Math.min(st.size, 4 * 1024 * 1024);
+        let text = '';
+        const fd = fs.openSync(file, 'r');
+        try {
+            const buf = Buffer.alloc(tail);
+            fs.readSync(fd, buf, 0, tail, Math.max(0, st.size - tail));
+            text = buf.toString('utf8');
+        } finally { fs.closeSync(fd); }
+        if (tail < st.size) { const nl = text.indexOf('\n'); if (nl >= 0) text = text.slice(nl + 1); }
+        const lines = text.split(/\r?\n/).filter(l => l.length > 1);
+        const out = [];
+        const byId = new Map();      // item.id -> entry (msg_*/rs_*/call_*)
+        const byCall = new Map();    // call_id -> entry
+        const userByTurn = new Map();// turnId -> user entry (RI 与 IC 的用户消息 id 不一致, 按轮去重)
+        let curTurn = '';
+        const ts = o => (o && o.timestamp) ? (Date.parse(o.timestamp) || 0) : 0;
+        const turnOf = (p) => (p && p.internal_chat_message_metadata_passthrough && p.internal_chat_message_metadata_passthrough.turn_id) || curTurn;
+        const push = (entry) => { out.push(entry); if (entry.item && entry.item.id) byId.set(entry.item.id, entry); return entry; };
+        const setTexts = (it, p) => {
+            const grab = (arr) => (Array.isArray(arr) ? arr : []).map(x => (x == null ? '' : (typeof x === 'string' ? x : String(x.text != null ? x.text : (x.summary != null ? x.summary : ''))))).filter(Boolean);
+            it.summary = grab(p.summary);
+            it.content = grab(p.content);
+        };
+        for (const line of lines) {
+            let o; try { o = JSON.parse(line); } catch (e) { continue; }
+            const p = o.payload || {};
+            if (o.type === 'event_msg' && (p.type === 'task_started' || p.type === 'turn_started')) {
+                curTurn = p.turn_id || p.root_turn_id || curTurn; continue;
+            }
+            if (o.type === 'response_item') {
+                const t0 = ts(o);
+                if (p.type === 'message') {
+                    const role = p.role;
+                    if (role !== 'user' && role !== 'assistant') continue;
+                    const content = Array.isArray(p.content) ? p.content : [];
+                    let txt = content.map(c => (c && c.text != null ? String(c.text) : '')).filter(Boolean).join('\n').trim();
+                    if (role === 'user') {
+                        if (/^<(environment_context|skills_instructions|turn_aborted|external_browser_tabs|codex_apps_client_time_context)/.test(txt)) continue;
+                        const m = txt.match(/<\/(?:environment_context|codex_apps_client_time_context|user_instructions)>\s*([\s\S]*)$/);
+                        if (m) txt = m[1].trim();
+                        if (!txt) continue;
+                    }
+                    const turnId = turnOf(p);
+                    const id = p.id || (role + '-' + t0);
+                    const existing = byId.get(id) || (role === 'user' ? userByTurn.get(turnId) : null);
+                    if (existing) { existing.startedAtMs = existing.startedAtMs || t0; continue; }
+                    const it = role === 'user' ? { type: 'userMessage', id, content: [{ type: 'text', text: txt }] } : { type: 'agentMessage', id, text: txt };
+                    const e = push({ turnId, item: it, startedAtMs: t0, completedAtMs: t0 });
+                    if (role === 'user') userByTurn.set(turnId, e);
+                } else if (p.type === 'reasoning') {
+                    const id = p.id || ('rs-' + t0);
+                    if (byId.has(id)) continue;
+                    const it = { type: 'reasoning', id };
+                    setTexts(it, p);
+                    push({ turnId: turnOf(p), item: it, startedAtMs: t0, completedAtMs: t0 });
+                } else if (p.type === 'function_call') {
+                    const callId = p.call_id || p.id;
+                    if (byCall.has(callId) || byId.has(callId)) continue;
+                    const name = String(p.name || '');
+                    let args = {}; try { args = JSON.parse(p.arguments || '{}'); } catch (e) { }
+                    const t0v = ts(o);
+                    let it;
+                    if (name === 'exec_command') {
+                        it = { type: 'commandExecution', id: callId, command: String(args.cmd != null ? args.cmd : ''), cwd: String(args.workdir || args.cwd || meta.cwd || ''), status: 'running' };
+                    } else {
+                        it = { type: 'mcpToolCall', id: callId, name, arguments: args, status: 'running' };
+                    }
+                    const e = push({ turnId: turnOf(p), item: it, startedAtMs: t0v, completedAtMs: 0 });
+                    byCall.set(callId, e);
+                } else if (p.type === 'function_call_output') {
+                    const callId = p.call_id;
+                    const e = byCall.get(callId) || byId.get(callId);
+                    if (!e) continue;
+                    const it = e.item;
+                    const raw = String(p.output != null ? p.output : '');
+                    const em = raw.match(/Process exited with code (-?\d+)/);
+                    const exitCode = em ? Number(em[1]) : null;
+                    const oi = raw.indexOf('Output:\n');
+                    const body = oi >= 0 ? raw.slice(oi + 8) : raw;
+                    if (it.type === 'commandExecution') { it.aggregatedOutput = body; it.exitCode = exitCode; it.status = (exitCode === 0 || exitCode === null) ? 'completed' : 'failed'; }
+                    else { it.output = body; it.status = 'completed'; }
+                    e.completedAtMs = ts(o);
+                }
+            } else if (o.type === 'event_msg' && p.type === 'item_completed') {
+                const item = p.item || {};
+                const turnId = p.turn_id || curTurn;
+                const startedAtMs = Number(p.started_at_ms) || 0;
+                const completedAtMs = Number(p.completed_at_ms) || 0;
+                let e = byId.get(item.id) || byCall.get(item.id) || null;
+                if (!e && item.type === 'UserMessage') e = userByTurn.get(turnId) || null;
+                if (e) {
+                    const it = e.item;
+                    if (item.type === 'CommandExecution') {
+                        it.command = Array.isArray(item.command) ? item.command.join(' ') : (item.command != null ? String(item.command) : it.command);
+                        if (item.cwd) it.cwd = item.cwd;
+                        if (item.process_id != null) it.processId = item.process_id;
+                        if (item.source) it.source = item.source;
+                        it.status = item.status || 'completed';
+                        if (item.exit_code != null) it.exitCode = item.exit_code;
+                        if (item.aggregated_output != null) it.aggregatedOutput = String(item.aggregated_output);
+                    } else if (item.type === 'AgentMessage') {
+                        const t = (Array.isArray(item.content) ? item.content : []).map(c => (c && c.text != null ? String(c.text) : '')).filter(Boolean).join('\n');
+                        if (t) it.text = t;
+                    } else if (item.type === 'UserMessage') {
+                        const t = (Array.isArray(item.content) ? item.content : []).map(c => (c && c.text != null ? String(c.text) : '')).filter(Boolean).join('\n');
+                        if (t && it.content) it.content = [{ type: 'text', text: t }];
+                    } else if (item.type === 'Reasoning') {
+                        setTexts(it, item);
+                    } else if (item.type === 'McpToolCall' || item.type === 'ToolCall') {
+                        it.status = item.status || 'completed';
+                        if (item.aggregated_output != null) it.output = String(item.aggregated_output);
+                    }
+                    e.startedAtMs = e.startedAtMs || startedAtMs;
+                    e.completedAtMs = completedAtMs || e.completedAtMs;
+                    continue;
+                }
+                // 尾窗口里没有对应 response_item: 用 item_completed 直接补建
+                const it = this._liveItemFromCompleted(item);
+                if (it) push({ turnId, item: it, startedAtMs, completedAtMs });
+            }
+        }
+        const lim = Math.max(1, Number(limit) || 50);
+        const data = out.slice(-lim).reverse();
+        return { data, limit: lim, total: out.length, live: true };
+    }
+
+    _liveItemFromCompleted(item) {
+        const t = (item && item.type) || '';
+        const texts = (arr) => (Array.isArray(arr) ? arr : []).map(c => (c && c.text != null ? String(c.text) : '')).filter(Boolean).join('\n');
+        if (t === 'CommandExecution') return { type: 'commandExecution', id: item.id, command: Array.isArray(item.command) ? item.command.join(' ') : String(item.command || ''), cwd: item.cwd || '', processId: item.process_id, source: item.source, status: item.status || 'completed', exitCode: item.exit_code, aggregatedOutput: item.aggregated_output != null ? String(item.aggregated_output) : '' };
+        if (t === 'AgentMessage') return { type: 'agentMessage', id: item.id, text: texts(item.content) };
+        if (t === 'UserMessage') return { type: 'userMessage', id: item.id, content: (Array.isArray(item.content) ? item.content : []).map(c => ({ type: 'text', text: c && c.text != null ? String(c.text) : '' })).filter(c => c.text) };
+        if (t === 'Reasoning') { const it = { type: 'reasoning', id: item.id }; it.summary = (Array.isArray(item.summary) ? item.summary : []).map(x => String(x.text != null ? x.text : x)).filter(Boolean); it.content = (Array.isArray(item.content) ? item.content : []).map(x => String(x.text != null ? x.text : x)).filter(Boolean); return it; }
+        return null;
+    }
+
     async ideChat(threadId, text, opts) {
         opts = opts || {};
         const meta = this.ideThread(threadId);

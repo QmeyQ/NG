@@ -35,6 +35,7 @@ body{background:radial-gradient(1200px 700px at 20% -10%,#17324a 0%,transparent 
 .av{width:42px;height:42px;border-radius:12px;flex:0 0 auto;display:flex;align-items:center;justify-content:center;font-weight:700;color:#07130d;background:linear-gradient(135deg,#4ad9a0,#2f8fff);font-size:15px}
 .av.g{background:linear-gradient(135deg,#ffb454,#ff6b9a)}
 .av.c{background:linear-gradient(135deg,#7bd0ff,#7a8cff)}
+.av.i{background:linear-gradient(135deg,#c084fc,#7a8cff)}
 .conv-body{flex:1;min-width:0}
 .conv-top{display:flex;align-items:center;gap:6px}
 .conv-title{font-weight:600;font-size:13.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1}
@@ -76,7 +77,48 @@ select,input,textarea{font-family:inherit}
 .actions{display:flex;gap:8px;justify-content:flex-end;margin-top:12px}
 .btn{border:1px solid var(--line);background:var(--panel);color:var(--txt);border-radius:8px;padding:8px 12px;cursor:pointer;font-size:13px}
 .btn.primary{border-color:var(--acc);background:linear-gradient(135deg,#2f8fff,#37c98b);color:#04110a;font-weight:700}
-.btn.ghost{background:transparent}
+.btn.ghost{background:transparent}\n.btn.danger{border-color:#8a2b2b;color:#ff8a8a}
+.mgrid{display:grid;grid-template-columns:90px 1fr;gap:6px;font-size:12px}.mgrid b{color:var(--dim);font-weight:600}.mactions{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}.mactions .btn{flex:1;min-width:90px}
+
+.queuebar{display:none;margin:0 0 8px;padding:6px 10px;border:1px solid var(--line);border-radius:10px;background:rgba(18,27,36,.92);font-size:12px}
+.queuebar.show{display:block}
+.qhead{display:flex;align-items:center;gap:8px}
+.qhead b{color:var(--warn)}
+.qtoggle{margin-left:auto;border:1px solid var(--line);background:transparent;color:var(--dim);border-radius:6px;padding:2px 8px;cursor:pointer;font-size:11px}
+.qlist{display:none;max-height:130px;overflow:auto;margin-top:6px}
+.queuebar.open .qlist{display:block}
+.qitem{display:flex;align-items:center;gap:8px;padding:5px 8px;border-radius:8px;background:#0d151d;margin-bottom:4px}
+.qtext{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--txt)}
+.qdel{border:1px solid #6b2b2b;background:#221416;color:#ff8a8a;border-radius:6px;width:22px;height:22px;cursor:pointer;font-size:12px;line-height:1}
+.qempty{color:var(--dim);padding:4px 0}
+.statuspill{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:999px;border:1px solid var(--line);font-size:11px;color:var(--dim)}
+.statuspill.active{color:var(--warn);border-color:#6b5227}
+.statuspill.idle{color:var(--acc);border-color:#275c46}
+
+.item{max-width:min(760px,86%);display:flex;flex-direction:column;gap:4px;margin:4px 0;padding:8px 10px;border-radius:12px;background:#101a24;border:1px solid #1f2c3a;font-size:12.5px}
+.item.user{align-self:flex-end;background:#123c31;border-color:#20594a}
+.item.agent{align-self:flex-start}
+.item.cmd{align-self:flex-start;font-family:Consolas,monospace}
+.item.reason{align-self:flex-start;opacity:.85}
+.item.tool{align-self:flex-start}
+.item-head{display:flex;align-items:center;gap:6px;font-weight:600}
+.item-body{white-space:pre-wrap;word-break:break-word}
+.item-meta{font-size:10.5px;color:var(--dim)}
+.item-out{margin-top:4px;padding:6px 8px;border-radius:8px;background:#0a1118;max-height:220px;overflow:auto;white-space:pre-wrap;font-family:Consolas,monospace}
+.item-status{font-size:10.5px;padding:1px 6px;border-radius:6px;background:#182633;color:var(--dim)}
+.item-status.running{color:var(--warn)}
+.item-status.done{color:var(--acc)}
+.item-status.fail{color:#e5484d}
+.turn{max-width:min(760px,86%);display:flex;flex-direction:column;gap:4px;margin:4px 0;padding:10px 12px;border-radius:14px;background:#101a24;border:1px solid #1f2c3a;font-size:13px}
+.turn.running{border-color:#6b5227}
+.turn-head{display:flex;align-items:center;gap:8px;font-weight:700}
+.turn-head .turn-time{font-size:10.5px;color:var(--dim);font-weight:400}
+.turn-main{white-space:pre-wrap;word-break:break-word}
+.turn-quote{font-size:11.5px;color:var(--dim);border-left:2px solid #2a3a4a;padding-left:8px;margin-bottom:4px}
+.turn-details{margin-top:4px;border-top:1px dashed #22303f;padding-top:6px}
+.turn-details summary{cursor:pointer;font-size:11.5px;color:var(--dim);user-select:none}
+.turn-details[open] summary{color:var(--txt)}
+.turn-items{display:flex;flex-direction:column;gap:4px;margin-top:4px}
 .toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%) translateY(20px);background:#0f1720;border:1px solid var(--line);color:var(--txt);padding:9px 14px;border-radius:9px;opacity:0;pointer-events:none;transition:.25s;z-index:80;font-size:12.5px}
 .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
 @media(max-width:760px){.side{width:120px;min-width:120px}.side .search{display:none}.conv-last,.conv-time{display:none}.brand small{display:none}.chat-tools .sel{display:none}}
@@ -114,6 +156,10 @@ select,input,textarea{font-family:inherit}
         <div class="empty"><div class="big">💬</div><div>从左侧选择会话，或点击 + 新建聊天</div><div style="font-size:11px">微信好友/群消息会自动出现在这里</div></div>
       </div>
       <div class="composer">
+        <div class="queuebar" id="queueBar">
+          <div class="qhead"><b id="qCount">队列 0</b><span id="qPreview" class="qtext"></span><button class="qtoggle" id="qToggle">展开</button></div>
+          <div class="qlist" id="qList"></div>
+        </div>
         <div class="row">
           <textarea id="input" rows="1" placeholder="给 Codex 发消息…  Enter 发送 / Shift+Enter 换行"></textarea>
           <button class="send" id="send" disabled>发送</button>
@@ -141,12 +187,41 @@ select,input,textarea{font-family:inherit}
   </div>
 </div>
 
+<div class="dialog" id="manageDlg">
+  <div class="card">
+    <h3>会话管理</h3>
+    <div class="mgrid">
+      <b>会话</b><span id="mTitle"></span>
+      <b>ID</b><span id="mId" style="word-break:break-all"></span>
+      <b>类型</b><span id="mKind"></span>
+      <b>目录</b><span id="mCwd" style="word-break:break-all"></span>
+      <b>模型</b><span id="mModel"></span>
+    </div>
+    <div class="field"><label>新标题</label><input id="mName" placeholder="留空不改名"></div>
+    <div class="mactions">
+      <button class="btn primary" id="mContinue">继续会话</button>
+      <button class="btn" id="mCopy">复制 ID</button>
+      <button class="btn" id="mRename">改名</button>
+      <button class="btn" id="mArchive">归档</button>
+      <button class="btn" id="mUnarchive">取消归档</button>
+      <button class="btn ghost" id="mClose">关闭</button>
+      <button class="btn danger" id="mDelete">删除会话</button>
+    </div>
+  </div>
+</div>
+
 <div class="toast" id="toast"></div>
 <script>
 (function(){
 const $=id=>document.getElementById(id);
 const API_BASE=(localStorage.getItem('cx_api')||new URLSearchParams(location.search).get('api')||(/normalgame\.cn$/i.test(location.hostname)?'/codex-api':'')).replace(/\/+$/,'');
-const state={token:localStorage.getItem('cx_token')||new URLSearchParams(location.search).get('token')||'',convs:[],active:null,models:[],sending:false,hist:{},unread:{}};
+
+const CACHE={convs:'cx_cache_convs',msgs:'cx_cache_msgs_'};
+function cacheRead(k,d){try{return JSON.parse(localStorage.getItem(k))??d}catch(e){return d}}
+function cacheWrite(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}}
+function cacheMsgs(peer){return cacheRead(CACHE.msgs+peer,[])}
+function cacheMsgsWrite(peer,msgs){cacheWrite(CACHE.msgs+peer,msgs.slice(-200))}
+const state={openTurns:{},items:{},queues:{},queueOpen:false,token:localStorage.getItem('cx_token')||new URLSearchParams(location.search).get('token')||'',convs:[],active:null,models:[],sending:false,hist:{},unread:{}};
 function toast(t){const e=$('toast');e.textContent=t;e.classList.add('show');clearTimeout(toast._t);toast._t=setTimeout(()=>e.classList.remove('show'),2200)}
 async function api(path,opts){
   opts=opts||{};const tk=(state.token||'').trim();opts.headers=Object.assign({},opts.headers||{});if(tk&&/^[\x20-\x7E]+$/.test(tk))opts.headers['X-Cx-Token']=tk;
@@ -160,15 +235,43 @@ async function api(path,opts){
 function showToken(){$('tokenDlg').classList.add('show');$('tokenInput').value=state.token||''}
 function fmtTime(ts){if(!ts)return'';const d=new Date(ts),n=new Date();const p=x=>String(x).padStart(2,'0');if(d.toDateString()===n.toDateString())return p(d.getHours())+':'+p(d.getMinutes());return (d.getMonth()+1)+'/'+d.getDate()}
 function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
-function avatar(c){return c.kind==='group'?'群':(c.kind==='wechat'?'微':'C')}
+function avatar(c){return c.kind==='group'?'群':(c.kind==='wechat'?'微':(c.kind==='ide'?'I':'C'))}
 function renderConvs(){
   const q=($('q').value||'').toLowerCase();
   const list=state.convs.filter(c=>!q||(c.title||'').toLowerCase().includes(q)||(c.id||'').toLowerCase().includes(q));
-  $('list').innerHTML=list.length?list.map(c=>`<div class="conv ${c.id===state.active?'active':''}" data-id="${esc(c.id)}"><div class="av ${c.kind==='group'?'g':(c.kind==='wechat'?'':'c')}">${avatar(c)}</div><div class="conv-body"><div class="conv-top"><div class="conv-title">${esc(c.title||c.id)}</div><div class="conv-time">${fmtTime(c.updatedAt)}</div></div><div class="conv-last">${esc(c.last||'（暂无消息）')}</div></div>${state.unread[c.id]?`<span class="badge">${state.unread[c.id]}</span>`:''}</div>`).join(''):`<div class="empty" style="padding:30px 10px"><div>暂无会话</div><div style="font-size:11px">点击 + 新建</div></div>`;
-  document.querySelectorAll('.conv').forEach(el=>el.onclick=()=>openConv(el.dataset.id));
+  $('list').innerHTML=list.length?list.map(c=>`<div class="conv ${c.id===state.active?'active':''}" data-id="${esc(c.id)}"><div class="av ${c.kind==='group'?'g':(c.kind==='wechat'?'':(c.kind==='ide'?'i':'c'))}">${avatar(c)}</div><div class="conv-body"><div class="conv-top"><div class="conv-title">${esc(c.title||c.id)}</div><div class="conv-time">${fmtTime(c.updatedAt)}</div></div><div class="conv-last">${esc(c.last||'（暂无消息）')}</div></div>${state.unread[c.id]?`<span class="badge">${state.unread[c.id]}</span>`:''}</div>`).join(''):`<div class="empty" style="padding:30px 10px"><div>暂无会话</div><div style="font-size:11px">点击 + 新建</div></div>`;
+  document.querySelectorAll('.conv').forEach(el=>{el.onclick=()=>openConv(el.dataset.id);el.ondblclick=e=>{e.preventDefault();openManage(el.dataset.id)}});
 }
+function queueItems(peer){return state.queues[peer]||[]}
+function queueText(item){const inp=item&&item.input&&item.input[0];return (inp&&inp.text)||(item&&item.text)||''}
+function renderQueue(){
+  const peer=state.active;const bar=$('queueBar');if(!peer||!peer.startsWith('ide:')){bar.classList.remove('show');return}
+  const items=queueItems(peer);if(!items.length){bar.classList.remove('show','open');return}$('qCount').textContent='队列 '+items.length;bar.classList.add('show');
+  $('qPreview').textContent=items.length?queueText(items[0]).slice(0,60):'';
+  $('qToggle').textContent=state.queueOpen?'收起':'展开';
+  $('qList').innerHTML=items.length?items.map(function(it){return '<div class="qitem" data-id="'+esc(it.id)+'"><span class="qtext">'+esc(queueText(it))+'</span><button class="qdel" title="删除">×</button></div>'}).join(''):'<div class="qempty">暂无等待任务</div>';
+  document.querySelectorAll('.qitem .qdel').forEach(function(b){b.onclick=async function(){const id=b.parentElement.dataset.id;await delQueueItem(peer,id)}})
+}
+async function loadQueue(peer){
+  if(!peer||!peer.startsWith('ide:'))return;
+  try{
+    const r=await api('/api/ide/queue?peer='+encodeURIComponent(peer));
+    const q=(r.queue&&r.queue.data)||[];
+    state.queues[peer]=q.map(function(x){return x.queuedSubmission||x});
+    renderQueue();
+  }catch(e){}
+}
+async function delQueueItem(peer,id){
+  try{
+    await api('/api/ide/queue/delete',{method:'POST',body:{peer,queuedSubmissionId:id}});
+    state.queues[peer]=queueItems(peer).filter(function(x){return x.id!==id});
+    renderQueue();toast('已删除等待任务')
+  }catch(e){toast(e.message)}
+}
+function addQueueItem(peer,item){if(!peer||!item)return;state.queues[peer]=queueItems(peer).concat([item]);renderQueue()}
 async function loadConvs(){
-  try{const r=await api('/api/conversations');state.convs=r.conversations||[];renderConvs()}catch(e){}
+  state.convs=cacheRead(CACHE.convs,[]);renderConvs();
+  try{const r=await api('/api/conversations');state.convs=r.conversations||[];cacheWrite(CACHE.convs,state.convs);renderConvs()}catch(e){}
 }
 async function loadModels(){
   try{const r=await api('/api/models');state.models=r.models||[];$('model').innerHTML=state.models.map(m=>`<option value="${esc(m.slug)}">${esc(m.label||m.slug)}</option>`).join('')}catch(e){}
@@ -176,10 +279,72 @@ async function loadModels(){
 async function openConv(id){
   state.active=id;delete state.unread[id];renderConvs();
   const c=state.convs.find(x=>x.id===id)||{id};
-  $('chatTitle').textContent=c.title||id;$('chatSub').textContent=(c.kind==='wechat'?'微信会话':c.kind==='group'?'微信群':'Codex 会话')+' · '+id;
+  $('chatTitle').textContent=c.title||id;$('chatSub').textContent=(c.kind==='wechat'?'微信会话':c.kind==='group'?'微信群':(c.kind==='ide'?'Codex IDE 会话':'Codex 会话'))+' · '+id;
   $('peerHint').textContent=id;$('send').disabled=false;
-  $('msgs').innerHTML='<div class="empty"><div>加载中…</div></div>';
-  try{const r=await api('/api/history?peer='+encodeURIComponent(id));renderMsgs((r.history&&r.history.messages)||[])}catch(e){$('msgs').innerHTML='<div class="empty"><div>'+esc(e.message)+'</div></div>'}
+  const st=(c.status&&c.status.type)||'';
+  $('chatSub').textContent=(c.kind==='wechat'?'微信会话':c.kind==='group'?'微信群':(c.kind==='ide'?'Codex IDE 会话':'Codex 会话'))+' · '+id+(st?' · '+(st==='active'?'工作中':st==='idle'?'空闲':st):'');
+  if(String(id).startsWith('ide:'))loadQueue(id);
+  if(String(id).startsWith('ide:')){try{await api('/api/active',{method:'POST',body:{peer:id}})}catch(e){}await loadItems(id);return}
+  const cached=cacheMsgs(id);renderMsgs(cached);
+  const since=cached.length?cached[cached.length-1].ts||0:0;
+  try{const r=await api('/api/history?peer='+encodeURIComponent(id)+(since?'&since='+since:''));const newMsgs=(r.history&&r.history.messages)||[];if(newMsgs.length){const merged=cached.concat(newMsgs).slice(-200);cacheMsgsWrite(id,merged);renderMsgs(merged)}}catch(e){if(!cached.length)$('msgs').innerHTML='<div class="empty"><div>'+esc(e.message)+'</div></div>'}
+}
+
+function flatText(arr){return (arr||[]).map(x=>typeof x==='string'?x:(x&&(x.text!=null?x.text:(x.summary!=null?x.summary:'')))).filter(Boolean)}
+function itemText(it){
+  if(!it)return '';
+  if(it.type==='userMessage')return (it.content||[]).map(c=>c.text||'').join('\n');
+  if(it.type==='agentMessage')return it.text||'';
+  if(it.type==='commandExecution')return it.command||'';
+  if(it.type==='reasoning')return flatText(it.summary).concat(flatText(it.content)).join('\n');
+  if(it.type==='fileChange')return (it.changes||[]).map(c=>(c.path||'')+' '+(c.kind||c.change_type||'')).join('\n');
+  if(it.type==='mcpToolCall')return (it.name||it.serverName||'')+' '+(it.arguments?JSON.stringify(it.arguments).slice(0,200):'');
+  return '';
+}
+function itemTitle(it){
+  const map={userMessage:'用户',agentMessage:'Codex',commandExecution:'命令',reasoning:'思考',fileChange:'文件',mcpToolCall:'工具',functionCallOutput:'输出'};
+  return map[it&&it.type]||'活动';
+}
+function itemHtml(e){
+  const it=e.item||{};const t=itemTitle(it);const body=itemText(it);
+  let status='';
+  if(it.type==='commandExecution'){const done=(it.status==='completed'||it.status==='failed')||(it.exitCode!==null&&it.exitCode!==undefined);status=done?('<span class="item-status '+(it.status==='failed'?'fail':'done')+'">'+(it.status==='failed'?'失败':'完成')+'</span>'):'<span class="item-status running">执行中</span>'}
+  const out=it.aggregatedOutput?'<div class="item-out">'+esc(it.aggregatedOutput)+'</div>':'';
+  const cls=it.type==='userMessage'?'user':it.type==='agentMessage'?'agent':it.type==='commandExecution'?'cmd':it.type==='reasoning'?'reason':'tool';
+  return '<div class="item '+cls+'"><div class="item-head">'+esc(t)+status+'</div>'+(body?'<div class="item-body">'+esc(body)+'</div>':'')+out+'<div class="item-meta">'+fmtTime(e.startedAtMs||e.completedAtMs||Date.now())+'</div></div>';
+}
+function renderItems(items){
+  const box=$('msgs');
+  if(!items||!items.length){box.innerHTML='<div class="empty"><div class="big">✨</div><div>暂无活动</div></div>';return}
+  const asc=items.slice().reverse();
+  const groups=[];const idx={};
+  for(const e of asc){const k=e.turnId||('no-'+(e.item||{}).id);if(idx[k]==null){idx[k]=groups.length;groups.push({turnId:k,items:[]})}groups[idx[k]].items.push(e)}
+  box.innerHTML=groups.map(function(g,i){
+    const its=g.items;const last=its[its.length-1]||{};
+    const user=its.find(function(e){return (e.item||{}).type==='userMessage'});
+    const agent=its.find(function(e){return (e.item||{}).type==='agentMessage'});
+    const running=its.some(function(e){const it=e.item||{};const done=(it.status==='completed'||it.status==='failed')||(it.exitCode!==null&&it.exitCode!==undefined);return (it.type==='commandExecution'||it.type==='mcpToolCall')&&!done});
+    const open=!!state.openTurns[g.turnId]||(running&&i===groups.length-1);
+    const main=agent?itemText(agent.item):(user?itemText(user.item):'');
+    const quote=(user&&agent)?('<div class="turn-quote">'+esc(itemText(user.item))+'</div>'):'';
+    const others=its.filter(function(e){const ty=(e.item||{}).type;return ty!=='agentMessage'});
+    const details=others.length?('<details class="turn-details"'+(open?' open':'')+'><summary>'+(running?'执行中 ':'执行过程 ')+others.length+' 项</summary><div class="turn-items">'+others.map(itemHtml).join('')+'</div></details>'):'';
+    return '<div class="turn'+(running?' running':'')+'" data-turn="'+esc(g.turnId)+'"><div class="item-head">'+esc(agent?'Codex':(user?'用户':'活动'))+'<span class="item-status '+(running?'running':'done')+'">'+(running?'执行中':'完成')+'</span><span class="turn-time">'+fmtTime(last.startedAtMs||last.completedAtMs||Date.now())+'</span></div>'+quote+(main?'<div class="turn-main">'+esc(main)+'</div>':'')+details+'</div>';
+  }).join('');
+  box.querySelectorAll('.turn-details').forEach(function(d){d.addEventListener('toggle',function(){const turn=this.closest('.turn');if(!turn)return;const id=turn.getAttribute('data-turn');if(id)state.openTurns[id]=this.open})});
+  const near=box.scrollHeight-box.scrollTop-box.clientHeight<80;
+  if(near)box.scrollTop=box.scrollHeight;
+}
+async function loadItems(peer){
+  if(!peer||!String(peer).startsWith('ide:'))return;
+  try{
+    const r=await api('/api/ide/items?peer='+encodeURIComponent(peer));
+    const arr=(r.items&&r.items.data)||[];
+    state.items[peer]=arr;
+    if(state.active===peer)renderItems(arr);
+  }catch(e){
+    if(state.active===peer){$('msgs').innerHTML='<div class="empty"><div>&#9888;</div><div>'+esc(e.message)+'</div></div>';}
+  }
 }
 function renderMsgs(msgs){
   if(!msgs.length){$('msgs').innerHTML='<div class="empty"><div class="big">✨</div><div>开始对话吧</div></div>';return}
@@ -187,6 +352,38 @@ function renderMsgs(msgs){
   $('msgs').scrollTop=$('msgs').scrollHeight;
 }
 function appendMsg(m){const e=$('msgs');if(!e.querySelector('.msg'))e.innerHTML='';const me=m.role==='user';const d=document.createElement('div');d.className='msg '+(me?'me':'');d.innerHTML=`<div class="b">${esc(m.text)}</div><div class="meta">${me?'我':'Codex'}${m.via==='wechat'?'<span class="tag">微信</span>':''} · ${fmtTime(Date.now())}</div>`;e.appendChild(d);e.scrollTop=e.scrollHeight}
+
+let manageId=null;
+function openManage(id){
+  const c=state.convs.find(x=>x.id===id); if(!c) return;
+  manageId=id;
+  $('mTitle').textContent=c.title||id;
+  $('mId').textContent=id;
+  $('mKind').textContent=c.kind||'codex';
+  $('mCwd').textContent=c.cwd||'-';
+  $('mModel').textContent=c.model||'-';
+  $('mName').value='';
+  $('manageDlg').classList.add('show');
+}
+async function manageOp(op,name){
+  if(!manageId) return;
+  try{
+    if(!manageId.startsWith('ide:')){toast('仅 IDE 会话支持管理');return}
+    const r=await api('/api/ide/manage',{method:'POST',body:{threadId:manageId.slice(4),op,name}});
+    toast('操作成功');await loadConvs();
+  }catch(e){toast(e.message)}
+}
+async function deleteConv(){
+  if(!manageId) return;
+  if(!confirm('删除该会话？将同时删除 Codex 端线程，不可恢复。')) return;
+  try{
+    await api('/api/conv/delete',{method:'POST',body:{peer:manageId}});
+    localStorage.removeItem(CACHE.msgs+manageId);
+    state.convs=state.convs.filter(x=>x.id!==manageId);
+    if(state.active===manageId){state.active=null;$('msgs').innerHTML='<div class="empty"><div class="big">✨</div><div>会话已删除</div></div>';$('send').disabled=true}
+    renderConvs();$('manageDlg').classList.remove('show');toast('已删除');
+  }catch(e){toast(e.message)}
+}
 async function send(){
   const text=$('input').value.trim();if(!text||state.sending)return;
   if(!state.active){toast('请先选择或新建会话');return}
@@ -195,7 +392,7 @@ async function send(){
   appendMsg({role:'user',text});
   try{
     const r=await api('/api/chat',{method:'POST',body:{peer:state.active,text,model:$('model').value||undefined}});
-    appendMsg({role:'assistant',text:r.text||'(空回复)'});
+    if(r.mode==='queued'){const q=r.result&&r.result.queued&&r.result.queued.queuedSubmission;addQueueItem(state.active,q);toast('已加入等待队列')}else{appendMsg({role:'assistant',text:r.text||'(空回复)'})}
     await loadConvs();
   }catch(e){appendMsg({role:'assistant',text:'[错误] '+e.message});toast(e.message)}
   finally{state.sending=false;$('send').disabled=false;$('typing').textContent=''}
@@ -206,14 +403,29 @@ async function boot(){
   await loadModels();await loadConvs();
   if(state.convs.length)openConv(state.convs[0].id);
   if(new URLSearchParams(location.search).get('noevents')==='1')return;
+  setInterval(function(){if(state.active&&String(state.active).startsWith('ide:'))loadQueue(state.active)},5000);
   const es=new EventSource(API_BASE+'/api/events');
-  es.addEventListener('message',ev=>{try{const m=JSON.parse(ev.data);if(m.peer===state.active&&state.sending===false)appendMsg(m);else if(m.peer!==state.active){state.unread[m.peer]=(state.unread[m.peer]||0)+1;renderConvs();loadConvs()}}catch(e){}});
+  es.addEventListener('message',ev=>{try{const m=JSON.parse(ev.data);const isIde=String(m.peer||'').startsWith('ide:');if(m.peer===state.active&&state.sending===false&&!isIde)appendMsg(m);else if(m.peer!==state.active){state.unread[m.peer]=(state.unread[m.peer]||0)+1;renderConvs();loadConvs()}}catch(e){}});
   es.addEventListener('conversations',()=>loadConvs());
+      es.addEventListener('items',ev=>{try{const d=JSON.parse(ev.data);if(!d.peer||!Array.isArray(d.items))return;state.items[d.peer]=d.items;if(d.peer===state.active)renderItems(d.items)}catch(e){}});
+  es.addEventListener('ideEvent',ev=>{try{const d=JSON.parse(ev.data);if(!d.peer||!Array.isArray(state.items[d.peer]))return;const arr=state.items[d.peer];const m=d.method||'';const pr=d.params||{};
+    if(m==='item/started'||m==='item/completed'){const idx=arr.findIndex(e=>(e.item||{}).id===(pr.item||{}).id);if(idx>=0)arr[idx]={...arr[idx],item:pr.item,startedAtMs:pr.startedAtMs||arr[idx].startedAtMs,completedAtMs:pr.completedAtMs||arr[idx].completedAtMs};else arr.unshift({turnId:pr.turnId,item:pr.item,startedAtMs:pr.startedAtMs,completedAtMs:pr.completedAtMs})}
+    else if(m==='item/agentMessage/delta'||m==='item/commandExecution/outputDelta'){const idx=arr.findIndex(e=>(e.item||{}).id===pr.itemId);if(idx>=0){const it=arr[idx].item;if(m==='item/agentMessage/delta')it.text=(it.text||'')+(pr.delta||'');else it.aggregatedOutput=(it.aggregatedOutput||'')+(pr.delta||'')}}
+    if(d.peer===state.active)renderItems(arr)}catch(e){}});
+  es.addEventListener('history',ev=>{try{const h=JSON.parse(ev.data);if(!h.peer||!Array.isArray(h.messages))return;cacheMsgsWrite(h.peer,h.messages);const c=state.convs.find(x=>x.id===h.peer);if(c){const last=h.messages[h.messages.length-1];if(last)c.last=String(last.text||'').slice(0,80);if(h.peer!==state.active){state.unread[h.peer]=(state.unread[h.peer]||0)+1;renderConvs()}}if(h.peer===state.active&&!String(h.peer).startsWith('ide:'))renderMsgs(h.messages)}catch(e){}});
 }
 $('tokenSave').onclick=()=>{state.token=$('tokenInput').value.trim();localStorage.setItem('cx_token',state.token);$('tokenDlg').classList.remove('show');boot()};
 $('tokenLater').onclick=()=>$('tokenDlg').classList.remove('show');
+$('qToggle').onclick=function(){state.queueOpen=!state.queueOpen;$('queueBar').classList.toggle('open',state.queueOpen);renderQueue()};
 $('newChat').onclick=()=>{$('newDlg').classList.add('show');$('newPeer').value='';$('newText').value='';$('newPeer').focus()};
 $('newCancel').onclick=()=>$('newDlg').classList.remove('show');
+$('mClose').onclick=()=>$('manageDlg').classList.remove('show');
+$('mContinue').onclick=()=>{$('manageDlg').classList.remove('show');openConv(manageId)};
+$('mCopy').onclick=()=>{navigator.clipboard.writeText(manageId).then(()=>toast('已复制')).catch(()=>toast('复制失败'))};
+$('mRename').onclick=()=>{const n=$('mName').value.trim();if(!n){toast('请输入新标题');return}manageOp('rename',n)};
+$('mDelete').onclick=deleteConv;
+$('mArchive').onclick=()=>manageOp('archive');
+$('mUnarchive').onclick=()=>manageOp('unarchive');
 $('newOk').onclick=async()=>{const p=$('newPeer').value.trim()||('chat-'+Date.now());const t=$('newText').value.trim();$('newDlg').classList.remove('show');await openConv(p);if(t){$('input').value=t;send()}};
 $('send').onclick=send;
 $('q').oninput=renderConvs;
@@ -224,3 +436,4 @@ boot();
 </script>
 </body>
 </html>
+

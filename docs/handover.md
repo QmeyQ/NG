@@ -535,3 +535,45 @@ Python/pythoncore-3.14-64/python.exe local/doupload.py      # PUB_FORCE=1, h6 �
 - **删除会话**：chat UI 管理面板新增“删除会话”；`POST /api/conv/delete` → relay `codex.convDelete` → appserver `thread/delete` + 本地 sessions/cache 清理。生产实测 fake peer 删除 PASS（token= cx-9）。
 - **本地缓存/增量**：chat UI 用 localStorage 缓存会话列表与每会话最近 200 条消息；打开会话先渲染缓存，再 `/api/history?since=<最后ts>` 增量拉取；SSE history 同步写缓存。服务端 `codex.history/ideHistory` 支持 `since` 过滤。
 - **实时活动流**：新增 relay `codex.ideItems` + bridge `/api/ide/items`；IDE 会话渲染 thread/items（命令/思考/文件/工具/消息），每秒轮询 diff 并广播 `items` 事件；本地模式监听 app-server `item/*` 原生通知。`chatpage_items.cjs` PASS(50 items)。
+
+
+## h21 IDE 活动流：单条消息收展 + 真·实时更新（2026-11-22）
+
+> 用户要求：像 Codex 端一样，**一条消息内支持收展 + 实时更新**，不要拆成多条消息。本节是最终实现与验收记录。
+
+### h21.1 核心结论（为什么之前不实时）
+
+- **app-server 的 \`thread/items/list\` 只返回已持久化(已完成)的 items**——执行中的命令/推理/流式消息在完成前对它不可见（实测：10s sleep 命令执行期间 items/list 查不到，完成瞬间才出现）。这是实时性差的根因，不是轮询频率问题。
+- **rollout JSONL 文件本身是实时的**：\`response_item/function_call\` 在命令**开始**时立即写入；\`function_call_output\` / \`event_msg/item_completed\` 在完成时写入。直接解析文件即可获得执行中(running)状态。
+- 解决方案：绕过 app-server，**直接解析 rollout 文件构造实时 items**（\`server/re/codex.js\` 的 \`ideItemsLive()\`）。
+
+### h21.2 实现（文件与职责）
+
+| 文件 | 职责 |
+|---|---|
+| \`server/re/codex.js\` \`ideItemsLive(threadId,limit)\` | tail 读 rollout(4MB 窗口)解析：\`response_item.message\`(user/assistant→消息)、\`reasoning\`(summary/content 转字符串数组)、\`function_call\`(exec_command→commandExecution status=running；其他工具→mcpToolCall)、\`function_call_output\`(exitCode/输出→completed/failed)、\`item_completed\`(合并补全)。turnId 来自 \`task_started\`/\`internal_chat_message_metadata_passthrough\`/\`item_completed.turn_id\`。SQLite busy 重试 3 次 |
+| \`server/re/server.js\` | 新增 relay action \`codex.ideItemsLive\`（返回格式与 appserver itemsList 一致：\`{data:[{turnId,item,startedAtMs,completedAtMs}]}\` 最新在前） |
+| \`chat/bridge.cjs\` | ideSyncTick(1s) 与 \`GET /api/ide/items\` 均优先 \`codex.ideItemsLive\`，失败回退 \`codex.ideItems\`；items 签名含 status（running→completed 翻转必广播） |
+| \`chat/public/chat.html\` | \`renderItems\` 按 turnId 分组为**一条 .turn 消息**：头(角色+状态+时间)+主体(agent 回复或用户消息)+可折叠 details(命令/思考/工具)；执行中 turn 默认展开；\`state.openTurns\` 保持折叠状态；\`history\`/\`message\` SSE 对 ide 会话**不再调 renderMsgs**（否则会擦掉活动流）；滚动仅在贴近底部时跟随 |
+
+### h21.3 验收（全部浏览器实测，生产环境）
+
+- \`chat/test/chatpage_turns.cjs\` PASS：1 turn / 1 details / 37 items / msgs=0（单条消息确认）。
+- \`chat/test/chatpage_turn_realtime2.cjs\` **PASS（端到端）**：页面打开后从另一 exec 会话发 \`Start-Sleep 10; "RTMARK2-88-SLEEP done"\`，页面 **2s 内**出现该命令且 turn 变"执行中"，命令结束后**自动翻转为"完成"**，全程零点击零刷新。
+- \`chatpage_items / queue / queue_hidden / manage\` 全 PASS（queue 测试已加自清理，避免污染 hidden 测试）。
+- \`chat/test/ideitems_live.cjs\`：解析器单测，运行中命令 status=running、completedAtMs=0。
+
+### h21.4 坑（写死，勿再踩）
+
+- **\`loadItems\` 曾在 turn 分组重构时被整段误删**（调用在、定义没了，页面空白且无报错）→ 改 chat.html 后必须跑 \`chatpage_turns.cjs\`；loadItems 失败时现在会显示错误而不是静默吞掉。
+- **ide 会话的渲染唯一入口是 renderItems**；SSE \`history\`/\`message\` 处理器对 ide peer 必须跳过 renderMsgs/appendMsg，否则活动流被消息视图整体覆盖（表现为 items 忽然归 0）。
+- 前端测试 URL 要带唯一 query（如 \`&cb=\${Date.now()}\`）防 Cloudflare 缓存旧页面。
+- 运行中命令的判定 = status 非 completed/failed 且 exitCode 未定义；\`failed\` 样式为红色 \`.item-status.fail\`。
+- 重启本机 relay：进程是手动起的（服务 ReAPI 处于 Stopped，进程非 SYSTEM）——\`taskkill /PID <21119监听进程> /F\` 后 \`node -e "cp.spawn(...detached...)"\` 重拉，改完 server.js/codex.js 必须重启才生效。
+
+### h21.5 部署顺序（改 relay 侧代码时）
+
+1. 改 \`server/re/{server,codex}.js\` → 重启本机 relay(见上)。
+2. 改 \`chat/bridge.cjs\` 或 \`chat/public/chat.html\` → \`codex.bundle\` → ECS 写入 → \`systemctl restart codex-chat\` → cp chat.html 到 \`/home/ftpu/html/{chat,codex}/\`（工作流 h17.6 命令）。
+3. 复跑 h21.3 测试。
+

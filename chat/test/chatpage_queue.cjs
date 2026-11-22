@@ -10,5 +10,7 @@ await p.ev("(()=>{const e=[...document.querySelectorAll('.conv')].find(x=>x.data
 await p.ev("(()=>{document.getElementById('input').value='QUEUEUITEST';document.getElementById('send').click();return true})()");await sleep(5000);
 const qtxt=await p.ev("(()=>{return JSON.stringify({show:document.getElementById('queueBar').classList.contains('show'),count:document.getElementById('qCount').textContent,preview:document.getElementById('qPreview').textContent,items:[...document.querySelectorAll('.qitem')].map(x=>({id:x.dataset.id,text:(x.querySelector('.qtext')||{}).textContent||''}))})})()");
 const q=JSON.parse(qtxt);console.log('queue',JSON.stringify(q));
-const pass=q.show&&q.items.length>0;console.log(pass?'PASS':'FAIL');try{child.kill()}catch(e){}process.exit(pass?0:1)})().catch(e=>{console.log('ERR',e.message);process.exit(1)});
+const pass=q.show&&q.items.length>0;console.log(pass?'PASS':'FAIL');
+if(q.items&&q.items[0]){try{const cid=q.items[0].id;const expr="fetch('/codex-api/api/ide/queue/delete',{method:'POST',headers:{'Content-Type':'application/json','X-Cx-Token':'cx-9'},body:JSON.stringify({peer:'"+ide.id+"',queuedSubmissionId:'"+cid+"'})}).then(x=>x.json()).then(j=>console.log('cleanup',JSON.stringify(j)))";await p.ev(expr)}catch(e){console.log('cleanup ERR',e.message)}}
+try{child.kill()}catch(e){}process.exit(pass?0:1)})().catch(e=>{console.log('ERR',e.message);process.exit(1)});
 
