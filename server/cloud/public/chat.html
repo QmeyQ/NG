@@ -221,7 +221,7 @@ function queueItems(peer){return state.queues[peer]||[]}
 function queueText(item){const inp=item&&item.input&&item.input[0];return (inp&&inp.text)||(item&&item.text)||''}
 function renderQueue(){
   const peer=state.active;const bar=$('queueBar');if(!peer||!peer.startsWith('ide:')){bar.classList.remove('show');return}
-  const items=queueItems(peer);bar.classList.add('show');$('qCount').textContent='队列 '+items.length;
+  const items=queueItems(peer);if(!items.length){bar.classList.remove('show','open');return}$('qCount').textContent='队列 '+items.length;bar.classList.add('show');
   $('qPreview').textContent=items.length?queueText(items[0]).slice(0,60):'';
   $('qToggle').textContent=state.queueOpen?'收起':'展开';
   $('qList').innerHTML=items.length?items.map(function(it){return '<div class="qitem" data-id="'+esc(it.id)+'"><span class="qtext">'+esc(queueText(it))+'</span><button class="qdel" title="删除">×</button></div>'}).join(''):'<div class="qempty">暂无等待任务</div>';
