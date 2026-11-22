@@ -152,3 +152,13 @@ bash /tmp/ecs.sh <RE_TOKEN> http://127.0.0.1/apim
   2. 调 Codex app-server `thread/delete` 删除 Codex 端线程
 - 删除前会弹确认，不可恢复。
 - 当前生产 token 为 `cx-9`。
+
+## 实时同步（无需点列表）
+
+- chat 桥每 1 秒调用 `codex.ideSnapshot{since}`，只取有变化的 IDE 线程。
+- 有变化时直接广播 `history` 事件，消息会自动推送到页面。
+- 页面收到 `history` 后：
+  - 写入本地缓存
+  - 更新会话列表预览和未读数
+  - 如果是当前打开的会话，直接重绘消息
+- 不需要点击会话列表来触发同步。

@@ -274,7 +274,7 @@ async function boot(){
   const es=new EventSource(API_BASE+'/api/events');
   es.addEventListener('message',ev=>{try{const m=JSON.parse(ev.data);if(m.peer===state.active&&state.sending===false)appendMsg(m);else if(m.peer!==state.active){state.unread[m.peer]=(state.unread[m.peer]||0)+1;renderConvs();loadConvs()}}catch(e){}});
   es.addEventListener('conversations',()=>loadConvs());
-  es.addEventListener('history',ev=>{try{const h=JSON.parse(ev.data);if(h.peer===state.active&&Array.isArray(h.messages)){cacheMsgsWrite(h.peer,h.messages);renderMsgs(h.messages)}}catch(e){}});
+  es.addEventListener('history',ev=>{try{const h=JSON.parse(ev.data);if(!h.peer||!Array.isArray(h.messages))return;cacheMsgsWrite(h.peer,h.messages);const c=state.convs.find(x=>x.id===h.peer);if(c){const last=h.messages[h.messages.length-1];if(last)c.last=String(last.text||'').slice(0,80);if(h.peer!==state.active){state.unread[h.peer]=(state.unread[h.peer]||0)+1;renderConvs()}}if(h.peer===state.active)renderMsgs(h.messages)}catch(e){}});
 }
 $('tokenSave').onclick=()=>{state.token=$('tokenInput').value.trim();localStorage.setItem('cx_token',state.token);$('tokenDlg').classList.remove('show');boot()};
 $('tokenLater').onclick=()=>$('tokenDlg').classList.remove('show');

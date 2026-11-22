@@ -530,5 +530,6 @@ Python/pythoncore-3.14-64/python.exe local/doupload.py      # PUB_FORCE=1, h6 �
   - 生产 `/codex-api/api/chat` 对 IDE 会话返回 `mode=turn`；历史出现 `WSOK` 等新回合。
   - 浏览器双击 IDE 会话 → 管理弹窗显示 `ide:*`、kind=ide：`chatpage_manage.cjs` PASS。
 - **限制**：`turn/start` 立即返回 inProgress，不阻塞等待最终回复；最终回复靠 snapshot 轮询/SSE。当前桌面正在运行的线程只能排队，不能抢 writer。
+- **实时同步修正**：`codex.ideSnapshot` 增加 `since`，只返回 `updatedAt > since` 的线程及其 history；bridge 每秒广播所有变化线程的 `history` 事件，UI 收到后更新缓存/列表/当前消息，无需点击会话列表。
 - **删除会话**：chat UI 管理面板新增“删除会话”；`POST /api/conv/delete` → relay `codex.convDelete` → appserver `thread/delete` + 本地 sessions/cache 清理。生产实测 fake peer 删除 PASS（token= cx-9）。
 - **本地缓存/增量**：chat UI 用 localStorage 缓存会话列表与每会话最近 200 条消息；打开会话先渲染缓存，再 `/api/history?since=<最后ts>` 增量拉取；SSE history 同步写缓存。服务端 `codex.history/ideHistory` 支持 `since` 过滤。

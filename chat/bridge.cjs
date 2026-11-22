@@ -42,6 +42,7 @@ const sseClients = new Set();
 let activeIdePeer = null;
 let lastIdeSignature = '';
 let lastActiveIdeKey = '';
+let lastIdeSyncAt = 0;
 let ideSyncTimer = null;
 function broadcast(type, data) {
     const msg = 'event: ' + type + '\ndata: ' + JSON.stringify(data || {}) + '\n\n';
@@ -222,21 +223,29 @@ async function ideSyncTick() {
     if (CONFIG.ideSync === false || sseClients.size === 0) return;
     try {
         let snap;
-        if ((CONFIG.mode || 'local') === 'relay') snap = await relayCall('codex.ideSnapshot', { activePeer: activeIdePeer || '' });
+        if ((CONFIG.mode || 'local') === 'relay') snap = await relayCall('codex.ideSnapshot', { activePeer: activeIdePeer || '', since: lastIdeSyncAt });
         else {
             const threads = codex.ideThreads(50);
+            const changed = threads.filter(t => (t.updatedAt || 0) > lastIdeSyncAt);
+            const histories = [];
+            for (const t of changed) { try { histories.push(await codex.ideHistory(t.id, 20)); } catch (e) { } }
             let active = null;
             if (activeIdePeer) { try { active = await codex.ideHistory(activeIdePeer.slice(4), 20); } catch (e) { active = null; } }
-            snap = { threads, active };
+            snap = { threads, histories, active };
         }
         const sig = JSON.stringify((snap.threads || []).map(t => [t.id, t.updatedAt]));
         if (sig !== lastIdeSignature) { lastIdeSignature = sig; broadcast('conversations', { at: Date.now() }); }
+        for (const h of (snap.histories || [])) {
+            if (!h || !h.peer || !Array.isArray(h.messages)) continue;
+            broadcast('history', { peer: h.peer, messages: h.messages });
+        }
         if (snap.active && Array.isArray(snap.active.messages)) {
             const msgs = snap.active.messages;
             const last = msgs.length ? msgs[msgs.length - 1] : null;
             const key = String(activeIdePeer) + '|' + (last ? (last.ts || 0) + '|' + String(last.text || '').slice(0, 80) : '');
             if (key !== lastActiveIdeKey) { lastActiveIdeKey = key; broadcast('history', { peer: activeIdePeer, messages: msgs }); }
         }
+        lastIdeSyncAt = Date.now();
     } catch (e) { log('ide sync failed', String(e.message)); }
 }
 function startIdeSync() {
