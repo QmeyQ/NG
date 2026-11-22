@@ -143,3 +143,12 @@ bash /tmp/ecs.sh <RE_TOKEN> http://127.0.0.1/apim
 - 打开会话：先渲染缓存，再带 `since=<最后一条 ts>` 增量拉取新消息
 - SSE `history` 到达时同步写入缓存
 - 服务端 `/api/history?peer=...&since=...` 只返回 `ts > since` 的新消息
+
+## 删除会话
+
+- 双击会话 → 管理面板 → **删除会话**
+- 会同时：
+  1. 删除 chat 端本地缓存与会话记录
+  2. 调 Codex app-server `thread/delete` 删除 Codex 端线程
+- 删除前会弹确认，不可恢复。
+- 当前生产 token 为 `cx-9`。

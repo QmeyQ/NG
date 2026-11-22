@@ -331,6 +331,20 @@ const server = http.createServer(async (req, res) => {
                 if (body.op === 'rename') { if (!body.name) return sendJson(res, 400, { ok: false, error: 'name 必填' }); return sendJson(res, 200, { ok: true, result: await appserver.setName(body.threadId, body.name) }); }
                 return sendJson(res, 400, { ok: false, error: '未知 op' });
             }
+                        if (req.method === 'POST' && p === '/api/conv/delete') {
+                if (!body.peer) return sendJson(res, 400, { ok: false, error: 'peer 必填', help: HELP });
+                if ((CONFIG.mode || 'local') === 'relay') {
+                    const r = await relayCall('codex.convDelete', { peer: body.peer });
+                } else {
+                    let threadId = '';
+                    if (String(body.peer).startsWith('ide:')) threadId = String(body.peer).slice(4);
+                    else { const st = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'server', 're', 'codex-sessions.json'), 'utf8')).peers || {}; threadId = (st[body.peer] || {}).threadId || ''; }
+                    if (threadId) { try { await appserver.delete(threadId); } catch (e) { log('appserver delete failed ' + e.message); } }
+                    codex.deleteConversation(body.peer);
+                }
+                broadcast('conversations', { at: Date.now(), deleted: body.peer });
+                return sendJson(res, 200, { ok: true, deleted: body.peer });
+            }
                         return sendJson(res, 404, { ok: false, error: '未知接口: ' + p, help: HELP });
         } catch (e) {
             log('api error', p, String(e.message));

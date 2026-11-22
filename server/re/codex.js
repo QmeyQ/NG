@@ -118,10 +118,12 @@ class CodexBridge {
 
     sessions() { return this.status().sessions; }
 
-    history(peer, limit) {
+    history(peer, limit, since) {
         const s = readJson(this.sessionsPath, { peers: {} });
         const v = (s.peers || {})[peer];
-        return { peer, threadId: v && v.threadId || '', cwd: v && v.cwd || '', model: v && v.model || '', messages: tail((v && v.messages) || [], limit || 200) };
+        const sinceTs = Number(since) || 0;
+        const msgs = sinceTs ? ((v && v.messages) || []).filter(m => (m.ts || 0) > sinceTs) : ((v && v.messages) || []);
+        return { peer, threadId: v && v.threadId || '', cwd: v && v.cwd || '', model: v && v.model || '', messages: tail(msgs, limit || 200), total: ((v && v.messages) || []).length };
     }
 
     store(peer, patch) {
@@ -287,7 +289,7 @@ class CodexBridge {
         };
     }
 
-    async ideHistory(threadId, limit) {
+    async ideHistory(threadId, limit, since) {
         const meta = this.ideThread(threadId);
         const file = meta.rolloutPath;
         if (!file || !fs.existsSync(file)) throw new Error('IDE 会话 rollout 不存在: ' + file);
@@ -316,7 +318,9 @@ class CodexBridge {
             }
             msgs.push({ role, text, ts: o.timestamp ? Date.parse(o.timestamp) || 0 : 0 });
         }
-        return { peer: 'ide:' + meta.id, threadId: meta.id, title: meta.title, cwd: meta.cwd, model: meta.model, modelProvider: meta.modelProvider, project: meta.project, messages: msgs.slice(-(Number(limit) || 200)) };
+        const sinceTs = Number(since) || 0;
+        const filtered = sinceTs ? msgs.filter(m => (m.ts || 0) > sinceTs) : msgs;
+        return { peer: 'ide:' + meta.id, threadId: meta.id, title: meta.title, cwd: meta.cwd, model: meta.model, modelProvider: meta.modelProvider, project: meta.project, messages: filtered.slice(-(Number(limit) || 200)), total: msgs.length };
     }
 
     async ideChat(threadId, text, opts) {
@@ -362,6 +366,19 @@ class CodexBridge {
         const outText = (res.text || '').trim() || (err ? ('[codex error] ' + err) : '');
         this.log('codex.ideChat', threadId, 'code=' + res.code, 'ms=' + ms, 'chars=' + outText.length);
         return { ok: res.code === 0, peer: 'ide:' + threadId, threadId, cwd, model: meta.model, text: outText, events: res.events, usage: res.usage, ms, code: res.code, error: err };
+    }
+
+    deleteConversation(peer) {
+        const key = String(peer || '');
+        const store = readJson(this.sessionsPath, { peers: {} });
+        const v = (store.peers || {})[key];
+        const threadId = v && v.threadId || (key.startsWith('ide:') ? key.slice(4) : '');
+        if (threadId) {
+            try { cp.execFileSync(this.resolveBin(), ['exec', 'resume', threadId, ''], { stdio: 'ignore', windowsHide: true, timeout: 1000 }); } catch (e) { }
+        }
+        if (store.peers && store.peers[key]) delete store.peers[key];
+        writeJson(this.sessionsPath, store);
+        return { peer: key, threadId, deleted: true };
     }
 
     cancel(peer) {

@@ -62,7 +62,8 @@ const HELP = {
         'codex.ideSend': { desc: 'app-server resume + turn/start(实时操作 IDE 线程)', params: { threadId: '必填', text: '必填' }, example: { action: 'codex.ideSend', threadId: '01a1...', text: '继续' } },
         'codex.ideQueue': { desc: 'app-server queue/add(active writer 时排队)', params: { threadId: '必填', text: '必填' }, example: { action: 'codex.ideQueue', threadId: '01a1...', text: '排队' } },
         'codex.ideSnapshot': { desc: '返回 IDE 线程快照(threads+activePeer 消息)', params: { activePeer: '可选' }, example: { action: 'codex.ideSnapshot', activePeer: 'ide:01a1...' } },
-        'codex.ideManage': { desc: 'IDE 会话管理(archive/unarchive/delete/rename)', params: { threadId: '必填', op: '必填 archive|unarchive|delete|rename', name: 'rename 时必填' }, example: { action: 'codex.ideManage', threadId: '01a1...', op: 'rename', name: '新标题' } }
+        'codex.ideManage': { desc: 'IDE 会话管理(archive/unarchive/delete/rename)', params: { threadId: '必填', op: '必填 archive|unarchive|delete|rename', name: 'rename 时必填' }, example: { action: 'codex.ideManage', threadId: '01a1...', op: 'rename', name: '新标题' } },
+        'codex.convDelete': { desc: '删除 chat 会话(含 Codex 端线程)', params: { peer: '必填' }, example: { action: 'codex.convDelete', peer: 'ide:01a1...' } }
     }
 };
 
@@ -98,16 +99,17 @@ const handlers = {
     'codex.config.get': () => ({ config: codex.cfg() }),
     'codex.config.set': (p) => { need(p, ['patch'], 'codex.config.set'); return { config: codex.save(p.patch) }; },
     'codex.chat': (p) => { need(p, ['text'], 'codex.chat'); return codex.chat({ peer: p.peer || 'default', text: p.text, cwd: p.cwd, model: p.model, sandbox: p.sandbox, timeoutMs: p.timeoutMs, via: 'relay' }); },
-    'codex.history': (p) => { need(p, ['peer'], 'codex.history'); return codex.history(p.peer, p.limit); },
+    'codex.history': (p) => { need(p, ['peer'], 'codex.history'); return codex.history(p.peer, p.limit, p.since); },
     'codex.sessions': () => ({ sessions: codex.sessions() }),
     'codex.cancel': (p) => codex.cancel(p.peer),
     'codex.ideThreads': (p) => ({ threads: codex.ideThreads(p.limit) }),
-    'codex.ideHistory': (p) => { need(p, ['threadId'], 'codex.ideHistory'); return codex.ideHistory(p.threadId, p.limit); },
+    'codex.ideHistory': (p) => { need(p, ['threadId'], 'codex.ideHistory'); return codex.ideHistory(p.threadId, p.limit, p.since); },
     'codex.ideChat': (p) => { need(p, ['threadId', 'text'], 'codex.ideChat'); return codex.ideChat(p.threadId, p.text, { sandbox: p.sandbox, timeoutMs: p.timeoutMs }); },
     'codex.appStatus': async () => ({ running: appserver.isRunning(), started: appserver.started }),
     'codex.appThreads': async (p) => ({ result: await appserver.listThreads(p.limit) }),
     'codex.ideSend': async (p) => { need(p, ['threadId', 'text'], 'codex.ideSend'); try { const r = await appserver.resumeThread(p.threadId, true); const t = await appserver.startTurn(p.threadId, p.text); return { ok: true, mode: 'turn', resume: r, turn: t }; } catch (e) { if (/active writer/i.test(String(e.message))) { const q = await appserver.queueAdd(p.threadId, p.text); return { ok: true, mode: 'queued', queued: q, note: '线程正在 Codex 中运行，消息已排队，稍后会处理' }; } throw e; } },
     'codex.ideQueue': async (p) => { need(p, ['threadId', 'text'], 'codex.ideQueue'); const q = await appserver.queueAdd(p.threadId, p.text); return { ok: true, queued: q }; },
+    'codex.convDelete': async (p) => { need(p, ['peer'], 'codex.convDelete'); const peer = String(p.peer); let threadId = ''; if (peer.startsWith('ide:')) threadId = peer.slice(4); else { const st = JSON.parse(fs.readFileSync(path.join(__dirname, 'codex-sessions.json'), 'utf8')).peers || {}; threadId = (st[peer] || {}).threadId || ''; } if (threadId) { try { await appserver.delete(threadId); } catch (e) { if (!/not found/i.test(String(e.message))) log('APPSERVER delete failed ' + e.message); } } const r = codex.deleteConversation(peer); return Object.assign({ ok: true, threadId }, r); },
     'codex.ideManage': async (p) => { need(p, ['threadId', 'op'], 'codex.ideManage'); const t = String(p.threadId); if (p.op === 'archive') return appserver.archive(t); if (p.op === 'unarchive') return appserver.unarchive(t); if (p.op === 'delete') return appserver.delete(t); if (p.op === 'rename') { need(p, ['name'], 'codex.ideManage'); return appserver.setName(t, p.name); } throw new Error('未知 op: ' + p.op); },
     'codex.ideSnapshot': async (p) => { const threads = codex.ideThreads(Number(p.limit) || 50); let active = null; if (p.activePeer && String(p.activePeer).startsWith('ide:')) { try { active = await codex.ideHistory(String(p.activePeer).slice(4), 20); } catch (e) { active = { error: String(e.message) }; } } return { threads, active }; },
     'codex.bundle': () => { const files = ['chat/bridge.cjs','chat/plugin/weixin.cjs','chat/plugin/wechat.cjs','chat/public/chat.html','chat/public/qrcode.js','chat/public/codex.html','chat/config.example.json','chat/deploy/install-ecs.sh','chat/deploy/ecs-install-remote.sh','chat/deploy/nginx-codex.conf','chat/README.md','server/re/codex.js','server/re/appserver.js']; return { files: files.map(f => ({ path: f, b64: fs.readFileSync(path.resolve(PROJ, f)).toString('base64') })) }; }
