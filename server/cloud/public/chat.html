@@ -218,7 +218,7 @@ function cacheRead(k,d){try{return JSON.parse(localStorage.getItem(k))??d}catch(
 function cacheWrite(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}}
 function cacheMsgs(peer){return cacheRead(CACHE.msgs+peer,[])}
 function cacheMsgsWrite(peer,msgs){cacheWrite(CACHE.msgs+peer,msgs.slice(-200))}
-const state={openItems:{},items:{},itemSig:{},shownPeer:null,queues:{},queueOpen:false,token:localStorage.getItem('cx_token')||new URLSearchParams(location.search).get('token')||'',convs:[],active:null,models:[],sending:false,hist:{},unread:{}};
+const state={openItems:{},items:{},itemSig:{},shownPeer:null,lastSeen:{},bootTs:Date.now(),queues:{},queueOpen:false,token:localStorage.getItem('cx_token')||new URLSearchParams(location.search).get('token')||'',convs:[],active:null,models:[],sending:false,hist:{},unread:{}};
 function toast(t){const e=$('toast');e.textContent=t;e.classList.add('show');clearTimeout(toast._t);toast._t=setTimeout(()=>e.classList.remove('show'),2200)}
 async function api(path,opts){
   opts=opts||{};const tk=(state.token||'').trim();opts.headers=Object.assign({},opts.headers||{});if(tk&&/^[\x20-\x7E]+$/.test(tk))opts.headers['X-Cx-Token']=tk;
@@ -274,7 +274,7 @@ async function loadModels(){
   try{const r=await api('/api/models');state.models=r.models||[];$('model').innerHTML=state.models.map(m=>`<option value="${esc(m.slug)}">${esc(m.label||m.slug)}</option>`).join('')}catch(e){}
 }
 async function openConv(id){
-  state.active=id;delete state.unread[id];renderConvs();
+  state.active=id;delete state.unread[id];state.lastSeen[id]=Date.now();renderConvs();
   const c=state.convs.find(x=>x.id===id)||{id};
   $('chatTitle').textContent=c.title||id;$('chatSub').textContent=(c.kind==='wechat'?'微信会话':c.kind==='group'?'微信群':(c.kind==='ide'?'Codex IDE 会话':'Codex 会话'))+' · '+id;
   $('peerHint').textContent=id;$('send').disabled=false;
@@ -454,7 +454,9 @@ async function boot(){
     if(m==='item/started'||m==='item/completed'){const idx=arr.findIndex(e=>(e.item||{}).id===(pr.item||{}).id);if(idx>=0)arr[idx]={...arr[idx],item:pr.item,startedAtMs:pr.startedAtMs||arr[idx].startedAtMs,completedAtMs:pr.completedAtMs||arr[idx].completedAtMs};else arr.unshift({turnId:pr.turnId,item:pr.item,startedAtMs:pr.startedAtMs,completedAtMs:pr.completedAtMs})}
     else if(m==='item/agentMessage/delta'||m==='item/commandExecution/outputDelta'){const idx=arr.findIndex(e=>(e.item||{}).id===pr.itemId);if(idx>=0){const it=arr[idx].item;if(m==='item/agentMessage/delta')it.text=(it.text||'')+(pr.delta||'');else it.aggregatedOutput=(it.aggregatedOutput||'')+(pr.delta||'')}}
     if(d.peer===state.active)renderItemsIfChanged(d.peer,arr)}catch(e){}});
-  es.addEventListener('history',ev=>{try{const h=JSON.parse(ev.data);if(!h.peer||!Array.isArray(h.messages))return;cacheMsgsWrite(h.peer,h.messages);const c=state.convs.find(x=>x.id===h.peer);if(c){const last=h.messages[h.messages.length-1];if(last)c.last=String(last.text||'').slice(0,80);if(h.peer!==state.active){state.unread[h.peer]=(state.unread[h.peer]||0)+1;renderConvs()}}if(h.peer===state.active&&!String(h.peer).startsWith('ide:'))renderMsgs(h.messages)}catch(e){}});
+  es.addEventListener('history',ev=>{try{const h=JSON.parse(ev.data);if(!h.peer||!Array.isArray(h.messages))return;cacheMsgsWrite(h.peer,h.messages);const c=state.convs.find(x=>x.id===h.peer);const msgs=h.messages;const lastTs=msgs.reduce(function(mx,m){return Math.max(mx,m.ts||0)},0);if(c){const last=msgs[msgs.length-1];if(last)c.last=String(last.text||'').slice(0,80);}
+  if(h.peer===state.active){state.lastSeen[h.peer]=Math.max(state.lastSeen[h.peer]||0,lastTs);if(!String(h.peer).startsWith('ide:'))renderMsgs(msgs);}
+  else{const seen=state.lastSeen[h.peer]||state.bootTs;const fresh=msgs.filter(function(m){return (m.ts||0)>seen}).length;if(fresh){state.unread[h.peer]=fresh;renderConvs();}}}catch(e){}});
 }
 $('tokenSave').onclick=()=>{state.token=$('tokenInput').value.trim();localStorage.setItem('cx_token',state.token);$('tokenDlg').classList.remove('show');boot()};
 $('tokenLater').onclick=()=>$('tokenDlg').classList.remove('show');

@@ -15,7 +15,7 @@ const edge='C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe';
   await sleep(2500);
   const list=await p.ev("(()=>{return [...document.querySelectorAll('.conv')].map(x=>({id:x.dataset.id,title:(x.querySelector('.conv-title')||{}).textContent||''}))})()");
   console.log('convs:',JSON.stringify(list).slice(0,400));
-  const content=()=>p.ev(`(()=>{const t=document.querySelector('#chatTitle').textContent;const turn=document.querySelector('.turn');const msg=document.querySelector('#msgs .msg .b');const ag=document.querySelector('.agentmsg .b');return JSON.stringify({title:t,kind:turn?'turn':(msg?'msg':'empty'),first:(ag?ag.textContent:(msg?msg.textContent:'')).slice(0,30)})})()`);
+  const content=()=>p.ev(`(()=>{const t=document.querySelector('#chatTitle').textContent;const turn=document.querySelector('.turn');const msg=document.querySelector('#msgs .msg .b');const ub=document.querySelector('.turn .msg.me .b');const ag=document.querySelector('.agentmsg .b');return JSON.stringify({title:t,kind:turn?'turn':(msg?'msg':'empty'),first:(ag?ag.textContent:(msg?msg.textContent:'')).slice(0,30),user:(ub?ub.textContent:(msg?msg.textContent:'')).slice(0,40)})})()`);
   const click=id=>p.ev(`(()=>{const e=[...document.querySelectorAll('.conv')].find(x=>x.dataset.id==='${id}');if(e)e.click();return !!e})()`);
   if(list.length<2){console.log('NEED 2+ convs');process.exit(2)}
   const A=list[0].id,B=list[1].id;
@@ -25,8 +25,8 @@ const edge='C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe';
   const cB=JSON.parse(await content());console.log('B:',JSON.stringify(cB));
   await click(A);await sleep(4000);
   const cA2=JSON.parse(await content());console.log('A2:',JSON.stringify(cA2));
-  const switched=cA.title!==cB.title&&(cA.first!==cB.first||cA.kind!==cB.kind);
-  const restored=cA2.title===cA.title&&cA2.first===cA.first&&cA2.kind===cA.kind;
+  const switched=cA.title!==cB.title&&(cA.user!==cB.user||cA.kind!==cB.kind);
+  const restored=cA2.title===cA.title&&cA2.user===cA.user&&cA2.kind===cA.kind;
   console.log('switched='+switched+' restored='+restored);
   // 遍历全部会话: 每个都必须渲染(标题匹配, 内容非空态除外), 不卡住
   let allOk=true;

@@ -116,7 +116,8 @@
     "chat h21.6 验收: stable 测试(标记元素12s存活/0空白/0滚动跳) + turns/items/realtime2 全 PASS; audit: 用户气泡 flex-end 绿底 + agent 气泡 pointer + 运行中琥珀边框; 输出截断保护带宽",
     "chat h21.7 切换会话卡住修复: itemsSig 守卫误拦切回旧会话 -> state.shownPeer 只拦同会话同数据; chatpage_switch.cjs PASS(A->B切换/B->A恢复/遍历5会话全渲染)",
     "chat h21.8 Codex IDE 式过程块: 移除外层总折叠, 过程块按执行顺序内联交错(思考->命令->思考), 每块独立收展(.blk), 执行中默认展开完成后自动收起, openItems 记住手动选择; parser 保留干净命令(args.cmd)不被 pwsh 包装覆盖",
-    "chat h21.8 验收: turns blockTypes 交错序列断言 PASS(39块 cmd/reason 混排), chatpage_blocks(块点击/状态跨轮询保持) PASS, realtime2(干净命令头执行中->完成) PASS, stable/switch 回归 PASS"
+    "chat h21.8 验收: turns blockTypes 交错序列断言 PASS(39块 cmd/reason 混排), chatpage_blocks(块点击/状态跨轮询保持) PASS, realtime2(干净命令头执行中->完成) PASS, stable/switch 回归 PASS",
+    "chat h21.9 红点修复: 未读=lastSeen(打开/观看推进)+bootTs 之后的真新消息数, 重复 history 广播重算不累加, 打开后不回弹; chatpage_unread.cjs PASS(5s稳定/6s不回弹); switch 测试改用稳定用户气泡断言(块自动收起不再误判), 全回归 PASS"
   ],
   "next": [
     "用户真实浏览器打开 normalgame.cn 目检左右移动/待机/球拍(点\"下载\"确认重下新包); 通过后下一轮: girl1 共用 controller 观感 + hitoff/jumphit/diving 重建",
@@ -137,7 +138,7 @@
     "git push origin Badminton3D 网络失败(GitHub 443 连接重置/超时, 已重试2次); 本地提交 a3097b42 已落盘, 待网络恢复补推",
     "www 备用入口 headless boot 复验未过(不作验收); headless 生产探针下载确认点击不稳(探针侧)"
   ],
-  "last_output": "chatpage_blocks PASS + turns(交错blockTypes) + realtime2(执行中->完成,干净cmdline) + stable(0空白0滚动跳) + switch(A->B->A) 全过; Codex IDE 式: 思考(Ns)块/命令块独立收展, 按执行顺序排列",
+  "last_output": "chatpage_unread PASS(红点无膨胀不回弹) + switch(用户气泡断言) + turns + blocks 回归全过",
   "note": "LayaProject=小游戏平台; NG2=branch origin/room",
-  "updatedAt": "2026-11-22T11:27:28.574Z"
+  "updatedAt": "2026-11-22T11:35:53.434Z"
 }
