@@ -86,6 +86,9 @@ class AppServerClient {
     async unarchive(threadId) { await this.start(); return this.request('thread/unarchive', { threadId }, 30000); }
     async delete(threadId) { await this.start(); return this.request('thread/delete', { threadId }, 30000); }
     async setName(threadId, name) { await this.start(); return this.request('thread/name/set', { threadId, name: String(name || '') }, 30000); }
+    async queueList(threadId) { await this.start(); return this.request('thread/queue/list', { threadId }, 30000); }
+    async queueDelete(threadId, queuedSubmissionId) { await this.start(); return this.request('thread/queue/delete', { threadId, queuedSubmissionId }, 30000); }
+    async unsubscribe(threadId) { await this.start(); return this.request('thread/unsubscribe', { threadId }, 30000); }
     close() { if (this.child) { try { this.child.kill(); } catch (e) { } this.child = null; } }
 }
 

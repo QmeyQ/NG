@@ -79,6 +79,21 @@ select,input,textarea{font-family:inherit}
 .btn.primary{border-color:var(--acc);background:linear-gradient(135deg,#2f8fff,#37c98b);color:#04110a;font-weight:700}
 .btn.ghost{background:transparent}\n.btn.danger{border-color:#8a2b2b;color:#ff8a8a}
 .mgrid{display:grid;grid-template-columns:90px 1fr;gap:6px;font-size:12px}.mgrid b{color:var(--dim);font-weight:600}.mactions{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}.mactions .btn{flex:1;min-width:90px}
+
+.queuebar{display:none;margin:0 0 8px;padding:6px 10px;border:1px solid var(--line);border-radius:10px;background:rgba(18,27,36,.92);font-size:12px}
+.queuebar.show{display:block}
+.qhead{display:flex;align-items:center;gap:8px}
+.qhead b{color:var(--warn)}
+.qtoggle{margin-left:auto;border:1px solid var(--line);background:transparent;color:var(--dim);border-radius:6px;padding:2px 8px;cursor:pointer;font-size:11px}
+.qlist{display:none;max-height:130px;overflow:auto;margin-top:6px}
+.queuebar.open .qlist{display:block}
+.qitem{display:flex;align-items:center;gap:8px;padding:5px 8px;border-radius:8px;background:#0d151d;margin-bottom:4px}
+.qtext{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--txt)}
+.qdel{border:1px solid #6b2b2b;background:#221416;color:#ff8a8a;border-radius:6px;width:22px;height:22px;cursor:pointer;font-size:12px;line-height:1}
+.qempty{color:var(--dim);padding:4px 0}
+.statuspill{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:999px;border:1px solid var(--line);font-size:11px;color:var(--dim)}
+.statuspill.active{color:var(--warn);border-color:#6b5227}
+.statuspill.idle{color:var(--acc);border-color:#275c46}
 .toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%) translateY(20px);background:#0f1720;border:1px solid var(--line);color:var(--txt);padding:9px 14px;border-radius:9px;opacity:0;pointer-events:none;transition:.25s;z-index:80;font-size:12.5px}
 .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
 @media(max-width:760px){.side{width:120px;min-width:120px}.side .search{display:none}.conv-last,.conv-time{display:none}.brand small{display:none}.chat-tools .sel{display:none}}
@@ -116,6 +131,10 @@ select,input,textarea{font-family:inherit}
         <div class="empty"><div class="big">💬</div><div>从左侧选择会话，或点击 + 新建聊天</div><div style="font-size:11px">微信好友/群消息会自动出现在这里</div></div>
       </div>
       <div class="composer">
+        <div class="queuebar" id="queueBar">
+          <div class="qhead"><b id="qCount">队列 0</b><span id="qPreview" class="qtext"></span><button class="qtoggle" id="qToggle">展开</button></div>
+          <div class="qlist" id="qList"></div>
+        </div>
         <div class="row">
           <textarea id="input" rows="1" placeholder="给 Codex 发消息…  Enter 发送 / Shift+Enter 换行"></textarea>
           <button class="send" id="send" disabled>发送</button>
@@ -177,7 +196,7 @@ function cacheRead(k,d){try{return JSON.parse(localStorage.getItem(k))??d}catch(
 function cacheWrite(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}}
 function cacheMsgs(peer){return cacheRead(CACHE.msgs+peer,[])}
 function cacheMsgsWrite(peer,msgs){cacheWrite(CACHE.msgs+peer,msgs.slice(-200))}
-const state={token:localStorage.getItem('cx_token')||new URLSearchParams(location.search).get('token')||'',convs:[],active:null,models:[],sending:false,hist:{},unread:{}};
+const state={queues:{},queueOpen:false,token:localStorage.getItem('cx_token')||new URLSearchParams(location.search).get('token')||'',convs:[],active:null,models:[],sending:false,hist:{},unread:{}};
 function toast(t){const e=$('toast');e.textContent=t;e.classList.add('show');clearTimeout(toast._t);toast._t=setTimeout(()=>e.classList.remove('show'),2200)}
 async function api(path,opts){
   opts=opts||{};const tk=(state.token||'').trim();opts.headers=Object.assign({},opts.headers||{});if(tk&&/^[\x20-\x7E]+$/.test(tk))opts.headers['X-Cx-Token']=tk;
@@ -198,6 +217,33 @@ function renderConvs(){
   $('list').innerHTML=list.length?list.map(c=>`<div class="conv ${c.id===state.active?'active':''}" data-id="${esc(c.id)}"><div class="av ${c.kind==='group'?'g':(c.kind==='wechat'?'':(c.kind==='ide'?'i':'c'))}">${avatar(c)}</div><div class="conv-body"><div class="conv-top"><div class="conv-title">${esc(c.title||c.id)}</div><div class="conv-time">${fmtTime(c.updatedAt)}</div></div><div class="conv-last">${esc(c.last||'（暂无消息）')}</div></div>${state.unread[c.id]?`<span class="badge">${state.unread[c.id]}</span>`:''}</div>`).join(''):`<div class="empty" style="padding:30px 10px"><div>暂无会话</div><div style="font-size:11px">点击 + 新建</div></div>`;
   document.querySelectorAll('.conv').forEach(el=>{el.onclick=()=>openConv(el.dataset.id);el.ondblclick=e=>{e.preventDefault();openManage(el.dataset.id)}});
 }
+function queueItems(peer){return state.queues[peer]||[]}
+function queueText(item){const inp=item&&item.input&&item.input[0];return (inp&&inp.text)||(item&&item.text)||''}
+function renderQueue(){
+  const peer=state.active;const bar=$('queueBar');if(!peer||!peer.startsWith('ide:')){bar.classList.remove('show');return}
+  const items=queueItems(peer);bar.classList.add('show');$('qCount').textContent='队列 '+items.length;
+  $('qPreview').textContent=items.length?queueText(items[0]).slice(0,60):'';
+  $('qToggle').textContent=state.queueOpen?'收起':'展开';
+  $('qList').innerHTML=items.length?items.map(function(it){return '<div class="qitem" data-id="'+esc(it.id)+'"><span class="qtext">'+esc(queueText(it))+'</span><button class="qdel" title="删除">×</button></div>'}).join(''):'<div class="qempty">暂无等待任务</div>';
+  document.querySelectorAll('.qitem .qdel').forEach(function(b){b.onclick=async function(){const id=b.parentElement.dataset.id;await delQueueItem(peer,id)}})
+}
+async function loadQueue(peer){
+  if(!peer||!peer.startsWith('ide:'))return;
+  try{
+    const r=await api('/api/ide/queue?peer='+encodeURIComponent(peer));
+    const q=(r.queue&&r.queue.data)||[];
+    state.queues[peer]=q.map(function(x){return x.queuedSubmission||x});
+    renderQueue();
+  }catch(e){}
+}
+async function delQueueItem(peer,id){
+  try{
+    await api('/api/ide/queue/delete',{method:'POST',body:{peer,queuedSubmissionId:id}});
+    state.queues[peer]=queueItems(peer).filter(function(x){return x.id!==id});
+    renderQueue();toast('已删除等待任务')
+  }catch(e){toast(e.message)}
+}
+function addQueueItem(peer,item){if(!peer||!item)return;state.queues[peer]=queueItems(peer).concat([item]);renderQueue()}
 async function loadConvs(){
   state.convs=cacheRead(CACHE.convs,[]);renderConvs();
   try{const r=await api('/api/conversations');state.convs=r.conversations||[];cacheWrite(CACHE.convs,state.convs);renderConvs()}catch(e){}
@@ -210,6 +256,9 @@ async function openConv(id){
   const c=state.convs.find(x=>x.id===id)||{id};
   $('chatTitle').textContent=c.title||id;$('chatSub').textContent=(c.kind==='wechat'?'微信会话':c.kind==='group'?'微信群':(c.kind==='ide'?'Codex IDE 会话':'Codex 会话'))+' · '+id;
   $('peerHint').textContent=id;$('send').disabled=false;
+  const st=(c.status&&c.status.type)||'';
+  $('chatSub').textContent=(c.kind==='wechat'?'微信会话':c.kind==='group'?'微信群':(c.kind==='ide'?'Codex IDE 会话':'Codex 会话'))+' · '+id+(st?' · '+(st==='active'?'工作中':st==='idle'?'空闲':st):'');
+  if(String(id).startsWith('ide:'))loadQueue(id);
   const cached=cacheMsgs(id);renderMsgs(cached);
   const since=cached.length?cached[cached.length-1].ts||0:0;
   try{const r=await api('/api/history?peer='+encodeURIComponent(id)+(since?'&since='+since:''));const newMsgs=(r.history&&r.history.messages)||[];if(newMsgs.length){const merged=cached.concat(newMsgs).slice(-200);cacheMsgsWrite(id,merged);renderMsgs(merged)}}catch(e){if(!cached.length)$('msgs').innerHTML='<div class="empty"><div>'+esc(e.message)+'</div></div>'}
@@ -260,7 +309,7 @@ async function send(){
   appendMsg({role:'user',text});
   try{
     const r=await api('/api/chat',{method:'POST',body:{peer:state.active,text,model:$('model').value||undefined}});
-    appendMsg({role:'assistant',text:r.text||'(空回复)'});
+    if(r.mode==='queued'){const q=r.result&&r.result.queued&&r.result.queued.queuedSubmission;addQueueItem(state.active,q);toast('已加入等待队列')}else{appendMsg({role:'assistant',text:r.text||'(空回复)'})}
     await loadConvs();
   }catch(e){appendMsg({role:'assistant',text:'[错误] '+e.message});toast(e.message)}
   finally{state.sending=false;$('send').disabled=false;$('typing').textContent=''}
@@ -271,6 +320,7 @@ async function boot(){
   await loadModels();await loadConvs();
   if(state.convs.length)openConv(state.convs[0].id);
   if(new URLSearchParams(location.search).get('noevents')==='1')return;
+  setInterval(function(){if(state.active&&String(state.active).startsWith('ide:'))loadQueue(state.active)},5000);
   const es=new EventSource(API_BASE+'/api/events');
   es.addEventListener('message',ev=>{try{const m=JSON.parse(ev.data);if(m.peer===state.active&&state.sending===false)appendMsg(m);else if(m.peer!==state.active){state.unread[m.peer]=(state.unread[m.peer]||0)+1;renderConvs();loadConvs()}}catch(e){}});
   es.addEventListener('conversations',()=>loadConvs());
@@ -278,6 +328,7 @@ async function boot(){
 }
 $('tokenSave').onclick=()=>{state.token=$('tokenInput').value.trim();localStorage.setItem('cx_token',state.token);$('tokenDlg').classList.remove('show');boot()};
 $('tokenLater').onclick=()=>$('tokenDlg').classList.remove('show');
+$('qToggle').onclick=function(){state.queueOpen=!state.queueOpen;$('queueBar').classList.toggle('open',state.queueOpen);renderQueue()};
 $('newChat').onclick=()=>{$('newDlg').classList.add('show');$('newPeer').value='';$('newText').value='';$('newPeer').focus()};
 $('newCancel').onclick=()=>$('newDlg').classList.remove('show');
 $('mClose').onclick=()=>$('manageDlg').classList.remove('show');

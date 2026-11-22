@@ -99,6 +99,7 @@ async function listConversations() {
         updatedAt: t.updatedAt || 0,
         count: 0,
         kind: 'ide',
+        status: t.status || null,
         cwd: t.cwd || '',
         project: t.project || ''
     }));
@@ -353,6 +354,24 @@ const server = http.createServer(async (req, res) => {
                 }
                 broadcast('conversations', { at: Date.now(), deleted: body.peer });
                 return sendJson(res, 200, { ok: true, deleted: body.peer });
+            }
+                        if (req.method === 'GET' && p === '/api/ide/queue') {
+                const peer = u.searchParams.get('peer') || '';
+                if (!peer.startsWith('ide:')) return sendJson(res, 400, { ok: false, error: 'peer 必须是 ide:*' });
+                const threadId = peer.slice(4);
+                if ((CONFIG.mode || 'local') === 'relay') {
+                    try { const r = await relayCall('codex.ideQueueList', { threadId }); return sendJson(res, 200, { ok: true, queue: r }); } catch (e) { return sendJson(res, 500, { ok: false, error: String(e.message) }); }
+                }
+                try { const r = await appserver.queueList(threadId); return sendJson(res, 200, { ok: true, queue: r }); } catch (e) { return sendJson(res, 500, { ok: false, error: String(e.message) }); }
+            }
+            if (req.method === 'POST' && p === '/api/ide/queue/delete') {
+                if (!body.peer || !body.queuedSubmissionId) return sendJson(res, 400, { ok: false, error: 'peer/queuedSubmissionId 必填', help: HELP });
+                if (!String(body.peer).startsWith('ide:')) return sendJson(res, 400, { ok: false, error: 'peer 必须是 ide:*' });
+                const threadId = String(body.peer).slice(4);
+                if ((CONFIG.mode || 'local') === 'relay') {
+                    try { const r = await relayCall('codex.ideQueueDelete', { threadId, queuedSubmissionId: body.queuedSubmissionId }); return sendJson(res, 200, { ok: true, result: r }); } catch (e) { return sendJson(res, 500, { ok: false, error: String(e.message) }); }
+                }
+                try { const r = await appserver.queueDelete(threadId, body.queuedSubmissionId); return sendJson(res, 200, { ok: true, result: r }); } catch (e) { return sendJson(res, 500, { ok: false, error: String(e.message) }); }
             }
                         return sendJson(res, 404, { ok: false, error: '未知接口: ' + p, help: HELP });
         } catch (e) {
