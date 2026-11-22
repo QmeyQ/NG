@@ -55,3 +55,4 @@ chat/test/ide-config.json
 3d/model/*
 !3d/model/boy.blend
 !3d/model/boy.fbx
+chat/service/chat_service-*.log
