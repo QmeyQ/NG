@@ -534,3 +534,4 @@ Python/pythoncore-3.14-64/python.exe local/doupload.py      # PUB_FORCE=1, h6 �
 - **IDE 状态/等待队列**：`codex.ideSnapshot` 合并 appserver `thread/list` 的真实 status；UI 会话头显示 工作中/空闲。发送到 active writer 线程时不再把排队提示写进对话，而是显示输入框上方的一行队列条（可展开、每项 × 删除，5s 自动刷新）；新增 `GET /api/ide/queue`、`POST /api/ide/queue/delete`、relay `codex.ideQueueList/ideQueueDelete`。
 - **删除会话**：chat UI 管理面板新增“删除会话”；`POST /api/conv/delete` → relay `codex.convDelete` → appserver `thread/delete` + 本地 sessions/cache 清理。生产实测 fake peer 删除 PASS（token= cx-9）。
 - **本地缓存/增量**：chat UI 用 localStorage 缓存会话列表与每会话最近 200 条消息；打开会话先渲染缓存，再 `/api/history?since=<最后ts>` 增量拉取；SSE history 同步写缓存。服务端 `codex.history/ideHistory` 支持 `since` 过滤。
+- **实时活动流**：新增 relay `codex.ideItems` + bridge `/api/ide/items`；IDE 会话渲染 thread/items（命令/思考/文件/工具/消息），每秒轮询 diff 并广播 `items` 事件；本地模式监听 app-server `item/*` 原生通知。`chatpage_items.cjs` PASS(50 items)。

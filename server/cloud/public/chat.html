@@ -94,6 +94,20 @@ select,input,textarea{font-family:inherit}
 .statuspill{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:999px;border:1px solid var(--line);font-size:11px;color:var(--dim)}
 .statuspill.active{color:var(--warn);border-color:#6b5227}
 .statuspill.idle{color:var(--acc);border-color:#275c46}
+
+.item{max-width:min(760px,86%);display:flex;flex-direction:column;gap:4px;margin:4px 0;padding:8px 10px;border-radius:12px;background:#101a24;border:1px solid #1f2c3a;font-size:12.5px}
+.item.user{align-self:flex-end;background:#123c31;border-color:#20594a}
+.item.agent{align-self:flex-start}
+.item.cmd{align-self:flex-start;font-family:Consolas,monospace}
+.item.reason{align-self:flex-start;opacity:.85}
+.item.tool{align-self:flex-start}
+.item-head{display:flex;align-items:center;gap:6px;font-weight:600}
+.item-body{white-space:pre-wrap;word-break:break-word}
+.item-meta{font-size:10.5px;color:var(--dim)}
+.item-out{margin-top:4px;padding:6px 8px;border-radius:8px;background:#0a1118;max-height:220px;overflow:auto;white-space:pre-wrap;font-family:Consolas,monospace}
+.item-status{font-size:10.5px;padding:1px 6px;border-radius:6px;background:#182633;color:var(--dim)}
+.item-status.running{color:var(--warn)}
+.item-status.done{color:var(--acc)}
 .toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%) translateY(20px);background:#0f1720;border:1px solid var(--line);color:var(--txt);padding:9px 14px;border-radius:9px;opacity:0;pointer-events:none;transition:.25s;z-index:80;font-size:12.5px}
 .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
 @media(max-width:760px){.side{width:120px;min-width:120px}.side .search{display:none}.conv-last,.conv-time{display:none}.brand small{display:none}.chat-tools .sel{display:none}}
@@ -196,7 +210,7 @@ function cacheRead(k,d){try{return JSON.parse(localStorage.getItem(k))??d}catch(
 function cacheWrite(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}}
 function cacheMsgs(peer){return cacheRead(CACHE.msgs+peer,[])}
 function cacheMsgsWrite(peer,msgs){cacheWrite(CACHE.msgs+peer,msgs.slice(-200))}
-const state={queues:{},queueOpen:false,token:localStorage.getItem('cx_token')||new URLSearchParams(location.search).get('token')||'',convs:[],active:null,models:[],sending:false,hist:{},unread:{}};
+const state={items:{},queues:{},queueOpen:false,token:localStorage.getItem('cx_token')||new URLSearchParams(location.search).get('token')||'',convs:[],active:null,models:[],sending:false,hist:{},unread:{}};
 function toast(t){const e=$('toast');e.textContent=t;e.classList.add('show');clearTimeout(toast._t);toast._t=setTimeout(()=>e.classList.remove('show'),2200)}
 async function api(path,opts){
   opts=opts||{};const tk=(state.token||'').trim();opts.headers=Object.assign({},opts.headers||{});if(tk&&/^[\x20-\x7E]+$/.test(tk))opts.headers['X-Cx-Token']=tk;
@@ -259,9 +273,49 @@ async function openConv(id){
   const st=(c.status&&c.status.type)||'';
   $('chatSub').textContent=(c.kind==='wechat'?'微信会话':c.kind==='group'?'微信群':(c.kind==='ide'?'Codex IDE 会话':'Codex 会话'))+' · '+id+(st?' · '+(st==='active'?'工作中':st==='idle'?'空闲':st):'');
   if(String(id).startsWith('ide:'))loadQueue(id);
+  if(String(id).startsWith('ide:')){try{await api('/api/active',{method:'POST',body:{peer:id}})}catch(e){}await loadItems(id);return}
   const cached=cacheMsgs(id);renderMsgs(cached);
   const since=cached.length?cached[cached.length-1].ts||0:0;
   try{const r=await api('/api/history?peer='+encodeURIComponent(id)+(since?'&since='+since:''));const newMsgs=(r.history&&r.history.messages)||[];if(newMsgs.length){const merged=cached.concat(newMsgs).slice(-200);cacheMsgsWrite(id,merged);renderMsgs(merged)}}catch(e){if(!cached.length)$('msgs').innerHTML='<div class="empty"><div>'+esc(e.message)+'</div></div>'}
+}
+
+function itemText(it){
+  if(!it)return '';
+  if(it.type==='userMessage')return (it.content||[]).map(c=>c.text||'').join('\n');
+  if(it.type==='agentMessage')return it.text||'';
+  if(it.type==='commandExecution')return it.command||'';
+  if(it.type==='reasoning')return (it.summary||[]).concat(it.content||[]).join('\n');
+  if(it.type==='fileChange')return (it.changes||[]).map(c=>(c.path||'')+' '+(c.kind||c.change_type||'')).join('\n');
+  if(it.type==='mcpToolCall')return (it.name||it.serverName||'')+' '+(it.arguments?JSON.stringify(it.arguments).slice(0,200):'');
+  return '';
+}
+function itemTitle(it){
+  const map={userMessage:'用户',agentMessage:'Codex',commandExecution:'命令',reasoning:'思考',fileChange:'文件',mcpToolCall:'工具',functionCallOutput:'输出'};
+  return map[it&&it.type]||'活动';
+}
+function renderItems(items){
+  const box=$('msgs');
+  if(!items||!items.length){box.innerHTML='<div class="empty"><div class="big">✨</div><div>暂无活动</div></div>';return}
+  const asc=items.slice().reverse();
+  box.innerHTML=asc.map(function(e){
+    const it=e.item||{};
+    const t=itemTitle(it);const body=itemText(it);
+    let status='';
+    if(it.type==='commandExecution'){status=(it.status==='completed'||it.exitCode!==null&&it.exitCode!==undefined)?'<span class="item-status done">完成</span>':'<span class="item-status running">执行中</span>'}
+    const out=it.aggregatedOutput?'<div class="item-out">'+esc(it.aggregatedOutput)+'</div>':'';
+    const cls=it.type==='userMessage'?'user':it.type==='agentMessage'?'agent':it.type==='commandExecution'?'cmd':it.type==='reasoning'?'reason':'tool';
+    return '<div class="item '+cls+'"><div class="item-head">'+esc(t)+status+'</div>'+(body?'<div class="item-body">'+esc(body)+'</div>':'')+out+'<div class="item-meta">'+fmtTime(e.startedAtMs||e.completedAtMs||Date.now())+'</div></div>';
+  }).join('');
+  box.scrollTop=box.scrollHeight;
+}
+async function loadItems(peer){
+  if(!peer||!peer.startsWith('ide:'))return;
+  try{
+    const r=await api('/api/ide/items?peer='+encodeURIComponent(peer));
+    const arr=(r.items&&r.items.data)||[];
+    state.items[peer]=arr;
+    renderItems(arr);
+  }catch(e){}
 }
 function renderMsgs(msgs){
   if(!msgs.length){$('msgs').innerHTML='<div class="empty"><div class="big">✨</div><div>开始对话吧</div></div>';return}
@@ -324,6 +378,11 @@ async function boot(){
   const es=new EventSource(API_BASE+'/api/events');
   es.addEventListener('message',ev=>{try{const m=JSON.parse(ev.data);if(m.peer===state.active&&state.sending===false)appendMsg(m);else if(m.peer!==state.active){state.unread[m.peer]=(state.unread[m.peer]||0)+1;renderConvs();loadConvs()}}catch(e){}});
   es.addEventListener('conversations',()=>loadConvs());
+      es.addEventListener('items',ev=>{try{const d=JSON.parse(ev.data);if(!d.peer||!Array.isArray(d.items))return;state.items[d.peer]=d.items;if(d.peer===state.active)renderItems(d.items)}catch(e){}});
+  es.addEventListener('ideEvent',ev=>{try{const d=JSON.parse(ev.data);if(!d.peer||!Array.isArray(state.items[d.peer]))return;const arr=state.items[d.peer];const m=d.method||'';const pr=d.params||{};
+    if(m==='item/started'||m==='item/completed'){const idx=arr.findIndex(e=>(e.item||{}).id===(pr.item||{}).id);if(idx>=0)arr[idx]={...arr[idx],item:pr.item,startedAtMs:pr.startedAtMs||arr[idx].startedAtMs,completedAtMs:pr.completedAtMs||arr[idx].completedAtMs};else arr.unshift({turnId:pr.turnId,item:pr.item,startedAtMs:pr.startedAtMs,completedAtMs:pr.completedAtMs})}
+    else if(m==='item/agentMessage/delta'||m==='item/commandExecution/outputDelta'){const idx=arr.findIndex(e=>(e.item||{}).id===pr.itemId);if(idx>=0){const it=arr[idx].item;if(m==='item/agentMessage/delta')it.text=(it.text||'')+(pr.delta||'');else it.aggregatedOutput=(it.aggregatedOutput||'')+(pr.delta||'')}}
+    if(d.peer===state.active)renderItems(arr)}catch(e){}});
   es.addEventListener('history',ev=>{try{const h=JSON.parse(ev.data);if(!h.peer||!Array.isArray(h.messages))return;cacheMsgsWrite(h.peer,h.messages);const c=state.convs.find(x=>x.id===h.peer);if(c){const last=h.messages[h.messages.length-1];if(last)c.last=String(last.text||'').slice(0,80);if(h.peer!==state.active){state.unread[h.peer]=(state.unread[h.peer]||0)+1;renderConvs()}}if(h.peer===state.active)renderMsgs(h.messages)}catch(e){}});
 }
 $('tokenSave').onclick=()=>{state.token=$('tokenInput').value.trim();localStorage.setItem('cx_token',state.token);$('tokenDlg').classList.remove('show');boot()};

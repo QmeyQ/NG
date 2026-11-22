@@ -240,7 +240,17 @@ async function ideSyncTick() {
             if (!h || !h.peer || !Array.isArray(h.messages)) continue;
             broadcast('history', { peer: h.peer, messages: h.messages });
         }
-        if (snap.active && Array.isArray(snap.active.messages)) {
+        if (activeIdePeer) {
+            try {
+                let items;
+                if ((CONFIG.mode || 'local') === 'relay') items = await relayCall('codex.ideItems', { threadId: activeIdePeer.slice(4), limit: 50 });
+                else items = await appserver.itemsList(activeIdePeer.slice(4), 50);
+                const entries = (items && items.data) || [];
+                const sig = JSON.stringify(entries.map(e => [(e.item || {}).id, (e.item || {}).text || '', (e.item || {}).aggregatedOutput || '', e.completedAtMs || 0]));
+                if (sig !== lastItemsSig) { lastItemsSig = sig; broadcast('items', { peer: activeIdePeer, items: entries }); }
+            } catch (e) { }
+        }
+                if (snap.active && Array.isArray(snap.active.messages)) {
             const msgs = snap.active.messages;
             const last = msgs.length ? msgs[msgs.length - 1] : null;
             const key = String(activeIdePeer) + '|' + (last ? (last.ts || 0) + '|' + String(last.text || '').slice(0, 80) : '');
@@ -373,6 +383,21 @@ const server = http.createServer(async (req, res) => {
                 }
                 try { const r = await appserver.queueDelete(threadId, body.queuedSubmissionId); return sendJson(res, 200, { ok: true, result: r }); } catch (e) { return sendJson(res, 500, { ok: false, error: String(e.message) }); }
             }
+                        if (req.method === 'GET' && p === '/api/ide/items') {
+                const peer = u.searchParams.get('peer') || '';
+                if (!peer.startsWith('ide:')) return sendJson(res, 400, { ok: false, error: 'peer 必须是 ide:*' });
+                const threadId = peer.slice(4);
+                if ((CONFIG.mode || 'local') === 'relay') {
+                    try { const r = await relayCall('codex.ideItems', { threadId, limit: 50 }); return sendJson(res, 200, { ok: true, items: r }); } catch (e) { return sendJson(res, 500, { ok: false, error: String(e.message) }); }
+                }
+                try { const r = await appserver.itemsList(threadId, 50); return sendJson(res, 200, { ok: true, items: r }); } catch (e) { return sendJson(res, 500, { ok: false, error: String(e.message) }); }
+            }
+                        if (req.method === 'POST' && p === '/api/active') {
+                if (!body.peer) return sendJson(res, 400, { ok: false, error: 'peer 必填', help: HELP });
+                activeIdePeer = String(body.peer).startsWith('ide:') ? String(body.peer) : activeIdePeer;
+                lastItemsSig = '';
+                return sendJson(res, 200, { ok: true, active: activeIdePeer });
+            }
                         return sendJson(res, 404, { ok: false, error: '未知接口: ' + p, help: HELP });
         } catch (e) {
             log('api error', p, String(e.message));
@@ -388,6 +413,18 @@ server.listen(PORT, HOST, () => {
     log('codex-chat-bridge listening on ' + HOST + ':' + PORT + ' mode=' + (CONFIG.mode || 'local'));
     if (CONFIG.wechat && CONFIG.wechat.enabled) wechat.start().catch(e => log('wechat start failed', String(e.message)));
     startIdeSync();
+    if ((CONFIG.mode || 'local') !== 'relay') appserver.start().then(()=>{
+        appserver.onNotification(n=>{
+            try {
+                const m=n.method||'';
+                if(!/^item\//.test(m)&&!/^turn\//.test(m)&&!/^thread\/status/.test(m))return;
+                const threadId=(n.params&&n.params.threadId)||'';
+                if(!threadId)return;
+                broadcast('ideEvent',{threadId,peer:'ide:'+threadId,method:m,params:n.params||{}});
+            } catch(e){log('ide notification error',String(e.message))}
+        });
+        log('appserver started for notifications');
+    }).catch(e=>log('appserver start failed',String(e.message)));
 });
 process.on('uncaughtException', e => log('UNCAUGHT', String(e.stack || e)));
 process.on('unhandledRejection', e => log('UNHANDLED', String(e && e.stack || e)));

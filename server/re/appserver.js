@@ -89,6 +89,8 @@ class AppServerClient {
     async queueList(threadId) { await this.start(); return this.request('thread/queue/list', { threadId }, 30000); }
     async queueDelete(threadId, queuedSubmissionId) { await this.start(); return this.request('thread/queue/delete', { threadId, queuedSubmissionId }, 30000); }
     async unsubscribe(threadId) { await this.start(); return this.request('thread/unsubscribe', { threadId }, 30000); }
+    async itemsList(threadId, limit) { await this.start(); return this.request('thread/items/list', { threadId, limit: Number(limit) || 50, sortDirection: 'desc' }, 30000); }
+    async itemsRead(threadId) { await this.start(); return this.request('thread/items/read', { threadId }, 30000); }
     close() { if (this.child) { try { this.child.kill(); } catch (e) { } this.child = null; } }
 }
 

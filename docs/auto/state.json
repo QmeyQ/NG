@@ -104,7 +104,8 @@
     "chat 删除会话: /api/conv/delete + codex.convDelete + appserver thread/delete, UI 管理面板删除按钮; 生产 fake peer PASS",
     "chat 实时同步修正: ideSnapshot since 增量 + 每秒广播所有变化线程 history 事件; UI 自动更新缓存/列表/消息, 无需点列表",
     "chat IDE 真实状态(thread/list status) + 输入框上方等待队列条(展开/×删除/5s刷新), chatpage_queue.cjs PASS",
-    "队列条无等待任务时自动隐藏(chatpage_queue_hidden.cjs PASS)"
+    "队列条无等待任务时自动隐藏(chatpage_queue_hidden.cjs PASS)",
+    "chat 实时活动流: /api/ide/items + thread/items(命令/思考/文件/工具/消息) + 每秒 items 轮询 + 本地 item/* 通知; chatpage_items PASS"
   ],
   "next": [
     "用户真实浏览器打开 normalgame.cn 目检左右移动/待机/球拍(点\"下载\"确认重下新包); 通过后下一轮: girl1 共用 controller 观感 + hitoff/jumphit/diving 重建",
@@ -127,5 +128,5 @@
   ],
   "last_output": "social3drive 11/11 PASS: addFriendInput/btn_申请好友 -> B req A, A reqAccept_0 -> friends=1, B 刷新 -> friend_0, msgInput+btn_发送 -> detail msgs=1 no duplicate, A refresh sees message, server fA/fB persisted, no exceptions | bundle 1,526,650B | tsc baseline | offline 121 pass",
   "note": "LayaProject=小游戏平台; NG2=branch origin/room",
-  "updatedAt": "2026-11-22T07:47:33.673Z"
+  "updatedAt": "2026-11-22T08:49:46.550Z"
 }
