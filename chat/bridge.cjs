@@ -43,6 +43,9 @@ let activeIdePeer = null;
 let lastIdeSignature = '';
 let lastActiveIdeKey = '';
 let lastItemsSig = '';
+let statusCache = { at: 0, data: null };     // /api/status 中继结果缓存 30s
+let modelsCache = { at: 0, data: null };     // /api/models 中继结果缓存 60s
+let ideItemsCache = { peer: '', at: 0, data: null }; // ideSyncTick items 缓存, /api/ide/items 命中即免中继往返
 let lastIdeSyncAt = 0;
 let ideSyncTimer = null;
 function broadcast(type, data) {
@@ -249,6 +252,7 @@ async function ideSyncTick() {
                 const entries = (items && items.data) || [];
                 const sig = JSON.stringify(entries.map(e => [(e.item || {}).id, (e.item || {}).text || '', (e.item || {}).aggregatedOutput || '', (e.item || {}).status || '', e.completedAtMs || 0]));
                 if (sig !== lastItemsSig && entries.length) { lastItemsSig = sig; broadcast('items', { peer: activeIdePeer, items: entries }); }
+                ideItemsCache = { peer: activeIdePeer, at: Date.now(), data: items };
             } catch (e) { }
         }
                 if (snap.active && Array.isArray(snap.active.messages)) {
@@ -296,13 +300,19 @@ const server = http.createServer(async (req, res) => {
         try {
             if (req.method === 'GET' && p === '/api/status') {
                 let st;
-                if ((CONFIG.mode || 'local') === 'relay') { try { st = await relayCall('codex.status', {}); } catch (e) { st = { ok: false, error: String(e.message) }; } }
+                if ((CONFIG.mode || 'local') === 'relay') {
+                    if (statusCache.data && Date.now() - statusCache.at < 30000) st = statusCache.data;
+                    else { try { st = await relayCall('codex.status', {}); statusCache = { at: Date.now(), data: st }; } catch (e) { st = statusCache.data || { ok: false, error: String(e.message) }; } }
+                }
                 else st = codex.status();
                 return sendJson(res, 200, { ok: true, mode: CONFIG.mode || 'local', relay: CONFIG.relay || {}, codex: st, wechat: wechat.status(), port: CONFIG.port || 21121 });
             }
             if (req.method === 'GET' && p === '/api/models') {
                 let models;
-                if ((CONFIG.mode || 'local') === 'relay') { const r = await relayCall('codex.models', {}); models = r.models || []; }
+                if ((CONFIG.mode || 'local') === 'relay') {
+                    if (modelsCache.data && Date.now() - modelsCache.at < 60000) models = modelsCache.data;
+                    else { const r = await relayCall('codex.models', {}); models = r.models || []; modelsCache = { at: Date.now(), data: models }; }
+                }
                 else models = codex.models();
                 return sendJson(res, 200, { ok: true, models });
             }
@@ -389,9 +399,14 @@ const server = http.createServer(async (req, res) => {
                 if (!peer.startsWith('ide:')) return sendJson(res, 400, { ok: false, error: 'peer 必须是 ide:*' });
                 const threadId = peer.slice(4);
                 if ((CONFIG.mode || 'local') === 'relay') {
+                    // 命中 ideSyncTick(1s) 的新鲜缓存: 免中继往返, 页面重进秒开
+                    if (ideItemsCache.peer === peer && ideItemsCache.data && Date.now() - ideItemsCache.at < 2500) {
+                        return sendJson(res, 200, { ok: true, live: true, cached: true, items: ideItemsCache.data });
+                    }
                     let r; let live = true;
                     try { r = await relayCall('codex.ideItemsLive', { threadId, limit: 50 }); } catch (e) { live = false; try { r = await relayCall('codex.ideItems', { threadId, limit: 50 }); } catch (e2) { return sendJson(res, 500, { ok: false, error: String(e2.message) }); } }
                     if (!live && !((r && r.data) || []).length) return sendJson(res, 502, { ok: false, error: 'live 解析失败且 appserver 无数据(不返回空, 防前端闪烁)' });
+                    ideItemsCache = { peer, at: Date.now(), data: r };
                     return sendJson(res, 200, { ok: true, live, items: r });
                 }
                 try { const r = await appserver.itemsList(threadId, 50); return sendJson(res, 200, { ok: true, items: r }); } catch (e) { return sendJson(res, 500, { ok: false, error: String(e.message) }); }

@@ -284,13 +284,23 @@ async function openConv(id){
   $('peerHint').textContent=id;$('send').disabled=false;
   const st=(c.status&&c.status.type)||'';
   $('chatSub').textContent=(c.kind==='wechat'?'微信会话':c.kind==='group'?'微信群':(c.kind==='ide'?'Codex IDE 会话':'Codex 会话'))+' · '+id+(st?' · '+(st==='active'?'工作中':st==='idle'?'空闲':st):'');
-  if(String(id).startsWith('ide:'))loadQueue(id);
-  if(String(id).startsWith('ide:')){try{await api('/api/active',{method:'POST',body:{peer:id}})}catch(e){}await loadItems(id);return}
+  if(String(id).startsWith('ide:')){
+    loadQueue(id);
+    api('/api/active',{method:'POST',body:{peer:id}}).catch(()=>{}); // 不阻塞
+    const cached=cachedItems(id);
+    if(cached&&cached.length){ // 本地缓存秒开, 后台增量刷新
+      state.items[id]=cached;state.itemSig[id]=itemsSig(cached);state.shownPeer=id;renderItems(cached);
+    }
+    loadItems(id); // 后台增量同步(数据没变不重渲)
+    return;
+  }
   const cached=cacheMsgs(id);renderMsgs(cached);
   const since=cached.length?cached[cached.length-1].ts||0:0;
   try{const r=await api('/api/history?peer='+encodeURIComponent(id)+(since?'&since='+since:''));const newMsgs=(r.history&&r.history.messages)||[];if(newMsgs.length){const merged=cached.concat(newMsgs).slice(-200);cacheMsgsWrite(id,merged);renderMsgs(merged)}}catch(e){if(!cached.length)$('msgs').innerHTML='<div class="empty"><div>'+esc(e.message)+'</div></div>'}
 }
 
+function cacheItems(peer,arr){try{localStorage.setItem('cx_items_'+peer,JSON.stringify(arr))}catch(e){}}
+function cachedItems(peer){try{return JSON.parse(localStorage.getItem('cx_items_'+peer)||'null')}catch(e){return null}}
 function itemsSig(arr){return JSON.stringify((arr||[]).map(e=>{const it=e.item||{};return [it.id,it.status,(it.text||'').length,(it.aggregatedOutput||'').length,e.completedAtMs||0]}))}
 function renderItemsIfChanged(peer,arr){
   if(!String(peer).startsWith('ide:'))return false;
@@ -349,6 +359,7 @@ function blockHtml(e){
 }
 function renderItems(items){
   const box=$('msgs');state.shownPeer=state.active;
+  if(window.__boot&&window.__boot.firstContent===null&&items&&items.length)window.__boot.firstContent=performance.now();
   if(!items||!items.length){box.innerHTML='<div class="empty"><div class="big">✨</div><div>暂无活动</div></div>';return}
   const asc=items.slice().reverse();
   const groups=[];const idx={};
@@ -388,13 +399,14 @@ async function loadItems(peer){
     const r=await api('/api/ide/items?peer='+encodeURIComponent(peer));
     const arr=(r.items&&r.items.data)||[];
     if(!arr.length&&(state.items[peer]||[]).length)return; // 空结果不覆盖已有数据(防闪烁)
-    renderItemsIfChanged(peer,arr);
+    if(renderItemsIfChanged(peer,arr))cacheItems(peer,arr); // 数据有变化才写缓存
   }catch(e){
     if(state.active===peer){$('msgs').innerHTML='<div class="empty"><div>&#9888;</div><div>'+esc(e.message)+'</div></div>';}
   }
 }
 function renderMsgs(msgs){
   state.shownPeer=state.active;
+  if(window.__boot&&window.__boot.firstContent===null&&msgs&&msgs.length)window.__boot.firstContent=performance.now();
   if(!msgs.length){$('msgs').innerHTML='<div class="empty"><div class="big">✨</div><div>开始对话吧</div></div>';return}
   $('msgs').innerHTML=msgs.map(m=>{const me=m.role==='user';return `<div class="msg ${me?'me':''}"><div class="b">${esc(m.text)}</div><div class="meta">${me?'我':'Codex'}${m.via==='wechat'?'<span class="tag">微信</span>':''} · ${fmtTime(m.ts)}</div></div>`}).join('');
   $('msgs').scrollTop=$('msgs').scrollHeight;
@@ -446,9 +458,11 @@ async function send(){
   finally{state.sending=false;$('send').disabled=false;$('typing').textContent=''}
 }
 async function boot(){
+  window.__boot={start:performance.now(),convs:null,firstContent:null};
   if(!state.token){showToken()}
-  try{const r=await api('/api/status');$('dot').className='dot ok';$('statusText').textContent=(r.codex&&r.codex.version?r.codex.version:'在线')+' · '+r.mode;$('modePill').textContent=r.mode;$('cwdHint').textContent=(r.codex&&r.codex.cwd)||'-';}catch(e){$('dot').className='dot bad';$('statusText').textContent='未连接'}
-  await loadModels();await loadConvs();
+  api('/api/status').then(r=>{$('dot').className='dot ok';$('statusText').textContent=(r.codex&&r.codex.version?r.codex.version:'在线')+' · '+r.mode;$('modePill').textContent=r.mode;$('cwdHint').textContent=(r.codex&&r.codex.cwd)||'-';}).catch(()=>{$('dot').className='dot bad';$('statusText').textContent='未连接'});
+  await Promise.all([loadModels().catch(()=>{}),loadConvs()]);
+  if(window.__boot)window.__boot.convs=performance.now();
   if(state.convs.length)openConv(state.convs[0].id);
   if(new URLSearchParams(location.search).get('noevents')==='1')return;
   setInterval(function(){if(state.active&&String(state.active).startsWith('ide:'))loadQueue(state.active)},5000);

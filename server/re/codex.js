@@ -49,6 +49,12 @@ class CodexBridge {
     }
 
     resolveBin() {
+        if (this._binCache && Date.now() - (this._binAt || 0) < 600000) return this._binCache;
+        const bin = this._resolveBinUncached();
+        this._binCache = bin; this._binAt = Date.now();
+        return bin;
+    }
+    _resolveBinUncached() {
         const c = this.cfg();
         const cands = [];
         if (c.bin) cands.push(c.bin);
@@ -96,8 +102,10 @@ class CodexBridge {
 
     status() {
         const c = this.cfg();
-        let version = '';
-        try { version = cp.execFileSync(this.resolveBin(), ['--version'], { encoding: 'utf8', windowsHide: true, timeout: 8000 }).trim(); } catch (e) { }
+        let version = this._verCache || '';
+        if (!version || Date.now() - (this._verAt || 0) > 600000) {
+            try { version = cp.execFileSync(this.resolveBin(), ['--version'], { encoding: 'utf8', windowsHide: true, timeout: 8000 }).trim(); this._verCache = version; this._verAt = Date.now(); } catch (e) { }
+        }
         const s = readJson(this.sessionsPath, { peers: {} });
         return {
             ok: true,
