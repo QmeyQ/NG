@@ -507,3 +507,9 @@ Python/pythoncore-3.14-64/python.exe local/doupload.py      # PUB_FORCE=1, h6 �
 
 - **CF assets 不支持 Range**(全量 200)：res 分片下载原抛"服务器不支持Range"→ `src/libs/net.ts` downloadChunk 加全量 200 降级整包单分片模式(2026-11-22)；worker 保持 git 原版 + assets-first(静态优先)，勿加 run_worker_first(env.ASSETS 绑定实测不可用/1101)。
 - www 静态镜像清单(public/)：index.html(生产 apex 版改 bundle 相对路径)、js/bundle.js、packs/{nor,ui}.br、load.ls、fileconfig.json、internal/、game/、ui/(含从 ui.br 解出的 internal/UI 图片与生成的 scroll 皮肤占位 png)。
+
+### apex 交付完成（2026-11-22 用户提供 FTP 凭据 ftpu）
+- `node local/ftpup.cjs ftpu <pass> html/`：MKD+STOR 上传 index.html / js/bundle.js(apex ResList v=20261122c) / packs/nor.br / packs/ui.br 到 ECS /home/ftpu/html，LIST 尺寸核对一致(5230412/2440855/665604)。
+- apex 回读：index src=js/bundle.js ✓ bundle 含 apex ResList ✓ /packs/nor.br Range=206 Content-Range/5230412 ✓（nginx 原生 Range，无 CF 坑）。
+- ResList 最终口径：apex bundle 指 apex/packs；CF www bundle 指 www/packs（www boot 复验未过, 备用入口不作验收）。
+- headless 生产探针不稳（页空/卡下载确认弹窗点击）=探针侧问题；真实浏览器会弹"资源下载"确认, 点击即重下新包(size/etag 变化必更新)。待用户真实浏览器目检左右移动。

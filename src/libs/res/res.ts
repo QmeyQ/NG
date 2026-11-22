@@ -71,8 +71,8 @@ export class Res {
     
     static net: Net;
     static ResList = {
-        ui:"https://www.normalgame.cn/packs/ui.br?v=20261122b",
-        nor:"https://www.normalgame.cn/packs/nor.br?v=20261122b",
+        ui:"https://normalgame.cn/packs/ui.br?v=20261122c",
+        nor:"https://normalgame.cn/packs/nor.br?v=20261122c",
         g2:"https://agc-storage-drcn.platform.dbankcloud.cn/v0/sgf-rhq1y/g2.br?token=6e17320f-5489-4c06-a80a-44b3f9a6ed52"
     }
 
