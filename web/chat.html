@@ -45,8 +45,12 @@ body{background:radial-gradient(1200px 700px at 20% -10%,#17324a 0%,transparent 
 .caret{color:var(--dim);font-size:10px;border:1px solid var(--line);border-radius:5px;padding:1px 4px}
 .chat{flex:1;display:flex;flex-direction:column;min-width:0;background:linear-gradient(180deg,rgba(10,15,20,.2),rgba(10,15,20,.55))}
 .chat-head{height:58px;display:flex;align-items:center;gap:10px;padding:0 16px;border-bottom:1px solid var(--line);background:rgba(14,21,29,.6);backdrop-filter:blur(8px)}
-.chat-title{font-weight:700;font-size:15px}
-.chat-sub{font-size:11px;color:var(--dim)}
+.chat-head .head-mid{flex:1;min-width:0;overflow:hidden}
+.chat-title{font-weight:700;font-size:15px;white-space:nowrap;overflow-x:auto;overflow-y:hidden;scrollbar-width:thin;cursor:grab;user-select:none}
+.chat-title.dragging{cursor:grabbing;scrollbar-color:var(--acc) transparent}
+.chat-title::-webkit-scrollbar{height:4px}
+.chat-title::-webkit-scrollbar-thumb{background:#2a3a4a;border-radius:2px}
+.chat-sub{font-size:11px;color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .chat-tools{display:flex;gap:8px;align-items:center;margin-left:auto}
 select,input,textarea{font-family:inherit}
 .sel{background:var(--panel);border:1px solid var(--line);color:var(--txt);border-radius:8px;padding:6px 8px;font-size:12px;outline:none}
@@ -140,7 +144,7 @@ select,input,textarea{font-family:inherit}
     </aside>
     <section class="chat">
       <div class="chat-head">
-        <div>
+        <div class="head-mid">
           <div class="chat-title" id="chatTitle">选择一个会话</div>
           <div class="chat-sub" id="chatSub">左侧对话列表 · 与微信消息同步</div>
         </div>
@@ -475,6 +479,12 @@ $('mArchive').onclick=()=>manageOp('archive');
 $('mUnarchive').onclick=()=>manageOp('unarchive');
 $('newOk').onclick=async()=>{const p=$('newPeer').value.trim()||('chat-'+Date.now());const t=$('newText').value.trim();$('newDlg').classList.remove('show');await openConv(p);if(t){$('input').value=t;send()}};
 $('send').onclick=send;
+// 标题滚动框: 鼠标按住拖动横向滚动
+(function(){const t=$('chatTitle');let down=false,sx=0,sl=0;
+  t.addEventListener('mousedown',function(e){down=true;sx=e.clientX;sl=t.scrollLeft;t.classList.add('dragging');e.preventDefault()});
+  window.addEventListener('mousemove',function(e){if(!down)return;t.scrollLeft=sl-(e.clientX-sx)});
+  window.addEventListener('mouseup',function(){down=false;t.classList.remove('dragging')});
+})();
 $('q').oninput=renderConvs;
 $('input').addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();send()}});
 $('input').addEventListener('input',function(){this.style.height='auto';this.style.height=Math.min(150,this.scrollHeight)+'px'});
