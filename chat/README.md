@@ -128,3 +128,10 @@ bash /tmp/ecs.sh <RE_TOKEN> http://127.0.0.1/apim
 - 只读会话/历史不需要 Token；从网页发消息仍需 `X-Cx-Token`。
 - 若线程正在 Codex 中打开，resume 会报 `active writer`，请先关闭/切走该对话。
 - resume 使用线程自身的 `model_provider/model`，不能强行改模型。
+
+## 实时同步 / IDE 会话操作 / 会话管理
+
+- chat 桥每 1 秒调用 relay `codex.ideSnapshot`，线程变化推送 SSE `conversations`，活动 IDE 会话新消息推送 SSE `history`。
+- IDE 会话发送走 relay `codex.ideSend`：`thread/resume` + `turn/start`；若线程正在 Codex 中运行，自动 `thread/queue/add` 排队。
+- 双击会话列表打开“会话管理”：继续、复制 ID、改名、归档、取消归档。
+- 当前 Codex 正在运行的线程不能被第二个进程抢 writer，只能排队；等 Codex 释放后会处理。

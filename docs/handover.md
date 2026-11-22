@@ -513,3 +513,20 @@ Python/pythoncore-3.14-64/python.exe local/doupload.py      # PUB_FORCE=1, h6 �
 - apex 回读：index src=js/bundle.js ✓ bundle 含 apex ResList ✓ /packs/nor.br Range=206 Content-Range/5230412 ✓（nginx 原生 Range，无 CF 坑）。
 - ResList 最终口径：apex bundle 指 apex/packs；CF www bundle 指 www/packs（www boot 复验未过, 备用入口不作验收）。
 - headless 生产探针不稳（页空/卡下载确认弹窗点击）=探针侧问题；真实浏览器会弹"资源下载"确认, 点击即重下新包(size/etag 变化必更新)。待用户真实浏览器目检左右移动。
+
+## h20 chat 实时同步 / IDE 会话操作 / 双击管理（2026-11-22）
+
+- **app-server 接入**：`server/re/appserver.js` 以 stdio JSON-RPC 启动 `codex app-server --stdio`，`initialize` 带 `experimentalApi:true`。能力：`thread/list`、`thread/resume`、`turn/start`、`thread/queue/add`、`thread/queue/start`、`thread/archive/unarchive/delete/name:set`。
+- **relay 新增**：`codex.appStatus/appThreads/ideSend/ideQueue/ideSnapshot/ideManage`。`ideSend` 先 `thread/resume`，再 `turn/start`；若线程在 Codex 中 active writer，则自动 `thread/queue/add` 排队。
+- **chat 桥**：
+  - `ide:` 会话发送改为 `codex.ideSend`（app-server 实时操作），返回“已提交/已排队”，真正回复通过轮询 `codex.ideSnapshot` 经 SSE `history` 事件回填。
+  - `startIdeSync()`：每 1s（`ideSyncMs`）调用 `codex.ideSnapshot{activePeer}`；线程签名变化广播 `conversations`，活动线程新消息广播 `history`。无 SSE 客户端时自动跳过，避免空转。
+  - 新增 `POST /api/ide/manage`：archive/unarchive/delete/rename。
+- **chat UI**：
+  - SSE 新增 `history` 监听，活动 IDE 会话实时重绘消息。
+  - 会话列表双击打开“会话管理”：标题/ID/类型/目录/模型 + 继续、复制 ID、改名、归档、取消归档。
+- **实测**：
+  - `codex.appThreads` 返回 IDE 线程；`codex.ideSend` 对非活动线程 `mode=turn`；对活动线程自动 `mode=queued`。
+  - 生产 `/codex-api/api/chat` 对 IDE 会话返回 `mode=turn`；历史出现 `WSOK` 等新回合。
+  - 浏览器双击 IDE 会话 → 管理弹窗显示 `ide:*`、kind=ide：`chatpage_manage.cjs` PASS。
+- **限制**：`turn/start` 立即返回 inProgress，不阻塞等待最终回复；最终回复靠 snapshot 轮询/SSE。当前桌面正在运行的线程只能排队，不能抢 writer。

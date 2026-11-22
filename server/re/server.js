@@ -6,7 +6,9 @@ const http = require('http'); const fs = require('fs'); const path = require('pa
 const cp = require('child_process'); const crypto = require('crypto');
 const { LayaMcp } = require('./mcp.js');
 const { CodexBridge } = require('./codex.js');
+const { AppServerClient } = require('./appserver.js');
 const codex = new CodexBridge({ log: (...a) => log('CODEX', ...a) });
+const appserver = new AppServerClient({ log: (...a) => log('APPSERVER', ...a) });
 const CFG = JSON.parse(fs.readFileSync(path.join(__dirname, 'config.json'), 'utf8'));
 const PORT = CFG.port || 21119; const TOKEN = CFG.token; const PROJ = CFG.projectDir || process.cwd();
 const MAX_BODY = (CFG.maxBodyMb || 64) * 1024 * 1024;
@@ -54,7 +56,13 @@ const HELP = {
         'codex.bundle': { desc: '返回 chat 桥源码包(base64 文件清单), 供 ECS 一键部署', params: {}, example: { action: 'codex.bundle' } },
         'codex.ideThreads': { desc: '列出 Codex IDE/Desktop 会话(state_5.sqlite source=vscode)', params: { limit: '可选' }, example: { action: 'codex.ideThreads', limit: 50 } },
         'codex.ideHistory': { desc: '读取某个 Codex IDE 会话历史', params: { threadId: '必填', limit: '可选' }, example: { action: 'codex.ideHistory', threadId: '01a1...', limit: 200 } },
-        'codex.ideChat': { desc: '继续 Codex IDE 会话(codex exec resume)', params: { threadId: '必填', text: '必填', sandbox: '可选', timeoutMs: '可选' }, example: { action: 'codex.ideChat', threadId: '01a1...', text: '继续' } }
+        'codex.ideChat': { desc: '继续 Codex IDE 会话(codex exec resume)', params: { threadId: '必填', text: '必填', sandbox: '可选', timeoutMs: '可选' }, example: { action: 'codex.ideChat', threadId: '01a1...', text: '继续' } },
+        'codex.appStatus': { desc: 'Codex app-server 状态', params: {}, example: { action: 'codex.appStatus' } },
+        'codex.appThreads': { desc: 'app-server thread/list', params: { limit: '可选' }, example: { action: 'codex.appThreads', limit: 20 } },
+        'codex.ideSend': { desc: 'app-server resume + turn/start(实时操作 IDE 线程)', params: { threadId: '必填', text: '必填' }, example: { action: 'codex.ideSend', threadId: '01a1...', text: '继续' } },
+        'codex.ideQueue': { desc: 'app-server queue/add(active writer 时排队)', params: { threadId: '必填', text: '必填' }, example: { action: 'codex.ideQueue', threadId: '01a1...', text: '排队' } },
+        'codex.ideSnapshot': { desc: '返回 IDE 线程快照(threads+activePeer 消息)', params: { activePeer: '可选' }, example: { action: 'codex.ideSnapshot', activePeer: 'ide:01a1...' } },
+        'codex.ideManage': { desc: 'IDE 会话管理(archive/unarchive/delete/rename)', params: { threadId: '必填', op: '必填 archive|unarchive|delete|rename', name: 'rename 时必填' }, example: { action: 'codex.ideManage', threadId: '01a1...', op: 'rename', name: '新标题' } }
     }
 };
 
@@ -96,7 +104,13 @@ const handlers = {
     'codex.ideThreads': (p) => ({ threads: codex.ideThreads(p.limit) }),
     'codex.ideHistory': (p) => { need(p, ['threadId'], 'codex.ideHistory'); return codex.ideHistory(p.threadId, p.limit); },
     'codex.ideChat': (p) => { need(p, ['threadId', 'text'], 'codex.ideChat'); return codex.ideChat(p.threadId, p.text, { sandbox: p.sandbox, timeoutMs: p.timeoutMs }); },
-    'codex.bundle': () => { const files = ['chat/bridge.cjs','chat/plugin/weixin.cjs','chat/plugin/wechat.cjs','chat/public/chat.html','chat/public/qrcode.js','chat/public/codex.html','chat/config.example.json','chat/deploy/install-ecs.sh','chat/deploy/ecs-install-remote.sh','chat/deploy/nginx-codex.conf','chat/README.md','server/re/codex.js']; return { files: files.map(f => ({ path: f, b64: fs.readFileSync(path.resolve(PROJ, f)).toString('base64') })) }; }
+    'codex.appStatus': async () => ({ running: appserver.isRunning(), started: appserver.started }),
+    'codex.appThreads': async (p) => ({ result: await appserver.listThreads(p.limit) }),
+    'codex.ideSend': async (p) => { need(p, ['threadId', 'text'], 'codex.ideSend'); try { const r = await appserver.resumeThread(p.threadId, true); const t = await appserver.startTurn(p.threadId, p.text); return { ok: true, mode: 'turn', resume: r, turn: t }; } catch (e) { if (/active writer/i.test(String(e.message))) { const q = await appserver.queueAdd(p.threadId, p.text); return { ok: true, mode: 'queued', queued: q, note: '线程正在 Codex 中运行，消息已排队，稍后会处理' }; } throw e; } },
+    'codex.ideQueue': async (p) => { need(p, ['threadId', 'text'], 'codex.ideQueue'); const q = await appserver.queueAdd(p.threadId, p.text); return { ok: true, queued: q }; },
+    'codex.ideManage': async (p) => { need(p, ['threadId', 'op'], 'codex.ideManage'); const t = String(p.threadId); if (p.op === 'archive') return appserver.archive(t); if (p.op === 'unarchive') return appserver.unarchive(t); if (p.op === 'delete') return appserver.delete(t); if (p.op === 'rename') { need(p, ['name'], 'codex.ideManage'); return appserver.setName(t, p.name); } throw new Error('未知 op: ' + p.op); },
+    'codex.ideSnapshot': async (p) => { const threads = codex.ideThreads(Number(p.limit) || 50); let active = null; if (p.activePeer && String(p.activePeer).startsWith('ide:')) { try { active = await codex.ideHistory(String(p.activePeer).slice(4), 20); } catch (e) { active = { error: String(e.message) }; } } return { threads, active }; },
+    'codex.bundle': () => { const files = ['chat/bridge.cjs','chat/plugin/weixin.cjs','chat/plugin/wechat.cjs','chat/public/chat.html','chat/public/qrcode.js','chat/public/codex.html','chat/config.example.json','chat/deploy/install-ecs.sh','chat/deploy/ecs-install-remote.sh','chat/deploy/nginx-codex.conf','chat/README.md','server/re/codex.js','server/re/appserver.js']; return { files: files.map(f => ({ path: f, b64: fs.readFileSync(path.resolve(PROJ, f)).toString('base64') })) }; }
 };
 
 function getToken(req, body) { return (body && body.token) || req.headers['x-re-token'] || (req.headers.authorization || '').replace(/^Bearer\s+/i, '') || new URL(req.url, 'http://x').searchParams.get('token') || ''; }

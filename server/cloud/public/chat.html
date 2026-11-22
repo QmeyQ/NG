@@ -78,6 +78,7 @@ select,input,textarea{font-family:inherit}
 .btn{border:1px solid var(--line);background:var(--panel);color:var(--txt);border-radius:8px;padding:8px 12px;cursor:pointer;font-size:13px}
 .btn.primary{border-color:var(--acc);background:linear-gradient(135deg,#2f8fff,#37c98b);color:#04110a;font-weight:700}
 .btn.ghost{background:transparent}
+.mgrid{display:grid;grid-template-columns:90px 1fr;gap:6px;font-size:12px}.mgrid b{color:var(--dim);font-weight:600}.mactions{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}.mactions .btn{flex:1;min-width:90px}
 .toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%) translateY(20px);background:#0f1720;border:1px solid var(--line);color:var(--txt);padding:9px 14px;border-radius:9px;opacity:0;pointer-events:none;transition:.25s;z-index:80;font-size:12.5px}
 .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
 @media(max-width:760px){.side{width:120px;min-width:120px}.side .search{display:none}.conv-last,.conv-time{display:none}.brand small{display:none}.chat-tools .sel{display:none}}
@@ -142,6 +143,28 @@ select,input,textarea{font-family:inherit}
   </div>
 </div>
 
+<div class="dialog" id="manageDlg">
+  <div class="card">
+    <h3>会话管理</h3>
+    <div class="mgrid">
+      <b>会话</b><span id="mTitle"></span>
+      <b>ID</b><span id="mId" style="word-break:break-all"></span>
+      <b>类型</b><span id="mKind"></span>
+      <b>目录</b><span id="mCwd" style="word-break:break-all"></span>
+      <b>模型</b><span id="mModel"></span>
+    </div>
+    <div class="field"><label>新标题</label><input id="mName" placeholder="留空不改名"></div>
+    <div class="mactions">
+      <button class="btn primary" id="mContinue">继续会话</button>
+      <button class="btn" id="mCopy">复制 ID</button>
+      <button class="btn" id="mRename">改名</button>
+      <button class="btn" id="mArchive">归档</button>
+      <button class="btn" id="mUnarchive">取消归档</button>
+      <button class="btn ghost" id="mClose">关闭</button>
+    </div>
+  </div>
+</div>
+
 <div class="toast" id="toast"></div>
 <script>
 (function(){
@@ -166,7 +189,7 @@ function renderConvs(){
   const q=($('q').value||'').toLowerCase();
   const list=state.convs.filter(c=>!q||(c.title||'').toLowerCase().includes(q)||(c.id||'').toLowerCase().includes(q));
   $('list').innerHTML=list.length?list.map(c=>`<div class="conv ${c.id===state.active?'active':''}" data-id="${esc(c.id)}"><div class="av ${c.kind==='group'?'g':(c.kind==='wechat'?'':(c.kind==='ide'?'i':'c'))}">${avatar(c)}</div><div class="conv-body"><div class="conv-top"><div class="conv-title">${esc(c.title||c.id)}</div><div class="conv-time">${fmtTime(c.updatedAt)}</div></div><div class="conv-last">${esc(c.last||'（暂无消息）')}</div></div>${state.unread[c.id]?`<span class="badge">${state.unread[c.id]}</span>`:''}</div>`).join(''):`<div class="empty" style="padding:30px 10px"><div>暂无会话</div><div style="font-size:11px">点击 + 新建</div></div>`;
-  document.querySelectorAll('.conv').forEach(el=>el.onclick=()=>openConv(el.dataset.id));
+  document.querySelectorAll('.conv').forEach(el=>{el.onclick=()=>openConv(el.dataset.id);el.ondblclick=e=>{e.preventDefault();openManage(el.dataset.id)}});
 }
 async function loadConvs(){
   try{const r=await api('/api/conversations');state.convs=r.conversations||[];renderConvs()}catch(e){}
@@ -188,6 +211,27 @@ function renderMsgs(msgs){
   $('msgs').scrollTop=$('msgs').scrollHeight;
 }
 function appendMsg(m){const e=$('msgs');if(!e.querySelector('.msg'))e.innerHTML='';const me=m.role==='user';const d=document.createElement('div');d.className='msg '+(me?'me':'');d.innerHTML=`<div class="b">${esc(m.text)}</div><div class="meta">${me?'我':'Codex'}${m.via==='wechat'?'<span class="tag">微信</span>':''} · ${fmtTime(Date.now())}</div>`;e.appendChild(d);e.scrollTop=e.scrollHeight}
+
+let manageId=null;
+function openManage(id){
+  const c=state.convs.find(x=>x.id===id); if(!c) return;
+  manageId=id;
+  $('mTitle').textContent=c.title||id;
+  $('mId').textContent=id;
+  $('mKind').textContent=c.kind||'codex';
+  $('mCwd').textContent=c.cwd||'-';
+  $('mModel').textContent=c.model||'-';
+  $('mName').value='';
+  $('manageDlg').classList.add('show');
+}
+async function manageOp(op,name){
+  if(!manageId) return;
+  try{
+    if(!manageId.startsWith('ide:')){toast('仅 IDE 会话支持管理');return}
+    const r=await api('/api/ide/manage',{method:'POST',body:{threadId:manageId.slice(4),op,name}});
+    toast('操作成功');await loadConvs();
+  }catch(e){toast(e.message)}
+}
 async function send(){
   const text=$('input').value.trim();if(!text||state.sending)return;
   if(!state.active){toast('请先选择或新建会话');return}
@@ -210,11 +254,18 @@ async function boot(){
   const es=new EventSource(API_BASE+'/api/events');
   es.addEventListener('message',ev=>{try{const m=JSON.parse(ev.data);if(m.peer===state.active&&state.sending===false)appendMsg(m);else if(m.peer!==state.active){state.unread[m.peer]=(state.unread[m.peer]||0)+1;renderConvs();loadConvs()}}catch(e){}});
   es.addEventListener('conversations',()=>loadConvs());
+  es.addEventListener('history',ev=>{try{const h=JSON.parse(ev.data);if(h.peer===state.active&&Array.isArray(h.messages))renderMsgs(h.messages)}catch(e){}});
 }
 $('tokenSave').onclick=()=>{state.token=$('tokenInput').value.trim();localStorage.setItem('cx_token',state.token);$('tokenDlg').classList.remove('show');boot()};
 $('tokenLater').onclick=()=>$('tokenDlg').classList.remove('show');
 $('newChat').onclick=()=>{$('newDlg').classList.add('show');$('newPeer').value='';$('newText').value='';$('newPeer').focus()};
 $('newCancel').onclick=()=>$('newDlg').classList.remove('show');
+$('mClose').onclick=()=>$('manageDlg').classList.remove('show');
+$('mContinue').onclick=()=>{$('manageDlg').classList.remove('show');openConv(manageId)};
+$('mCopy').onclick=()=>{navigator.clipboard.writeText(manageId).then(()=>toast('已复制')).catch(()=>toast('复制失败'))};
+$('mRename').onclick=()=>{const n=$('mName').value.trim();if(!n){toast('请输入新标题');return}manageOp('rename',n)};
+$('mArchive').onclick=()=>manageOp('archive');
+$('mUnarchive').onclick=()=>manageOp('unarchive');
 $('newOk').onclick=async()=>{const p=$('newPeer').value.trim()||('chat-'+Date.now());const t=$('newText').value.trim();$('newDlg').classList.remove('show');await openConv(p);if(t){$('input').value=t;send()}};
 $('send').onclick=send;
 $('q').oninput=renderConvs;

@@ -7,6 +7,8 @@ const path = require('path');
 const crypto = require('crypto');
 const { URL } = require('url');
 const { CodexBridge } = require('../server/re/codex.js');
+const { AppServerClient } = require('../server/re/appserver.js');
+const appserver = new AppServerClient({ log });
 const { WeChatChannel } = require('./plugin/wechat.cjs');
 const { WeixinChannel } = require('./plugin/weixin.cjs');
 
@@ -37,6 +39,10 @@ function log(...a) {
 const codex = new CodexBridge({ root: ROOT, log, cfgPath: path.join(HERE, 'data', 'codex-config.json'), sessionsPath: (CONFIG.codex || {}).sessionsPath || path.join(HERE, 'data', 'sessions.json') });
 const TOKEN = () => CONFIG.token || '';
 const sseClients = new Set();
+let activeIdePeer = null;
+let lastIdeSignature = '';
+let lastActiveIdeKey = '';
+let ideSyncTimer = null;
 function broadcast(type, data) {
     const msg = 'event: ' + type + '\ndata: ' + JSON.stringify(data || {}) + '\n\n';
     for (const res of sseClients) { try { res.write(msg); } catch (e) { sseClients.delete(res); } }
@@ -52,9 +58,20 @@ async function chat(opts) {
     if (opts.peer && String(opts.peer).startsWith('ide:')) {
         const threadId = String(opts.peer).slice(4);
         if ((CONFIG.mode || 'local') === 'relay') {
-            return relayCall('codex.ideChat', { threadId, text: opts.text, sandbox: opts.sandbox, timeoutMs: opts.timeoutMs });
+            const r = await relayCall('codex.ideSend', { threadId, text: opts.text });
+            return { ok: true, peer: 'ide:' + threadId, threadId, mode: r.mode || 'turn', text: r.mode === 'queued' ? '消息已排队：该 IDE 会话正在 Codex 中运行，稍后会自动处理' : '已提交到 IDE 会话，回复将实时同步', result: r };
         }
-        return codex.ideChat(threadId, opts.text, { sandbox: opts.sandbox, timeoutMs: opts.timeoutMs });
+        try {
+            await appserver.resumeThread(threadId, true);
+            const t = await appserver.startTurn(threadId, opts.text);
+            return { ok: true, peer: 'ide:' + threadId, threadId, mode: 'turn', text: '已提交到 IDE 会话，回复将实时同步', result: t };
+        } catch (e) {
+            if (/active writer/i.test(String(e.message))) {
+                const q = await appserver.queueAdd(threadId, opts.text);
+                return { ok: true, peer: 'ide:' + threadId, threadId, mode: 'queued', text: '消息已排队：该 IDE 会话正在 Codex 中运行，稍后会自动处理', result: q };
+            }
+            throw e;
+        }
     }
     if ((CONFIG.mode || 'local') === 'relay') {
         return relayCall('codex.chat', { peer: opts.peer, text: opts.text, cwd: opts.cwd || (CONFIG.codex || {}).cwd, model: opts.model || (CONFIG.codex || {}).model, sandbox: opts.sandbox || (CONFIG.codex || {}).sandbox, timeoutMs: (CONFIG.codex || {}).timeoutMs });
@@ -101,6 +118,7 @@ async function listConversations() {
 }
 async function history(peer) {
     if (String(peer).startsWith('ide:')) {
+        activeIdePeer = String(peer);
         const threadId = String(peer).slice(4);
         if ((CONFIG.mode || 'local') === 'relay') {
             try { return await relayCall('codex.ideHistory', { threadId, limit: 200 }); } catch (e) { return { peer, messages: [], error: String(e.message) }; }
@@ -200,6 +218,31 @@ function staticFile(res, name) {
     });
 }
 
+async function ideSyncTick() {
+    if (CONFIG.ideSync === false || sseClients.size === 0) return;
+    try {
+        let snap;
+        if ((CONFIG.mode || 'local') === 'relay') snap = await relayCall('codex.ideSnapshot', { activePeer: activeIdePeer || '' });
+        else {
+            const threads = codex.ideThreads(50);
+            let active = null;
+            if (activeIdePeer) { try { active = await codex.ideHistory(activeIdePeer.slice(4), 20); } catch (e) { active = null; } }
+            snap = { threads, active };
+        }
+        const sig = JSON.stringify((snap.threads || []).map(t => [t.id, t.updatedAt]));
+        if (sig !== lastIdeSignature) { lastIdeSignature = sig; broadcast('conversations', { at: Date.now() }); }
+        if (snap.active && Array.isArray(snap.active.messages)) {
+            const msgs = snap.active.messages;
+            const last = msgs.length ? msgs[msgs.length - 1] : null;
+            const key = String(activeIdePeer) + '|' + (last ? (last.ts || 0) + '|' + String(last.text || '').slice(0, 80) : '');
+            if (key !== lastActiveIdeKey) { lastActiveIdeKey = key; broadcast('history', { peer: activeIdePeer, messages: msgs }); }
+        }
+    } catch (e) { log('ide sync failed', String(e.message)); }
+}
+function startIdeSync() {
+    if (ideSyncTimer || CONFIG.ideSync === false) return;
+    ideSyncTimer = setInterval(() => { ideSyncTick().catch(() => { }); }, Number(CONFIG.ideSyncMs || 1000));
+}
 const server = http.createServer(async (req, res) => {
     if (req.method === 'OPTIONS') { sendJson(res, 204, {}); return; }
     let u; try { u = new URL(req.url, 'http://x'); } catch (e) { res.writeHead(400).end(); return; }
@@ -275,7 +318,20 @@ const server = http.createServer(async (req, res) => {
                 const url = e.workbenchUrl || ('https://ecs-workbench.aliyun.com/?instanceType=ecs&regionId=' + encodeURIComponent(e.regionId || 'cn-shenzhen') + '&instanceId=' + encodeURIComponent(e.instanceId || '') + '&workbenchType=ssh&language=zh');
                 return sendJson(res, 200, { ok: true, url, regionId: e.regionId || '', instanceId: e.instanceId || '' });
             }
-            return sendJson(res, 404, { ok: false, error: '未知接口: ' + p, help: HELP });
+            if (req.method === 'POST' && p === '/api/ide/manage') {
+                if (!body.threadId || !body.op) return sendJson(res, 400, { ok: false, error: 'threadId/op 必填', help: HELP });
+                if ((CONFIG.mode || 'local') === 'relay') {
+                    const r = await relayCall('codex.ideManage', { threadId: body.threadId, op: body.op, name: body.name });
+                    broadcast('conversations', { at: Date.now() });
+                    return sendJson(res, 200, { ok: true, result: r });
+                }
+                if (body.op === 'archive') return sendJson(res, 200, { ok: true, result: await appserver.archive(body.threadId) });
+                if (body.op === 'unarchive') return sendJson(res, 200, { ok: true, result: await appserver.unarchive(body.threadId) });
+                if (body.op === 'delete') return sendJson(res, 200, { ok: true, result: await appserver.delete(body.threadId) });
+                if (body.op === 'rename') { if (!body.name) return sendJson(res, 400, { ok: false, error: 'name 必填' }); return sendJson(res, 200, { ok: true, result: await appserver.setName(body.threadId, body.name) }); }
+                return sendJson(res, 400, { ok: false, error: '未知 op' });
+            }
+                        return sendJson(res, 404, { ok: false, error: '未知接口: ' + p, help: HELP });
         } catch (e) {
             log('api error', p, String(e.message));
             return sendJson(res, 500, { ok: false, error: String(e.message), help: HELP });
@@ -289,6 +345,7 @@ const HOST = CONFIG.host || '127.0.0.1';
 server.listen(PORT, HOST, () => {
     log('codex-chat-bridge listening on ' + HOST + ':' + PORT + ' mode=' + (CONFIG.mode || 'local'));
     if (CONFIG.wechat && CONFIG.wechat.enabled) wechat.start().catch(e => log('wechat start failed', String(e.message)));
+    startIdeSync();
 });
 process.on('uncaughtException', e => log('UNCAUGHT', String(e.stack || e)));
 process.on('unhandledRejection', e => log('UNHANDLED', String(e && e.stack || e)));
