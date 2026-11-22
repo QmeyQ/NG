@@ -51,3 +51,7 @@ tools/blender/blender_mcp_start.log
 tools/blender/_qoder_tail.txt
 tools/blender/_*
 chat/test/ide-config.json
+# 3D 源资产不入库(boy.blend 走 LFS, 其余本地保留)
+3d/model/*
+!3d/model/boy.blend
+!3d/model/boy.fbx
