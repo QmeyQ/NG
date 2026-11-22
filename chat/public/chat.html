@@ -315,8 +315,11 @@ function itemTitle(it){
 function blockOpen(it){
   const id=String(it.id||'');
   if(Object.prototype.hasOwnProperty.call(state.openItems,id))return !!state.openItems[id];
-  const done=(it.status==='completed'||it.status==='failed')||(it.exitCode!==null&&it.exitCode!==undefined);
-  return !done; // 执行中的块默认展开(实时看输出), 完成后自动收起(除非用户手动展开过)
+  if(it.type==='commandExecution'||it.type==='mcpToolCall'){
+    const done=(it.status==='completed'||it.status==='failed')||(it.exitCode!==null&&it.exitCode!==undefined);
+    return !done; // 执行中的命令/工具默认展开(实时看输出), 完成后自动收起
+  }
+  return false; // 思考等块默认收起(像 Codex IDE: "思考 · Ns ▸"), 点击展开
 }
 function blockHtml(e){
   const it=e.item||{};const id=String(it.id||'');const type=it.type;

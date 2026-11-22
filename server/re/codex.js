@@ -350,6 +350,7 @@ class CodexBridge {
         const ts = o => (o && o.timestamp) ? (Date.parse(o.timestamp) || 0) : 0;
         const turnOf = (p) => (p && p.internal_chat_message_metadata_passthrough && p.internal_chat_message_metadata_passthrough.turn_id) || curTurn;
         const push = (entry) => { out.push(entry); if (entry.item && entry.item.id) byId.set(entry.item.id, entry); return entry; };
+        setTexts.grab = (arr) => (Array.isArray(arr) ? arr : []).map(x => (x == null ? '' : (typeof x === 'string' ? x : String(x.text != null ? x.text : (x.summary != null ? x.summary : ''))))).filter(Boolean);
         const setTexts = (it, p) => {
             const grab = (arr) => (Array.isArray(arr) ? arr : []).map(x => (x == null ? '' : (typeof x === 'string' ? x : String(x.text != null ? x.text : (x.summary != null ? x.summary : ''))))).filter(Boolean);
             it.summary = grab(p.summary);
@@ -440,7 +441,9 @@ class CodexBridge {
                         const t = (Array.isArray(item.content) ? item.content : []).map(c => (c && c.text != null ? String(c.text) : '')).filter(Boolean).join('\n');
                         if (t && it.content) it.content = [{ type: 'text', text: t }];
                     } else if (item.type === 'Reasoning') {
-                        setTexts(it, item);
+                        const sums = setTexts.grab(item.summary).concat(setTexts.grab(item.summary_text));
+                        const conts = setTexts.grab(item.content).concat(setTexts.grab(item.raw_content));
+                        if (sums.length || conts.length) { it.summary = sums; it.content = conts; }
                     } else if (item.type === 'McpToolCall' || item.type === 'ToolCall') {
                         it.status = item.status || 'completed';
                         if (item.aggregated_output != null) it.output = String(item.aggregated_output);
@@ -478,7 +481,7 @@ class CodexBridge {
         if (t === 'CommandExecution') return { type: 'commandExecution', id: item.id, command: Array.isArray(item.command) ? item.command.join(' ') : String(item.command || ''), cwd: item.cwd || '', processId: item.process_id, source: item.source, status: item.status || 'completed', exitCode: item.exit_code, aggregatedOutput: item.aggregated_output != null ? String(item.aggregated_output) : '' };
         if (t === 'AgentMessage') return { type: 'agentMessage', id: item.id, text: texts(item.content) };
         if (t === 'UserMessage') return { type: 'userMessage', id: item.id, content: (Array.isArray(item.content) ? item.content : []).map(c => ({ type: 'text', text: c && c.text != null ? String(c.text) : '' })).filter(c => c.text) };
-        if (t === 'Reasoning') { const it = { type: 'reasoning', id: item.id }; it.summary = (Array.isArray(item.summary) ? item.summary : []).map(x => String(x.text != null ? x.text : x)).filter(Boolean); it.content = (Array.isArray(item.content) ? item.content : []).map(x => String(x.text != null ? x.text : x)).filter(Boolean); return it; }
+        if (t === 'Reasoning') { const it = { type: 'reasoning', id: item.id }; const g = (a) => (Array.isArray(a) ? a : []).map(x => String(x != null && x.text != null ? x.text : x)).filter(Boolean); it.summary = g(item.summary).concat(g(item.summary_text)); it.content = g(item.content).concat(g(item.raw_content)); return it; }
         return null;
     }
 
