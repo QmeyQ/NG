@@ -587,3 +587,4 @@ Python/pythoncore-3.14-64/python.exe local/doupload.py      # PUB_FORCE=1, h6 �
 - **空白/交替出错根因**：a) bridge 曾广播空 items 数组(live 失败回退 appserver 为空时)→前端整片抹白；b) 多标签共享 bridge 全局 activeIdePeer 互相争抢。修复：bridge 只广播非空；/api/ide/items 回退空时返回 502 而非空 ok；前端空结果不覆盖已有数据；**页面每 2s 独立拉取自己打开的会话**(不再依赖全局 active)。
 - **带宽保护**：ideItemsLive 截断超长文本(command 2000/文本 6000/输出 4000 字符)，50 项轮询负载可控。
 - 验收：turns(1 turn/1 用户气泡/0 旧details)、items、stable(0重渲/0空白/0滚动跳)、realtime2(执行中→完成翻转) 全 PASS；audit 确认用户气泡 align=flex-end/绿底、agent 气泡 cursor=pointer、运行中琥珀色边框。
+- **切换会话卡住修复（h21.7）**：itemsSig 守卫曾把"切回旧会话(数据没变)"也拦掉 → 标题变了内容不变。引入 state.shownPeer(当前 #msgs 实际显示的会话)：守卫只拦"同会话且数据没变"；renderItems/renderMsgs 渲染即标记 shownPeer。chatpage_switch.cjs 实测 A→B 内容切换、B→A 恢复、遍历全部 5 会话(含微信)标题/内容全对。

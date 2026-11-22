@@ -223,7 +223,7 @@ function cacheRead(k,d){try{return JSON.parse(localStorage.getItem(k))??d}catch(
 function cacheWrite(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}}
 function cacheMsgs(peer){return cacheRead(CACHE.msgs+peer,[])}
 function cacheMsgsWrite(peer,msgs){cacheWrite(CACHE.msgs+peer,msgs.slice(-200))}
-const state={openTurns:{},items:{},itemSig:{},queues:{},queueOpen:false,token:localStorage.getItem('cx_token')||new URLSearchParams(location.search).get('token')||'',convs:[],active:null,models:[],sending:false,hist:{},unread:{}};
+const state={openTurns:{},items:{},itemSig:{},shownPeer:null,queues:{},queueOpen:false,token:localStorage.getItem('cx_token')||new URLSearchParams(location.search).get('token')||'',convs:[],active:null,models:[],sending:false,hist:{},unread:{}};
 function toast(t){const e=$('toast');e.textContent=t;e.classList.add('show');clearTimeout(toast._t);toast._t=setTimeout(()=>e.classList.remove('show'),2200)}
 async function api(path,opts){
   opts=opts||{};const tk=(state.token||'').trim();opts.headers=Object.assign({},opts.headers||{});if(tk&&/^[\x20-\x7E]+$/.test(tk))opts.headers['X-Cx-Token']=tk;
@@ -296,7 +296,7 @@ function itemsSig(arr){return JSON.stringify((arr||[]).map(e=>{const it=e.item||
 function renderItemsIfChanged(peer,arr){
   if(!String(peer).startsWith('ide:'))return false;
   const sig=itemsSig(arr);
-  if(sig===state.itemSig[peer])return false;
+  if(sig===state.itemSig[peer]&&state.shownPeer===peer)return false; // 同会话且数据没变才跳过(防闪烁); 切会话必须渲染
   state.itemSig[peer]=sig;
   state.items[peer]=arr;
   if(state.active===peer)renderItems(arr);
@@ -326,7 +326,7 @@ function itemHtml(e){
   return '<div class="item '+cls+'"><div class="item-head">'+esc(t)+status+'</div>'+(body?'<div class="item-body">'+esc(body)+'</div>':'')+out+'<div class="item-meta">'+fmtTime(e.startedAtMs||e.completedAtMs||Date.now())+'</div></div>';
 }
 function renderItems(items){
-  const box=$('msgs');
+  const box=$('msgs');state.shownPeer=state.active;
   if(!items||!items.length){box.innerHTML='<div class="empty"><div class="big">✨</div><div>暂无活动</div></div>';return}
   const asc=items.slice().reverse();
   const groups=[];const idx={};
@@ -372,6 +372,7 @@ async function loadItems(peer){
   }
 }
 function renderMsgs(msgs){
+  state.shownPeer=state.active;
   if(!msgs.length){$('msgs').innerHTML='<div class="empty"><div class="big">✨</div><div>开始对话吧</div></div>';return}
   $('msgs').innerHTML=msgs.map(m=>{const me=m.role==='user';return `<div class="msg ${me?'me':''}"><div class="b">${esc(m.text)}</div><div class="meta">${me?'我':'Codex'}${m.via==='wechat'?'<span class="tag">微信</span>':''} · ${fmtTime(m.ts)}</div></div>`}).join('');
   $('msgs').scrollTop=$('msgs').scrollHeight;
@@ -405,7 +406,7 @@ async function deleteConv(){
     await api('/api/conv/delete',{method:'POST',body:{peer:manageId}});
     localStorage.removeItem(CACHE.msgs+manageId);
     state.convs=state.convs.filter(x=>x.id!==manageId);
-    if(state.active===manageId){state.active=null;$('msgs').innerHTML='<div class="empty"><div class="big">✨</div><div>会话已删除</div></div>';$('send').disabled=true}
+    if(state.active===manageId){state.active=null;state.shownPeer=null;$('msgs').innerHTML='<div class="empty"><div class="big">✨</div><div>会话已删除</div></div>';$('send').disabled=true}
     renderConvs();$('manageDlg').classList.remove('show');toast('已删除');
   }catch(e){toast(e.message)}
 }
