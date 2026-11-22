@@ -425,7 +425,8 @@ class CodexBridge {
                 if (e) {
                     const it = e.item;
                     if (item.type === 'CommandExecution') {
-                        it.command = Array.isArray(item.command) ? item.command.join(' ') : (item.command != null ? String(item.command) : it.command);
+                        // 保留 function_call 里的干净命令(args.cmd); 仅在为空时才用 item_completed 的包装版
+                        if (!it.command) it.command = Array.isArray(item.command) ? item.command.join(' ') : (item.command != null ? String(item.command) : it.command);
                         if (item.cwd) it.cwd = item.cwd;
                         if (item.process_id != null) it.processId = item.process_id;
                         if (item.source) it.source = item.source;

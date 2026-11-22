@@ -588,3 +588,6 @@ Python/pythoncore-3.14-64/python.exe local/doupload.py      # PUB_FORCE=1, h6 �
 - **带宽保护**：ideItemsLive 截断超长文本(command 2000/文本 6000/输出 4000 字符)，50 项轮询负载可控。
 - 验收：turns(1 turn/1 用户气泡/0 旧details)、items、stable(0重渲/0空白/0滚动跳)、realtime2(执行中→完成翻转) 全 PASS；audit 确认用户气泡 align=flex-end/绿底、agent 气泡 cursor=pointer、运行中琥珀色边框。
 - **切换会话卡住修复（h21.7）**：itemsSig 守卫曾把"切回旧会话(数据没变)"也拦掉 → 标题变了内容不变。引入 state.shownPeer(当前 #msgs 实际显示的会话)：守卫只拦"同会话且数据没变"；renderItems/renderMsgs 渲染即标记 shownPeer。chatpage_switch.cjs 实测 A→B 内容切换、B→A 恢复、遍历全部 5 会话(含微信)标题/内容全对。
+
+
+- **Codex IDE 式过程块（h21.8）**：外层"执行过程"总折叠移除——过程块按实际执行顺序**内联交错排列**(思考→命令→思考→命令, 数据即文件序), **每块独立收展**(.blk: 思考块头"思考 · Ns"点击展开推理文本; 命令块头显示干净命令一行+状态chip, 点击展开完整输出; 工具块同理)。执行中的块默认展开实时看输出, 完成后自动收起(用户手动展开过则 state.openItems 记住)。parser 修复: item_completed 合并时**保留 function_call 的干净命令**(args.cmd), 不被 pwsh 包装版覆盖(200+字符会截断显示)。测试: chatpage_blocks.cjs(块点击/状态保持), chatpage_turns 的 blockTypes 断言交错序列, realtime2 命令头匹配(执行中→完成)。
