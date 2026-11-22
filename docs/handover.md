@@ -595,3 +595,30 @@ Python/pythoncore-3.14-64/python.exe local/doupload.py      # PUB_FORCE=1, h6 �
 - **思考块收展修复（h21.10）**：两个 bug——a) item_completed 的 Reasoning 条目字段是 **summary_text/raw_content**(不是 summary/content)，合并时把 response_item 里正确的推理文本覆盖成空数组→思考块无文本、点击无反应；b) 思考块走了"执行中默认展开"逻辑(无 status 字段→永远默认展开)。修复：合并读 summary_text/raw_content 且**非空才覆盖**；blockOpen 只对命令/工具块执行"执行中展开"，思考块默认收起(像 Codex IDE "思考 · Ns ▸")。chatpage_reason.cjs 实测：默认收起/点击展开有文本(83+字符)/再点收起/6s 轮询保持/时长真实。
 - **标题滚动框（h21.11）**：IDE 会话标题超长(160+字符)曾把 chat-head 撑爆。chat-title 改为单行横向滚动框(white-space:nowrap + overflow-x:auto + 细滚动条)，**鼠标按住可拖拽滑动**；副标题 chat-sub 加省略号；head-mid 容器 flex 收缩。chatpage_title.cjs 实测：166字符标题单行、scrollW 1164>clientW 794 可滚、头部高度 58px 不变、拖拽 scrollLeft 0→200。
 - **进页性能（h21.12）**：用户反馈"重新进入加载很久"。三个根因——a) relay codex.status **每次请求都 spawn codex.exe --version**(Windows 1~4s)；b) 页面 boot **全串行**(status→models→convs→items)；c) IDE 会话 items **无本地缓存**(承诺的增量同步只做了普通消息)。修复：relay 缓存 bin 解析+版本号(10min)；bridge /api/status 缓存 30s、/api/models 60s、/api/ide/items 命中 ideSyncTick(1s)缓存直接返回；boot 改 Promise.all 并行(status 不阻塞)；**items localStorage 缓存秒开**(openConv 先渲染缓存, loadItems 后台增量, 签名没变不重渲)。实测: status 3995ms→445ms；冷进页(新profile) 首内容 3289ms；**热进页(重进) 首内容 492ms**。产品内置 window.__boot 性能标记(start/convs/firstContent)，chatpage_loadtime3.cjs 读取断言。
+- **布局重构（h21.13）**：按用户要求——移除顶部上边栏；"Codex 远程同步"品牌标签移入侧栏头部(➕区域, 纵排: brand + 搜索行)——**背景色即连接状态**(ok=绿/bad=红, 版本号文本移除)，**点击跳转 /codex 配置页**；chat-tools 的 relay/local pill 移除(模型选择占位, 竖屏不再隐藏——420px 下模型选择 150px 可见)；发送区 hint 的会话id/工作目录移除；会话头副标题改为 **类型 · 工作目录 · 状态**(会话id不再显示)。chatpage_layout.cjs 实测: 无topBar、brand ok绿底+href=/codex+点击跳转、sub="Codex IDE 会话 · F:\LayaProject"、竖屏模型选择可见、hint 无会话id。
+## h22 codex config 修复：Token Plan + Midea AI 双 provider 全通（2026-11-22）
+
+**根因（三层）：**
+1. **Codex CLI 0.171.0-alpha.13 移除 `wire_api="chat"`**：`~/.codex/config.toml` 的 Midea_AI provider 用 chat wire_api → codex 启动即 `Error loading config.toml`（exec 全挂）。
+2. **本地中转无 Responses 端点**：`F:\web-api+tool\main.py`（8199）只有 `/v1/chat/completions`，`/v1/responses` 404；Codex 只剩 responses 协议 → Midea 断链。
+3. **CodexBridge spawn 挂死**：`server/re/codex.js` 用 `stdio:['ignore',...]` spawn codex exec——codex ≥0.171 会"Reading additional input from stdin..."等 EOF，ignore 句柄无 EOF → 回复完成后进程不退出（实测两笔 chat 600s code=-2 timeout；命令行带 stdin EOF 同参数 45s 完成，差异实锤）。
+
+**修复（全部实测验证）：**
+- **中转加 `/v1/responses` 兼容层**（main.py，备份 `main.py.bak-responses-20261122-205358`）：Responses↔chat 双向协议转换——请求端 instructions→system、input(items: message/function_call/function_call_output)→messages、tools 扁平→function 包装、max_output_tokens→max_tokens；响应端非流式 chat JSON→Responses output(message/reasoning/function_call items+usage)，流式 chat SSE→Responses 事件流(response.created/in_progress/output_item.added/output_text.delta/output_item.done/completed/failed，keep-alive 心跳与 usage 终块安全跳过)。8199 已重启生效。
+- **config.toml**：Midea_AI `wire_api` chat→**responses**（注释同步更新）。顶部切 Token_Plan 依旧只改 model_provider/model 三行。
+- **codex.js spawn**：stdin 改 pipe + 立即 `end()`（干净 EOF）；env 显式 `CODEX_HOME`（探测 cfg.codexHome → process.env → homedir → C:/Users/mien/.codex）。
+- **chat/data/codex-config.json**：`bin` 填 codex.exe 全路径（普通权限 node `readdirSync('C:\Program Files\WindowsApps')` **EPERM**，服务进程才列得动；cfg.bin 是 resolveBin 第一优先，永久免疫）+ model `aigc.midea.com`（Midea provider 下必须用中转认识的站点 id，qwen slug 会路由兜底错位）+ timeout 30000→600000 + sandbox read-only→workspace-write；chat/config.json codex.model 同步。
+- **bridge 热更新**：`POST /api/config {patch:{codex:{...}}}`（X-Cx-Token）无需重启即改内存 CONFIG 并回写文件（`codex.save` 同步 codex-config.json）。
+
+**验证矩阵：**
+- codex exec Midea_AI(aigc.midea.com)：exit 0，回复 OK。
+- codex exec `-c model_provider=Token_Plan -c model=qwen4-max-preview`：exit 0，回复 OK（两 provider 同配置共存）。
+- `/v1/responses` 非流式 200（标准 Responses JSON）；流式 200（事件序列完整，completed 带 usage）。
+- CodexBridge.chat 独立进程（修复后代码）：ok=true code=0 ms≈136s 正常退出（网页模型固有耗时 45~140s 波动）。
+- Token Plan `/v1/responses`（千问原生）也实测 200——wire_api=responses 本就正确。
+
+**坑（新增 h10 级）：**
+- WindowsApps 目录普通用户 node fs.readdir **EPERM**（bash ls 却能列，MSYS 差异）→ resolveBin 依赖服务权限不可靠，必须 cfg.bin 兜底。
+- 中转站点锁：同站点（aigc.midea.com）请求串行排队 300s；多笔并发 chat 测试会互相拖满超时——测试要错峰或换站点。
+- Git Bash curl 发中文 JSON body 会变 `??` 乱码（编码）；测试中文内容用 `--data-binary @file`（UTF-8 文件）。
+- CodexChat 是 NSSM 服务（LocalSystem 级），普通 shell taskkill/Restart-Service 均被拒；改代码后需 `net stop CodexChat && net start CodexChat`（管理员）或重启机器。**当前服务进程仍跑旧 codex.js：stdin 修复未加载，经 bridge/微信发消息会 600s 挂死超时；bin/model/timeout 配置已热生效。重启命令：管理员 cmd `net stop CodexChat && net start CodexChat`。**

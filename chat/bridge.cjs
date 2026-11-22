@@ -57,7 +57,7 @@ function relayCall(action, params) {
     const body = Object.assign({ token: relay.token || '', action }, params || {});
     const url = relay.url || 'https://normalgame.cn/apim';
     return fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal: AbortSignal.timeout(Number(relay.timeoutMs || 660000)) })
-        .then(async r => { const t = await r.text(); let j; try { j = JSON.parse(t); } catch (e) { throw new Error('relay 非 JSON: ' + t.slice(0, 200)); } if (!r.ok || j.ok === false) throw new Error(j.error || ('relay HTTP ' + r.status)); return j; });
+        .then(async r => { const t = await r.text(); let j; try { j = JSON.parse(t); } catch (e) { const plain = String(t).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 120); const hint = /504/.test(t) ? '504 网关超时（上游任务超过 600s，已中止）' : ('HTTP ' + r.status + ' 非 JSON：' + plain); throw new Error('relay ' + hint); } if (!r.ok || j.ok === false) throw new Error(j.error || ('relay HTTP ' + r.status)); return j; });
 }
 async function chat(opts) {
     if (opts.peer && String(opts.peer).startsWith('ide:')) {

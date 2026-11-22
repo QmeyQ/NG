@@ -120,9 +120,13 @@
     "chat h21.9 红点修复: 未读=lastSeen(打开/观看推进)+bootTs 之后的真新消息数, 重复 history 广播重算不累加, 打开后不回弹; chatpage_unread.cjs PASS(5s稳定/6s不回弹); switch 测试改用稳定用户气泡断言(块自动收起不再误判), 全回归 PASS",
     "chat h21.10 思考块修复: Reasoning item_completed 字段实为 summary_text/raw_content(合并曾把推理文本覆盖为空), 非空才覆盖; 思考块默认收起(仅命令/工具执行中自动展开); chatpage_reason.cjs PASS(默认收起/展开有文本/收起/轮询保持/真实时长)",
     "chat h21.11 标题滚动框: 超长 IDE 标题单行横向滚动(可拖拽滑动)+细滚动条, 副标题省略号, 头部不再被撑爆; chatpage_title.cjs PASS(166字符单行/可滚/拖拽0->200/头高58)",
-    "chat h21.12 进页性能: relay status 版本 spawn 缓存(3995->445ms); bridge status30s/models60s/items命中tick缓存; boot Promise.all 并行; items localStorage 缓存秒开+后台增量; 冷3289ms/热492ms 首内容"
+    "chat h21.12 进页性能: relay status 版本 spawn 缓存(3995->445ms); bridge status30s/models60s/items命中tick缓存; boot Promise.all 并行; items localStorage 缓存秒开+后台增量; 冷3289ms/热492ms 首内容",
+    "codex config 修复(Token Plan+Midea AI 双通): ①根因 Codex CLI 0.171 移除 wire_api=chat(Midea_AI 加载即 Error loading config.toml); ②中转 F:\\web-api+tool\\main.py 新增 /v1/responses 兼容层(Responses↔chat 协议转换, 非流式 JSON + SSE 事件流 response.created/output_text.delta/output_item.done/completed, 备份 main.py.bak-responses-20261122-205358) + 8199 重启; ③~/.codex/config.toml Midea_AI wire_api 改 responses; ④server/re/codex.js spawn 修复: stdio ignore 无 EOF 致 codex exec 读 stdin 挂死(实测 600s 超时两笔 code=-2) → stdin pipe+end() + env 显式 CODEX_HOME; ⑤chat/data/codex-config.json bin 填 codex.exe 全路径(普通权限 readdirSync WindowsApps EPERM, cfg.bin 第一优先解决)+model aigc.midea.com+timeout 600s+workspace-write; ⑥chat/config.json codex.model 同步 aigc.midea.com; 验证: codex exec Midea_AI OK(exit0)+Token_Plan -c 覆盖 OK(exit0)+/v1/responses 非流式/流式 200+CodexBridge.chat 独立进程 ok=true code=0 ms=136s 正常退出(不再挂死); bridge /api/config 热更新生效(bin/version/model 200)",
+    "遗留: CodexChat NSSM 服务进程仍跑旧 codex.js(stdin 修复未加载, 需管理员重启: net stop CodexChat && net start CodexChat, UAC 无人确认); 重启前经 bridge/微信发消息 codex 会 600s 挂死超时; 配置部分(bin/model/timeout)已热生效",
+    "chat h21.13 布局重构: 上边栏移除, brand标签入侧栏头部(背景色=连接状态, 点击跳/codex), 版本号/modePill/会话id移除, 副标题=类型·工作目录·状态, 竖屏模型选择可见(420px/150px); chatpage_layout.cjs PASS"
   ],
   "next": [
+    "管理员重启 CodexChat 服务(net stop/start)加载 codex.js stdin 修复后, 经 bridge /api/chat 复测端到端(预期 <150s 正常退出)",
     "用户真实浏览器打开 normalgame.cn 目检左右移动/待机/球拍(点\"下载\"确认重下新包); 通过后下一轮: girl1 共用 controller 观感 + hitoff/jumphit/diving 重建",
     "girl1 共用 boy controller 的观感问题 + hitoff/jumphit/diving 旧重定向动作重建(下一轮 ai3d)",
     "apex normalgame.cn 仍旧包: 需用户提供 ECS FTP 密码或阿里云 Workbench 登录(可见Edge 9228)后更新 /home/ftpu/html/index.html+packs; 或用户确认改用 www 入口",
@@ -141,7 +145,7 @@
     "git push origin Badminton3D 网络失败(GitHub 443 连接重置/超时, 已重试2次); 本地提交 a3097b42 已落盘, 待网络恢复补推",
     "www 备用入口 headless boot 复验未过(不作验收); headless 生产探针下载确认点击不稳(探针侧)"
   ],
-  "last_output": "chatpage_loadtime3 PASS(冷 3289ms, 热 492ms 首内容秒开); turns/switch/unread 回归全过; status 4s->0.4s",
+  "last_output": "chatpage_layout PASS(brand绿底跳配置/无上边栏/竖屏模型选择/无会话id/工作目录入标题) + turns 回归 PASS",
   "note": "LayaProject=小游戏平台; NG2=branch origin/room",
-  "updatedAt": "2026-11-22T12:35:04.677Z"
+  "updatedAt": "2026-11-22T15:23:35.299Z"
 }

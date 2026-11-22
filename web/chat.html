@@ -11,19 +11,21 @@ html,body{height:100%;margin:0}
 body{background:radial-gradient(1200px 700px at 20% -10%,#17324a 0%,transparent 55%),radial-gradient(900px 600px at 110% 110%,#123a2c 0%,transparent 50%),var(--bg);color:var(--txt);font:14px/1.55 "Segoe UI","Microsoft YaHei",system-ui,sans-serif;overflow:hidden}
 .app{height:100%;display:flex;flex-direction:column}
 .top{height:56px;display:flex;align-items:center;gap:12px;padding:0 16px;border-bottom:1px solid var(--line);background:rgba(12,18,25,.86);backdrop-filter:blur(10px);flex:0 0 auto}
-.logo{width:30px;height:30px;border-radius:9px;background:linear-gradient(135deg,var(--acc),var(--acc2));display:flex;align-items:center;justify-content:center;font-weight:800;color:#06120c;font-size:15px}
-.brand{font-weight:700;letter-spacing:.3px}
 .brand small{display:block;font-weight:400;color:var(--dim);font-size:11px;letter-spacing:0}
-.spacer{flex:1}
 .pill{display:inline-flex;align-items:center;gap:6px;padding:5px 10px;border:1px solid var(--line);border-radius:999px;color:var(--dim);font-size:12px;background:var(--panel)}
-.dot{width:7px;height:7px;border-radius:50%;background:var(--dim)}
-.dot.ok{background:var(--acc);box-shadow:0 0 8px var(--acc)}
-.dot.bad{background:var(--danger)}
 .link{color:var(--acc2);text-decoration:none;font-size:12px;padding:6px 10px;border:1px solid var(--line);border-radius:8px;background:var(--panel)}
 .link:hover{border-color:var(--acc2)}
 .main{flex:1;display:flex;min-height:0}
 .side{width:310px;min-width:250px;border-right:1px solid var(--line);display:flex;flex-direction:column;background:rgba(14,21,29,.75)}
-.side-head{padding:12px;display:flex;gap:8px;align-items:center;border-bottom:1px solid var(--line)}
+.side-head{padding:10px 12px;display:flex;flex-direction:column;gap:8px;border-bottom:1px solid var(--line)}
+.sh-row{display:flex;gap:8px;align-items:center;width:100%}
+.brand-btn{display:flex;align-items:center;justify-content:center;gap:7px;padding:8px 10px;border-radius:10px;border:1px solid var(--line);background:var(--panel);color:var(--txt);font-weight:700;font-size:12.5px;letter-spacing:.3px;text-decoration:none;cursor:pointer;transition:.2s}
+.brand-btn::before{content:'';width:7px;height:7px;border-radius:50%;background:var(--dim);flex:none}
+.brand-btn.ok{background:#123c31;border-color:#2c6b51;color:#d6efe4}
+.brand-btn.ok::before{background:var(--acc);box-shadow:0 0 8px var(--acc)}
+.brand-btn.bad{background:#3c1a1a;border-color:#6b2c2c;color:#f2d6d6}
+.brand-btn.bad::before{background:var(--danger)}
+.brand-btn:hover{filter:brightness(1.15)}
 .search{flex:1;display:flex;align-items:center;gap:6px;background:var(--panel);border:1px solid var(--line);border-radius:9px;padding:7px 9px}
 .search input{all:unset;flex:1;color:var(--txt);font-size:13px;min-width:0}
 .icon-btn{width:34px;height:34px;border-radius:9px;border:1px solid var(--line);background:var(--panel);color:var(--txt);cursor:pointer;font-size:20px;line-height:1;display:flex;align-items:center;justify-content:center}
@@ -122,23 +124,19 @@ select,input,textarea{font-family:inherit}
 .meta .run{color:var(--warn)}
 .toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%) translateY(20px);background:#0f1720;border:1px solid var(--line);color:var(--txt);padding:9px 14px;border-radius:9px;opacity:0;pointer-events:none;transition:.25s;z-index:80;font-size:12.5px}
 .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
-@media(max-width:760px){.side{width:120px;min-width:120px}.side .search{display:none}.conv-last,.conv-time{display:none}.brand small{display:none}.chat-tools .sel{display:none}}
+@media(max-width:760px){.side{width:120px;min-width:120px}.side .search{display:none}.conv-last,.conv-time{display:none}.chat-tools{margin-left:auto;min-width:0}.chat-tools .sel{flex:1;min-width:0;max-width:150px}.brand-btn{font-size:11px;padding:7px 6px}}
 </style>
 </head>
 <body>
 <div class="app">
-  <div class="top">
-    <div class="logo">C</div>
-    <div class="brand">Codex 远程同步<small>微信通道 · Web 对话 · 本地会话</small></div>
-    <div class="spacer"></div>
-    <span class="pill"><span id="dot" class="dot"></span><span id="statusText">连接中…</span></span>
-    <a class="link" href="/codex">配置</a>
-  </div>
   <div class="main">
     <aside class="side">
       <div class="side-head">
-        <div class="search">🔎<input id="q" placeholder="搜索会话"></div>
-        <button class="icon-btn" id="newChat" title="新建聊天">+</button>
+        <a class="brand-btn" id="brandBtn" href="/codex" title="打开配置页（工作目录 / 模型 / 微信 / 云终端）">Codex 远程同步</a>
+        <div class="sh-row">
+          <div class="search">🔎<input id="q" placeholder="搜索会话"></div>
+          <button class="icon-btn" id="newChat" title="新建聊天">+</button>
+        </div>
       </div>
       <div class="list" id="list"></div>
     </aside>
@@ -150,7 +148,7 @@ select,input,textarea{font-family:inherit}
         </div>
         <div class="chat-tools">
           <select class="sel" id="model" title="模型"></select>
-          <span class="pill" id="modePill">local</span>
+
         </div>
       </div>
       <div class="msgs" id="msgs">
@@ -165,7 +163,7 @@ select,input,textarea{font-family:inherit}
           <textarea id="input" rows="1" placeholder="给 Codex 发消息…  Enter 发送 / Shift+Enter 换行"></textarea>
           <button class="send" id="send" disabled>发送</button>
         </div>
-        <div class="hint"><span>工作目录: <b id="cwdHint">-</b></span><span>会话: <b id="peerHint">-</b></span><span id="typing"></span></div>
+        <div class="hint"><span id="typing"></span></div>
       </div>
     </section>
   </div>
@@ -281,9 +279,10 @@ async function openConv(id){
   state.active=id;delete state.unread[id];state.lastSeen[id]=Date.now();renderConvs();
   const c=state.convs.find(x=>x.id===id)||{id};
   $('chatTitle').textContent=c.title||id;$('chatSub').textContent=(c.kind==='wechat'?'微信会话':c.kind==='group'?'微信群':(c.kind==='ide'?'Codex IDE 会话':'Codex 会话'))+' · '+id;
-  $('peerHint').textContent=id;$('send').disabled=false;
+  $('send').disabled=false;
   const st=(c.status&&c.status.type)||'';
-  $('chatSub').textContent=(c.kind==='wechat'?'微信会话':c.kind==='group'?'微信群':(c.kind==='ide'?'Codex IDE 会话':'Codex 会话'))+' · '+id+(st?' · '+(st==='active'?'工作中':st==='idle'?'空闲':st):'');
+  const cwd=c.cwd||state.cwd||'-';
+  $('chatSub').textContent=(c.kind==='wechat'?'微信会话':c.kind==='group'?'微信群':(c.kind==='ide'?'Codex IDE 会话':'Codex 会话'))+' · '+cwd+(st?' · '+(st==='active'?'工作中':st==='idle'?'空闲':st):'');
   if(String(id).startsWith('ide:')){
     loadQueue(id);
     api('/api/active',{method:'POST',body:{peer:id}}).catch(()=>{}); // 不阻塞
@@ -460,7 +459,7 @@ async function send(){
 async function boot(){
   window.__boot={start:performance.now(),convs:null,firstContent:null};
   if(!state.token){showToken()}
-  api('/api/status').then(r=>{$('dot').className='dot ok';$('statusText').textContent=(r.codex&&r.codex.version?r.codex.version:'在线')+' · '+r.mode;$('modePill').textContent=r.mode;$('cwdHint').textContent=(r.codex&&r.codex.cwd)||'-';}).catch(()=>{$('dot').className='dot bad';$('statusText').textContent='未连接'});
+  api('/api/status').then(r=>{state.cwd=(r.codex&&r.codex.cwd)||'-';const b=$('brandBtn');b.classList.remove('bad');b.classList.add('ok');b.title='已连接 · 工作目录 '+(state.cwd||'-')+' · 点击打开配置';}).catch(()=>{const b=$('brandBtn');b.classList.remove('ok');b.classList.add('bad');b.title='未连接 · 点击打开配置'});
   await Promise.all([loadModels().catch(()=>{}),loadConvs()]);
   if(window.__boot)window.__boot.convs=performance.now();
   if(state.convs.length)openConv(state.convs[0].id);
