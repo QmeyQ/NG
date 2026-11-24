@@ -192,3 +192,42 @@ bash /tmp/ecs.sh <RE_TOKEN> http://127.0.0.1/apim
 - 折叠状态跨刷新保持（\`state.openTurns\`）；执行中的轮次默认展开；向上翻阅时不强制拉底。
 - 测试：\`node chat/test/chatpage_turns.cjs\`、\`node chat/test/chatpage_turn_realtime2.cjs RT-<任意标记>\`（需另一会话同时发含 \`<标记>-SLEEP\` 的长命令）。
 - 第二轮：用户消息=原样右对齐绿底气泡；Codex 回复=左侧气泡，过程收在消息内，**点击消息本体收展**（无按钮）；执行中的轮次默认展开。数据不变不重渲（签名守卫），多标签每页独立 2s 拉取互不干扰，空数据不广播不覆盖。
+
+## 会话级模型切换（2026-11-23）
+
+- chat 页顶部模型下拉**按会话记忆**：切换会话时显示该会话上次用的模型，
+  手动改选后写入 `localStorage.cx_modelOf[peer]` 并随每条消息发送
+  `POST /api/chat {peer,text,cwd,model}`。
+- 模型清单来自 `~/.codex/model-catalog.local.json`；
+  `aigc.midea.com/<站点模型>` 这类 slug 会被中转映射到网页端
+  模型下拉并真实切换（resume 会话同样生效）。
+- `/api/conversations` 每条会话带 `cwd` / `model`。
+
+## 新建聊天工作目录 + 目录选择器（2026-11-23）
+
+- 新建聊天弹窗新增"工作目录"输入与"浏览…"按钮：
+  `GET /api/dirs?path=<dir>` 返回 `{path,parent,dirs:[{name,path}]}`
+  （local 模式直接 fs；relay 模式走 `fs.listDir` action，token 保护）。
+- 面板支持逐级进入、"↑ 上级"、"选择此目录"；发送时带 `cwd`，
+  Codex 会在该目录下执行，会话记录保存 cwd。
+
+## 图片输入（2026-11-23）
+
+- `POST /api/chat` 支持 `images: [本机路径...]`（微信图片下载后的
+  本地文件）；空文本 + 图片时默认提示"请看图片内容并回答。"。
+- 微信 `image_item`：CDN 下载 + AES-128-ECB 解密，落盘
+  `chat/data/media/`，经 bridge → relay `codex.chat(images)` →
+  `codex exec -i <path>`（可多张，resume 同样支持）。
+- 本机桥已生效；ECS 桥需重新部署：
+  `bash chat/deploy/ecs-install-remote.sh <RE_TOKEN> <APIM_URL>`。
+
+## 图片回传（附件回传，2026-11-23）
+
+- codex.chat 结果新增 imagePaths（执行机本机路径）与 images:[{name,size,b64}]（≤8MB/张、≤4 张）：来源是事件流 ImageView 项（view_image 真实看过的图）+ 回复正文引用的本机图片路径。
+- 微信：文本回复后逐张 sendImage（iLink：getuploadurl → AES-128-ECB 上传 CDN（响应头 x-encrypted-param 为下载参数）→ sendmessage image_item，no_need_thumb 免缩略图）。
+- chat Web UI：POST /api/chat 返回 imageUrls（data URL），消息气泡渲染缩略图。
+- relay 模式：ECS 桥收到 images[].b64 落盘 chat/data/media/return-* 再发微信；本机模式直接用 imagePaths。
+
+**生效条件**：本机 relay（21119）已带新代码并实测；ECS 桥需重新部署一次（见 chat/deploy/ecs-install-remote.sh，WeChat 登录态与 config.json 不受影响）；本地 chat UI 图片渲染需重启本地桥一次（管理员 net stop CodexChat && net start CodexChat）。
+
+- 模型主动回传：输出协议含 `[attach]完整本机路径[/attach]`——用户要图时模型在结论末尾标记（语义决策，非关键词拦截），网关解析后把图发给用户并从正文剥离标记。

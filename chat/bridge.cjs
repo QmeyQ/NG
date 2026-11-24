@@ -52,12 +52,51 @@ function broadcast(type, data) {
     const msg = 'event: ' + type + '\ndata: ' + JSON.stringify(data || {}) + '\n\n';
     for (const res of sseClients) { try { res.write(msg); } catch (e) { sseClients.delete(res); } }
 }
-function relayCall(action, params) {
+function relayCall(action, params, timeoutMs) {
     const relay = CONFIG.relay || {};
     const body = Object.assign({ token: relay.token || '', action }, params || {});
     const url = relay.url || 'https://normalgame.cn/apim';
-    return fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal: AbortSignal.timeout(Number(relay.timeoutMs || 660000)) })
+    // timeoutMs：同步类接口（状态/历史/会话列表/IDE 轮询）传 15-20s，
+    // 不传则用 chat 的长超时——同步接口挂 10 分钟会让前端雪崩式堆积。
+    return fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal: AbortSignal.timeout(Number(timeoutMs || relay.timeoutMs || 660000)) })
         .then(async r => { const t = await r.text(); let j; try { j = JSON.parse(t); } catch (e) { const plain = String(t).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 120); const hint = /504/.test(t) ? '504 网关超时（上游任务超过 600s，已中止）' : ('HTTP ' + r.status + ' 非 JSON：' + plain); throw new Error('relay ' + hint); } if (!r.ok || j.ok === false) throw new Error(j.error || ('relay HTTP ' + r.status)); return j; });
+}
+async function chatStream(opts, onProgress) {
+    // 流式执行：每个 codex 事件实时回调 onProgress(ev)。
+    // 用途：微信端逐轮回传工具结果——模型反复试错 9 分钟时用户
+    // 能看到每一步，而不是干等最终超时才回一次。
+    if ((CONFIG.mode || 'local') === 'relay') {
+        const relay = CONFIG.relay || {};
+        const body = Object.assign({ token: relay.token || '', action: 'codex.chatStream' }, opts);
+        const url = relay.url || 'https://normalgame.cn/apim';
+        const res = await fetch(url, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+            signal: AbortSignal.timeout(Number(relay.timeoutMs || 890000))
+        });
+        if (!res.ok) throw new Error('relay HTTP ' + res.status);
+        if (!res.body) return chat(opts); // 环境不支持流式读：退回一次性
+        const reader = res.body.getReader();
+        const dec = new TextDecoder();
+        let buf = '', final = null;
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            buf += dec.decode(value, { stream: true });
+            let idx;
+            while ((idx = buf.indexOf('\n')) >= 0) {
+                const line = buf.slice(0, idx).trim();
+                buf = buf.slice(idx + 1);
+                if (!line) continue;
+                let j; try { j = JSON.parse(line); } catch (e) { continue; }
+                if (j.type === 'event' && onProgress) { try { onProgress(j.event); } catch (e) { } }
+                if (j.type === 'final') final = j.result;
+            }
+        }
+        if (!final) throw new Error('relay 流式响应缺少 final');
+        return final;
+    }
+    return codex.chat(Object.assign({}, opts, { onEvent: onProgress }));
 }
 async function chat(opts) {
     if (opts.peer && String(opts.peer).startsWith('ide:')) {
@@ -79,20 +118,31 @@ async function chat(opts) {
         }
     }
     if ((CONFIG.mode || 'local') === 'relay') {
-        return relayCall('codex.chat', { peer: opts.peer, text: opts.text, cwd: opts.cwd || (CONFIG.codex || {}).cwd, model: opts.model || (CONFIG.codex || {}).model, sandbox: opts.sandbox || (CONFIG.codex || {}).sandbox, timeoutMs: (CONFIG.codex || {}).timeoutMs });
+        // relay 模式下 Codex 跑在另一台机器，路径互不可见：把本机图片读成
+        // base64 一起送过去，由对端落盘后再交给 codex exec -i。
+        const relayImages = (Array.isArray(opts.images) ? opts.images : []).map(x => {
+            if (x && typeof x === 'object' && x.b64) return x;
+            try {
+                const ip = String(x);
+                return { name: path.basename(ip), b64: fs.readFileSync(ip).toString('base64') };
+            } catch (e) { log('relay image read failed', String(x), String(e.message)); return null; }
+        }).filter(Boolean);
+        return relayCall('codex.chat', { peer: opts.peer, text: opts.text, images: relayImages, cwd: opts.cwd || (CONFIG.codex || {}).cwd, model: opts.model || (CONFIG.codex || {}).model, sandbox: opts.sandbox || (CONFIG.codex || {}).sandbox, timeoutMs: (CONFIG.codex || {}).timeoutMs });
     }
-    return codex.chat({ peer: opts.peer, text: opts.text, cwd: opts.cwd || (CONFIG.codex || {}).cwd, model: opts.model || (CONFIG.codex || {}).model, sandbox: opts.sandbox || (CONFIG.codex || {}).sandbox, timeoutMs: (CONFIG.codex || {}).timeoutMs, via: opts.via || 'web' });
+    // 注：relay 返回值自带 imagePaths(本机路径,给local用) 与 images[{name,b64}]
+    // （≤8MB/张、≤4 张）——桥侧落盘后交给微信 sendImage 回传。
+    return codex.chat({ peer: opts.peer, text: opts.text, images: opts.images || [], cwd: opts.cwd || (CONFIG.codex || {}).cwd, model: opts.model || (CONFIG.codex || {}).model, sandbox: opts.sandbox || (CONFIG.codex || {}).sandbox, timeoutMs: (CONFIG.codex || {}).timeoutMs, via: opts.via || 'web' });
 }
 function localSessions() { try { return codex.sessions(); } catch (e) { return []; } }
 function localHistory(peer) { try { return codex.history(peer, 200); } catch (e) { return { peer, messages: [] }; } }
 async function listConversations() {
     let sessions = [];
     if ((CONFIG.mode || 'local') === 'relay') {
-        try { const r = await relayCall('codex.sessions', {}); sessions = r.sessions || []; } catch (e) { log('relay sessions failed', String(e.message)); }
+        try { const r = await relayCall('codex.sessions', {}, 20000); sessions = r.sessions || []; } catch (e) { log('relay sessions failed', String(e.message)); }
     } else sessions = localSessions();
     let ide = [];
     try {
-        if ((CONFIG.mode || 'local') === 'relay') { const r = await relayCall('codex.ideThreads', { limit: 50 }); ide = r.threads || []; }
+        if ((CONFIG.mode || 'local') === 'relay') { const r = await relayCall('codex.ideThreads', { limit: 50 }, 20000); ide = r.threads || []; }
         else ide = codex.ideThreads(50);
     } catch (e) { log('ide threads failed', String(e.message)); }
     const ideConvs = (ide || []).map(t => ({
@@ -118,6 +168,8 @@ async function listConversations() {
             lastRole: last ? last.role : '',
             updatedAt: s.updatedAt || 0,
             count: msgs.length || s.count || 0,
+            cwd: s.cwd || '',
+            model: s.model || '',
             kind: s.id.startsWith('wechat:group:') ? 'group' : (s.id.startsWith('wechat:') ? 'wechat' : 'codex')
         };
     }).concat(ideConvs).sort((a, b) => b.updatedAt - a.updatedAt);
@@ -127,26 +179,85 @@ async function history(peer, since) {
         activeIdePeer = String(peer);
         const threadId = String(peer).slice(4);
         if ((CONFIG.mode || 'local') === 'relay') {
-            try { return await relayCall('codex.ideHistory', { threadId, limit: 200, since }); } catch (e) { return { peer, messages: [], error: String(e.message) }; }
+            try { return await relayCall('codex.ideHistory', { threadId, limit: 200, since }, 20000); } catch (e) { return { peer, messages: [], error: String(e.message) }; }
         }
         try { return await codex.ideHistory(threadId, 200, since); } catch (e) { return { peer, messages: [], error: String(e.message) }; }
     }
     if ((CONFIG.mode || 'local') === 'relay') {
-        try { return await relayCall('codex.history', { peer, limit: 200 }); } catch (e) { return { peer, messages: [], error: String(e.message) }; }
+        try { return await relayCall('codex.history', { peer, limit: 200, since }, 20000); } catch (e) { return { peer, messages: [], error: String(e.message) }; }
     }
     return localHistory(peer, 200, since);
 }
 
+// ---------------- 附件回传 ----------------
+// codex.chat 返回 imagePaths(执行机本机路径) + images[{name,b64}]。
+// 本机路径存在就直接用；否则把 b64 落盘到 chat/data/media/return-*。
+async function materializeReturnImages(r) {
+    const out = [];
+    if (!r) return out;
+    const fsx = fs; const pathx = path;
+    for (const p of (r.imagePaths || [])) {
+        try { if (fsx.statSync(String(p)).isFile()) { out.push({ path: String(p), name: pathx.basename(String(p)) }); } } catch (e) { }
+    }
+    for (const im of (r.images || [])) {
+        if (!im || !im.b64 || !im.name) continue;
+        if (out.some(x => x.name === im.name)) continue;
+        try {
+            const dir = pathx.join(HERE, 'data', 'media');
+            fsx.mkdirSync(dir, { recursive: true });
+            const fp = pathx.join(dir, 'return-' + Date.now() + '-' + im.name.replace(/[^\w\-.]/g, '_'));
+            fsx.writeFileSync(fp, Buffer.from(im.b64, 'base64'));
+            out.push({ path: fp, name: im.name });
+        } catch (e) { log('return image write failed', String(e.message)); }
+    }
+    return out.slice(0, 4);
+}
+
 // ---------------- WeChat ----------------
 async function handleIncoming(m) {
-    const peer = m.peer, to = m.to, text = m.text;
-    log('wechat inbound', to, String(text).slice(0, 80));
-    broadcast('message', { peer, role: 'user', text, via: 'wechat' });
+    const peer = m.peer, to = m.to;
+    const images = Array.isArray(m.images) ? m.images.filter(Boolean) : [];
+    const text = String(m.text || '').trim() || (images.length ? '请看图片内容并回答。' : '');
+    log('wechat inbound', to, String(text).slice(0, 80), images.length ? ('images=' + images.length) : '');
+    broadcast('message', { peer, role: 'user', text, images, via: 'wechat' });
     try {
-        const r = await chat({ peer, text, via: 'wechat' });
+        // 流式进度：模型每完成一轮（命令/看图/中间结论）就先回一条微信，
+        // 长任务不再拖到超时才回（用户要求：每次写了的都先回应客户端）。
+        const r = await chatStream({ peer, text, images, via: 'wechat' }, (ev) => {
+            if (!ev || ev.type !== 'item.completed') return;
+            const it = ev.item || {};
+            const ty = it.type;
+            try {
+                // 进度消息不带 context_token：iLink 会把同 context 的
+                // 消息攒到"轮"结束才投递（实测全部堆到最后一次发）；
+                // 去掉 context 让每条独立即时送达。
+                if (ty === 'CommandExecution') {
+                    const cmdRaw = Array.isArray(it.command)
+                        ? (it.command[it.command.length - 1] || '') : String(it.command || '');
+                    const cmd = String(cmdRaw).replace(/\s+/g, ' ').slice(0, 90);
+                    const exit = (it.exitCode === null || it.exitCode === undefined) ? '?' : it.exitCode;
+                    const out = String(it.aggregatedOutput || '').replace(/\s+/g, ' ').slice(0, 160);
+                    wechat.sendText(to, '🔧 ' + cmd + '\n→ exit ' + exit + (out ? ('\n' + out) : ''))
+                        .catch(e => log('wechat progress failed', String(e.message)));
+                } else if (ty === 'ImageView') {
+                    wechat.sendText(to, '🖼 已查看 ' + String(it.path || '')).catch(() => { });
+                } else if (ty === 'agentMessage') {
+                    const txt = String(it.text || '').trim();
+                    if (txt.length > 30)
+                        wechat.sendText(to, '💭 ' + txt.slice(0, 150)).catch(() => { });
+                }
+            } catch (e) { }
+        });
         await wechat.sendText(to, r.text || '(空回复)', m.contextToken);
-        broadcast('message', { peer, role: 'assistant', text: r.text, via: 'wechat' });
+        broadcast('message', { peer, role: 'assistant', text: r.text, images: (r.imagePaths || []), via: 'wechat' });
         broadcast('conversations', { at: Date.now() });
+        // 附件回传：分析中真实看过的图片(view_image)发回微信。
+        // relay 模式下本机没有那些文件，先用返回的 base64 落盘。
+        const back = await materializeReturnImages(r);
+        for (const im of back) {
+            try { await wechat.sendImage(to, im.path, m.contextToken); }
+            catch (e2) { log('wechat sendImage failed', im.path, String(e2.message)); }
+        }
     } catch (e) {
         log('wechat chat failed', String(e.message));
         try { await wechat.sendText(to, '[Codex 错误] ' + e.message, m.contextToken); } catch (e2) { }
@@ -164,7 +275,7 @@ const wechat = WX_PROVIDER === 'canghe'
     })
   : new WeixinChannel(CONFIG.wechat || {}, {
         log,
-        onMessage: (m) => handleIncoming({ peer: 'wechat:' + m.from, to: m.from, text: m.text, contextToken: m.contextToken })
+        onMessage: (m) => handleIncoming({ peer: 'wechat:' + m.from, to: m.from, text: m.text, images: m.images, contextToken: m.contextToken })
     });
 
 const HELP = {
@@ -178,6 +289,8 @@ const HELP = {
         'GET /api/help': '本帮助',
         'GET /api/status': '服务/Codex/微信状态',
         'GET /api/models': '模型列表',
+        'GET /api/dirs?path=': '列目录(新建聊天的目录选择器)',
+        'GET /api/media?path=': '按路径读图片(聊天回显; relay模式经 apim fs.read)',
         'GET /api/conversations': '会话列表',
         'GET /api/history?peer=': '对话历史',
         'POST /api/chat': '{peer,text,cwd?,model?,sandbox?}',
@@ -247,7 +360,7 @@ async function ideSyncTick() {
         if (activeIdePeer) {
             try {
                 let items;
-                if ((CONFIG.mode || 'local') === 'relay') { try { items = await relayCall('codex.ideItemsLive', { threadId: activeIdePeer.slice(4), limit: 50 }); } catch (e) { items = await relayCall('codex.ideItems', { threadId: activeIdePeer.slice(4), limit: 50 }); } }
+                if ((CONFIG.mode || 'local') === 'relay') { try { items = await relayCall('codex.ideItemsLive', { threadId: activeIdePeer.slice(4), limit: 50 }, 15000); } catch (e) { items = await relayCall('codex.ideItems', { threadId: activeIdePeer.slice(4), limit: 50 }, 15000); } }
                 else items = await appserver.itemsList(activeIdePeer.slice(4), 50);
                 const entries = (items && items.data) || [];
                 const sig = JSON.stringify(entries.map(e => [(e.item || {}).id, (e.item || {}).text || '', (e.item || {}).aggregatedOutput || '', (e.item || {}).status || '', e.completedAtMs || 0]));
@@ -302,7 +415,7 @@ const server = http.createServer(async (req, res) => {
                 let st;
                 if ((CONFIG.mode || 'local') === 'relay') {
                     if (statusCache.data && Date.now() - statusCache.at < 30000) st = statusCache.data;
-                    else { try { st = await relayCall('codex.status', {}); statusCache = { at: Date.now(), data: st }; } catch (e) { st = statusCache.data || { ok: false, error: String(e.message) }; } }
+                    else { try { st = await relayCall('codex.status', {}, 20000); statusCache = { at: Date.now(), data: st }; } catch (e) { st = statusCache.data || { ok: false, error: String(e.message) }; } }
                 }
                 else st = codex.status();
                 return sendJson(res, 200, { ok: true, mode: CONFIG.mode || 'local', relay: CONFIG.relay || {}, codex: st, wechat: wechat.status(), port: CONFIG.port || 21121 });
@@ -311,7 +424,7 @@ const server = http.createServer(async (req, res) => {
                 let models;
                 if ((CONFIG.mode || 'local') === 'relay') {
                     if (modelsCache.data && Date.now() - modelsCache.at < 60000) models = modelsCache.data;
-                    else { const r = await relayCall('codex.models', {}); models = r.models || []; modelsCache = { at: Date.now(), data: models }; }
+                    else { const r = await relayCall('codex.models', {}, 20000); models = r.models || []; modelsCache = { at: Date.now(), data: models }; }
                 }
                 else models = codex.models();
                 return sendJson(res, 200, { ok: true, models });
@@ -327,14 +440,79 @@ const server = http.createServer(async (req, res) => {
             }
             if (req.method === 'GET' && p === '/api/conversations') return sendJson(res, 200, { ok: true, conversations: await listConversations() });
             if (req.method === 'GET' && p === '/api/history') return sendJson(res, 200, { ok: true, history: await history(u.searchParams.get('peer') || 'default', u.searchParams.get('since')) });
+            if (req.method === 'GET' && p === '/api/media') {
+                const fp = String(u.searchParams.get('path') || '');
+                if (!fp || !/\.(png|jpe?g|gif|webp|bmp)$/i.test(fp))
+                    return sendJson(res, 400, { ok: false, error: '仅支持图片路径(png/jpg/gif/webp/bmp)' });
+                try {
+                    let b64 = '';
+                    if ((CONFIG.mode || 'local') === 'relay') {
+                        // 微信入站图在桥本机，Codex 回传图在执行机：先试本地，再走 apim fs.read
+                        try {
+                            const stL = fs.statSync(fp);
+                            if (stL.size > 8 * 1024 * 1024) throw new Error('图片过大(>8MB)');
+                            b64 = fs.readFileSync(fp).toString('base64');
+                        } catch (eLocal) {
+                            const r = await relayCall('fs.read', { path: fp, encoding: 'base64' }, 30000);
+                            b64 = String((r && r.content) || '');
+                        }
+                    } else {
+                        const st = fs.statSync(fp);
+                        if (st.size > 8 * 1024 * 1024) throw new Error('图片过大(>8MB)');
+                        b64 = fs.readFileSync(fp).toString('base64');
+                    }
+                    const buf = Buffer.from(b64, 'base64');
+                    if (!buf.length) throw new Error('读取为空');
+                    const mime = /\.png$/i.test(fp) ? 'image/png'
+                        : (/\.gif$/i.test(fp) ? 'image/gif'
+                        : (/\.webp$/i.test(fp) ? 'image/webp' : 'image/jpeg'));
+                    res.writeHead(200, { 'Content-Type': mime, 'Cache-Control': 'private, max-age=3600', 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'Content-Type,X-Cx-Token' });
+                    res.end(buf);
+                } catch (e) {
+                    return sendJson(res, 400, { ok: false, error: '读取图片失败: ' + e.message });
+                }
+                return;
+            }
+            if (req.method === 'GET' && p === '/api/dirs') {
+                const target = u.searchParams.get('path') || '';
+                try {
+                    if ((CONFIG.mode || 'local') === 'relay') {
+                        const r = await relayCall('fs.listDir', { path: target });
+                        return sendJson(res, 200, Object.assign({ ok: true }, r));
+                    }
+                    const base = target ? path.resolve(target) : ((CONFIG.codex || {}).cwd || ROOT);
+                    const dirs = fs.readdirSync(base, { withFileTypes: true })
+                        .filter(d => d.isDirectory())
+                        .map(d => ({ name: d.name, path: path.join(base, d.name) }))
+                        .sort((a, b) => a.name.localeCompare(b.name));
+                    return sendJson(res, 200, { ok: true, path: base, parent: path.dirname(base), dirs });
+                } catch (e) {
+                    return sendJson(res, 400, { ok: false, error: '列目录失败: ' + e.message });
+                }
+            }
             if (req.method === 'POST' && p === '/api/chat') {
-                if (!body.text) return sendJson(res, 400, { ok: false, error: 'text 必填', help: HELP });
+                if (!body.text && !(Array.isArray(body.images) && body.images.length)) return sendJson(res, 400, { ok: false, error: 'text 必填', help: HELP });
                 const peer = body.peer || ('web:' + Date.now());
-                broadcast('message', { peer, role: 'user', text: body.text, via: 'web' });
-                const r = await chat({ peer, text: body.text, cwd: body.cwd, model: body.model, sandbox: body.sandbox, via: 'web' });
-                broadcast('message', { peer, role: 'assistant', text: r.text, via: 'web' });
+                broadcast('message', { peer, role: 'user', text: body.text, images: (body.images || []), via: 'web' });
+                const r = await chat({ peer, text: body.text || '请看图片内容并回答。', images: body.images || [], cwd: body.cwd, model: body.model, sandbox: body.sandbox, via: 'web' });
+                broadcast('message', { peer, role: 'assistant', text: r.text, images: (r.imagePaths || r.imageUrls || []), via: 'web' });
                 broadcast('conversations', { at: Date.now() });
-                return sendJson(res, 200, Object.assign({ ok: true }, r));
+                // 回传图片给 web UI（data URL 渲染；本机文件直接读，relay 用 b64）
+                const imgs = [];
+                for (const im of (r.images || [])) {
+                    if (im && im.b64) imgs.push('data:image/' + (String(im.name).toLowerCase().endsWith('.png') ? 'png' : 'jpeg') + ';base64,' + im.b64);
+                }
+                if (!imgs.length) {
+                    for (const p of (r.imagePaths || [])) {
+                        try {
+                            const buf = fs.readFileSync(String(p));
+                            const mime = String(p).toLowerCase().endsWith('.png') ? 'image/png' : 'image/jpeg';
+                            imgs.push('data:' + mime + ';base64,' + buf.toString('base64'));
+                        } catch (e) { }
+                        if (imgs.length >= 4) break;
+                    }
+                }
+                return sendJson(res, 200, Object.assign({ ok: true, imageUrls: imgs }, r));
             }
             if (req.method === 'POST' && p === '/api/wechat/connect') { const r = await wechat.start(); return sendJson(res, 200, { ok: true, wechat: r }); }
             if (req.method === 'POST' && p === '/api/wechat/login') { const st = await wechat.startLogin(); return sendJson(res, 200, { ok: true, wechat: st }); }
@@ -352,7 +530,7 @@ const server = http.createServer(async (req, res) => {
             if (req.method === 'POST' && p === '/api/ide/manage') {
                 if (!body.threadId || !body.op) return sendJson(res, 400, { ok: false, error: 'threadId/op 必填', help: HELP });
                 if ((CONFIG.mode || 'local') === 'relay') {
-                    const r = await relayCall('codex.ideManage', { threadId: body.threadId, op: body.op, name: body.name });
+                    const r = await relayCall('codex.ideManage', { threadId: body.threadId, op: body.op, name: body.name }, 20000);
                     broadcast('conversations', { at: Date.now() });
                     return sendJson(res, 200, { ok: true, result: r });
                 }
@@ -365,7 +543,7 @@ const server = http.createServer(async (req, res) => {
                         if (req.method === 'POST' && p === '/api/conv/delete') {
                 if (!body.peer) return sendJson(res, 400, { ok: false, error: 'peer 必填', help: HELP });
                 if ((CONFIG.mode || 'local') === 'relay') {
-                    const r = await relayCall('codex.convDelete', { peer: body.peer });
+                    const r = await relayCall('codex.convDelete', { peer: body.peer }, 20000);
                 } else {
                     let threadId = '';
                     if (String(body.peer).startsWith('ide:')) threadId = String(body.peer).slice(4);
@@ -381,7 +559,7 @@ const server = http.createServer(async (req, res) => {
                 if (!peer.startsWith('ide:')) return sendJson(res, 400, { ok: false, error: 'peer 必须是 ide:*' });
                 const threadId = peer.slice(4);
                 if ((CONFIG.mode || 'local') === 'relay') {
-                    try { const r = await relayCall('codex.ideQueueList', { threadId }); return sendJson(res, 200, { ok: true, queue: r }); } catch (e) { return sendJson(res, 500, { ok: false, error: String(e.message) }); }
+                    try { const r = await relayCall('codex.ideQueueList', { threadId }, 15000); return sendJson(res, 200, { ok: true, queue: r }); } catch (e) { return sendJson(res, 500, { ok: false, error: String(e.message) }); }
                 }
                 try { const r = await appserver.queueList(threadId); return sendJson(res, 200, { ok: true, queue: r }); } catch (e) { return sendJson(res, 500, { ok: false, error: String(e.message) }); }
             }

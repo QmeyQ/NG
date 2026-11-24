@@ -5,9 +5,84 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const cp = require('child_process');
+const crypto = require('crypto');
 const readline = require('readline');
 
 const DEFAULT_MODELS = ['auto', 'qwen4-max-preview', 'qwen3.8-max', 'qwen3.8-flash', 'qwen3.7-max', 'qwen3.7-plus', 'glm-5.3', 'deepseek-v4-pro'];
+
+// 模型映射：上游(微信桥/IDE)选的公共模型名 → 本中转实际可用的模型。
+// 关键在图片：catalog 里 glm-5.3 等公共名是纯文本模型，codex 会在客户端
+// 直接拒发 view_image（"you do not support image inputs"），图片根本到不了
+// 中转（2026-11-23 微信实测）。映射到 aigc.midea.com 系（catalog 已声明
+// text+image）后 view_image 才能带图。c.modelMap 可覆盖/关闭（置 {} 则不映射）。
+const DEFAULT_MODEL_MAP = {
+    'auto': 'aigc.midea.com',
+    'glm-5.3': 'aigc.midea.com/GLM-5',
+    'glm-5.2': 'aigc.midea.com/GLM-5',
+    'glm-5': 'aigc.midea.com/GLM-5',
+    'deepseek-v4-pro': 'aigc.midea.com/DeepSeek',
+    'deepseek-v4-pro-0813': 'aigc.midea.com/DeepSeek',
+    'deepseek-v4.1-flash': 'aigc.midea.com/DeepSeek',
+    'deepseek-v4.1-flash-1017': 'aigc.midea.com/DeepSeek',
+    'deepseek-v4-flash-0731': 'aigc.midea.com/DeepSeek',
+    'qwen4-max-preview': 'aigc.midea.com/Qwen3.5-122B',
+    'qwen3.8-max': 'aigc.midea.com/Qwen3.5-122B',
+    'qwen3.8-flash': 'aigc.midea.com/Qwen3.5-122B',
+    'qwen3.7-max': 'aigc.midea.com/Qwen3.5-122B',
+    'qwen3.7-plus': 'aigc.midea.com/Qwen3.5-122B',
+    'qwen3.6-flash': 'aigc.midea.com/Qwen3.5-122B'
+};
+function fileUrlToLocalPath(u) {
+    let p = String(u || '');
+    if (!p.startsWith('file://')) return p;
+    try { p = decodeURIComponent(p.slice('file://'.length)); } catch (e) { p = p.slice('file://'.length); }
+    return p.replace(/\//g, '\\');
+}
+function localPathToFileUrl(p) {
+    const norm = String(p || '').replace(/\\/g, '/');
+    return 'file:///' + encodeURI(norm).replace(/#/g, '%23');
+}
+// 模型主动回传图片的输出协议标记：[attach]完整路径[/attach]。
+// 这是模型语义决策后的**结构化输出**（不是对用户消息做关键词拦截）：
+// 用户要图时模型自己决定在结论末尾加标记，网关解析后把图发给用户。
+const ATTACH_TAG_RE = /\[attach\]\s*([^\r\n\[\]]+?)\s*\[\/attach\]/g;
+const RETURN_IMAGE_EXTS = /\.(png|jpe?g|gif|webp|bmp)$/i;
+const RETURN_IMAGE_MAX_BYTES = 8 * 1024 * 1024;
+const RETURN_IMAGE_MAX_COUNT = 4;
+function collectImagePaths(stdoutText) {
+    // 只收 codex 事件流里的 ImageView 项（view_image 真实看过的图）。
+    // [attach] 标记由 attachPaths 单独处理（模型语义决策）。
+    // 注意：不要从回复正文里正则捞路径——模型会提及旧截图路径，
+    // 正文提及≠要附图（实测"截图没找到还附了旧图"就是这个）。
+    const out = [];
+    const seen = new Set();
+    const push = (p) => {
+        if (!p) return;
+        const n = String(p);
+        const key = n.toLowerCase();
+        if (seen.has(key)) return;
+        try { if (!fs.statSync(n).isFile()) return; } catch (e) { return; }
+        seen.add(key); out.push(n);
+    };
+    for (const line of String(stdoutText || '').split(/\r?\n/)) {
+        const t = line.trim();
+        if (!t || t[0] !== '{') continue;
+        let ev; try { ev = JSON.parse(t); } catch (e) { continue; }
+        const it = ev && ev.item;
+        if (ev && ev.type === 'item.completed' && it && it.type === 'ImageView' && it.path) {
+            push(fileUrlToLocalPath(it.path));
+        }
+    }
+    return out.slice(0, RETURN_IMAGE_MAX_COUNT);
+}
+function mapModel(model, cfg) {
+    const m = String(model || '').trim();
+    if (!m) return m;
+    if (m.startsWith('aigc.midea.com')) return m;
+    const map = (cfg && cfg.modelMap !== undefined) ? cfg.modelMap : DEFAULT_MODEL_MAP;
+    const hit = map && map[m];
+    return hit || m;
+}
 
 function readJson(file, fallback) {
     try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch (e) { return fallback; }
@@ -17,6 +92,29 @@ function writeJson(file, value) {
     fs.writeFileSync(file, JSON.stringify(value, null, 2), 'utf8');
 }
 function tail(list, n) { return list.length > n ? list.slice(-n) : list; }
+
+// 入站图片统一落盘：local 模式传本机路径，relay 模式传 {name,b64}。
+// 落盘后交给 codex exec -i，并把路径写进 user 消息历史供 chat 页回显。
+function materializeInboundImages(list) {
+    const out = [];
+    const dir = path.join(__dirname, 'inbound-images');
+    for (const it of (Array.isArray(list) ? list : [])) {
+        try {
+            if (it && typeof it === 'object' && it.b64) {
+                const name = String(it.name || 'image.png').replace(/[^\w.\-]/g, '_');
+                fs.mkdirSync(dir, { recursive: true });
+                const fp = path.join(dir, Date.now() + '-' + crypto.randomBytes(3).toString('hex') + '-' + name);
+                fs.writeFileSync(fp, Buffer.from(String(it.b64), 'base64'));
+                out.push(fp);
+            } else if (it) {
+                const q = String(it);
+                if (fs.statSync(q).isFile()) out.push(q);
+            }
+        } catch (e) { }
+        if (out.length >= 8) break;
+    }
+    return out;
+}
 
 class CodexBridge {
     constructor(opts) {
@@ -84,6 +182,27 @@ class CodexBridge {
         return '';
     }
 
+    _codexHome() {
+        // 服务账户(LNSSM LocalSystem)的 homedir 是 systemprofile，且对
+        // C:/Users/mien/.codex **目录**的 existsSync 会因 ACL 返回 false、
+        // 对目录里**文件**的 exists 却是 true（2026-11-23 实测日志）。
+        // 所以逐个候选探测 config.toml / model-catalog 文件本身。
+        const c = this.cfg();
+        const candidates = [
+            c.codexHome,
+            process.env.CODEX_HOME,
+            path.join(os.homedir(), '.codex'),
+            'C:/Users/mien/.codex'
+        ];
+        for (const h of candidates) {
+            if (!h) continue;
+            try {
+                if (fs.existsSync(path.join(h, 'config.toml'))
+                    || fs.existsSync(path.join(h, 'model-catalog.local.json'))) return h;
+            } catch (e) { }
+        }
+        return null;
+    }
     models() {
         const out = [];
         const seen = new Set();
@@ -91,7 +210,21 @@ class CodexBridge {
             if (!slug || seen.has(slug)) return;
             seen.add(slug); out.push({ slug, label: label || slug, desc: desc || '' });
         };
-        const cat = readJson(path.join(os.homedir(), '.codex', 'model-catalog.local.json'), null);
+        // NSSM 服务账户的 os.homedir() 不是用户目录（LocalSystem→System32），
+        // 必须用 chat() 同款 CODEX_HOME 回退，否则模型列表永远只有
+        // DEFAULT_MODELS 兜底，页面下拉看不到真实可选模型（2026-11-23）。
+        const home = this._codexHome() || os.homedir();
+        const catPath = path.join(home, 'model-catalog.local.json');
+        try { this.log('codex models catalog=' + catPath + ' exists=' + fs.existsSync(catPath)); } catch (e) { }
+        let cat = readJson(catPath, null);
+        if (!cat || !Array.isArray(cat.models)) {
+            for (const h of ['C:/Users/mien/.codex', path.join(os.homedir(), '.codex')]) {
+                try {
+                    const p2 = path.join(h, 'model-catalog.local.json');
+                    if (fs.existsSync(p2)) { cat = readJson(p2, null); this.log('codex models catalog fallback=' + p2); break; }
+                } catch (e) { }
+            }
+        }
         if (cat && Array.isArray(cat.models)) {
             cat.models.slice().sort((a, b) => (a.priority || 999) - (b.priority || 999))
                 .forEach(m => add(m.slug, m.display_name, m.description));
@@ -130,7 +263,11 @@ class CodexBridge {
         const s = readJson(this.sessionsPath, { peers: {} });
         const v = (s.peers || {})[peer];
         const sinceTs = Number(since) || 0;
-        const msgs = sinceTs ? ((v && v.messages) || []).filter(m => (m.ts || 0) > sinceTs) : ((v && v.messages) || []);
+        // 历史里过去存下的错误占位（[codex error] ...）一律不回给前端：
+        // 网络瞬断不该出现在会话流里（同 chat() 不再写入错误回复）。
+        const clean = ((v && v.messages) || []).filter(m =>
+            !(m.role === 'assistant' && String(m.text || '').startsWith('[codex error]')));
+        const msgs = sinceTs ? clean.filter(m => (m.ts || 0) > sinceTs) : clean;
         return { peer, threadId: v && v.threadId || '', cwd: v && v.cwd || '', model: v && v.model || '', messages: tail(msgs, limit || 200), total: ((v && v.messages) || []).length };
     }
 
@@ -172,30 +309,61 @@ class CodexBridge {
         return this.queue(peer, async () => {
             const c = this.cfg();
             const cwd = path.resolve(opts.cwd || c.cwd || this.root);
-            const model = opts.model || c.model;
+            const model = mapModel(opts.model || c.model, c);
             const sandbox = opts.sandbox || c.sandbox || 'workspace-write';
             const timeoutMs = Number(opts.timeoutMs || c.timeoutMs || 600000);
             const session = readJson(this.sessionsPath, { peers: {} }).peers?.[peer] || {};
             const useResume = opts.resume !== false && !!session.threadId && (!session.cwd || session.cwd === cwd);
 
-            this.append(peer, 'user', text, { via: opts.via || 'api' });
+            const inboundImages = materializeInboundImages(opts.images);
+            this.append(peer, 'user', text, { via: opts.via || 'api', images: inboundImages });
 
             if (process.env.CODEX_MOCK === '1') {
                 const reply = '[mock] ' + text;
                 this.append(peer, 'assistant', reply, { model, mock: true });
-                return { ok: true, peer, cwd, model, threadId: session.threadId || 'mock-thread', text: reply, events: 0, ms: 0, mock: true };
+                return { ok: true, peer, cwd, model, threadId: session.threadId || 'mock-thread', text: reply, events: 0, ms: 0, mock: true, userImages: inboundImages };
             }
 
             const bin = this.resolveBin();
             if (!bin) throw new Error('未找到 codex CLI。请安装 Codex 或在配置中填写 bin 路径。');
             fs.mkdirSync(cwd, { recursive: true });
             const args = ['exec', '--json', '--skip-git-repo-check', '-s', sandbox, '-m', model];
-            if (useResume) { args.push('resume', session.threadId, text); }
-            else { args.push(text); }
+            // 图片附件（微信图片）：codex exec -i / exec resume -i，可多个。
+            // 只保留本机存在的文件，避免把坏路径塞给 CLI 直接报错。
+            const imgs = inboundImages;
+            if (useResume) {
+                args.push('resume');
+                for (const im of imgs) args.push('-i', im);
+                args.push(session.threadId, text);
+            } else {
+                for (const im of imgs) args.push('-i', im);
+                args.push(text);
+            }
+
+            // codex exec ≥0.171 会读 stdin 直到 EOF；stdio ignore(无 EOF)会让
+            // 进程在回复完成后仍不退出(实测挂死→timeout kill)。stdin 用 pipe 并
+            // 立即 end() 提供干净 EOF。另显式传 CODEX_HOME(服务账户 homedir
+            // 与真实用户目录不一致时 codex 读不到 config.toml)。
+            const env = Object.assign({}, process.env);
+            // 关键：清掉从 Codex Desktop 会话继承的 app-runtime 环境变量。
+            // 子 codex 看到这些变量会以为自己在桌面 App 里，尝试经
+            // app runtime provisioning 服务拉进程（pipe 在本进程不可用）
+            // → 所有 exec_command 直接被拒："Failed to create unified
+            // exec process: app runtime provisioning service is
+            // unavailable; refusing helper fallback"（2026-11-23 实测：
+            // 模型连调 11 次截图全部失败，被误判成"不执行截图"）。
+            // 清掉后 codex 以独立 CLI 方式自己 spawn。
+            for (const k of Object.keys(env)) {
+                if (/^CODEX_(?!HOME)/.test(k) || /^BROWSER_USE_/.test(k)
+                        || /^NODE_REPL_/.test(k)) delete env[k];
+            }
+            const codexHome = this._codexHome();
+            if (codexHome) env.CODEX_HOME = codexHome;
 
             const started = Date.now();
             const res = await new Promise((resolve) => {
-                const child = cp.spawn(bin, args, { cwd, windowsHide: true, env: process.env, stdio: ['ignore', 'pipe', 'pipe'] });
+                const child = cp.spawn(bin, args, { cwd, windowsHide: true, env, stdio: ['pipe', 'pipe', 'pipe'] });
+                try { child.stdin.end(); } catch (e) { }
                 this.procs.add(child);
                 let stdout = '', stderr = '', threadId = '', agentText = '', usage = null, events = 0;
                 let done = false;
@@ -218,6 +386,9 @@ class CodexBridge {
                         if (!s || s[0] !== '{') continue;
                         let ev; try { ev = JSON.parse(s); } catch (e) { continue; }
                         events++;
+                        // 流式进度：每个事件实时回调（微信端逐轮回传，
+                        // 长任务不再等最终超时才回一次）
+                        if (opts.onEvent) { try { opts.onEvent(ev); } catch (e) { } }
                         if (ev.type === 'thread.started' && ev.thread_id) threadId = ev.thread_id;
                         if (ev.type === 'item.completed' && ev.item && ev.item.type === 'agent_message' && ev.item.text) {
                             agentText = agentText ? agentText + '\n' + ev.item.text : ev.item.text;
@@ -232,16 +403,88 @@ class CodexBridge {
             });
 
             const ms = Date.now() - started;
-            const outText = (res.text || '').trim() || (res.error ? ('[codex error] ' + res.error + (res.stderr ? '\n' + res.stderr.slice(-800) : '')) : '');
+            let outText = (res.text || '').trim() || (res.error ? ('[codex error] ' + res.error + (res.stderr ? '\n' + res.stderr.slice(-800) : '')) : '');
+            // 解析模型主动标记的回传图片（[attach]路径[/attach]），
+            // 从正文里剥掉标记（用户不该看到），路径进回传队列。
+            const attachPaths = [];
+            let _am;
+            ATTACH_TAG_RE.lastIndex = 0;
+            while ((_am = ATTACH_TAG_RE.exec(outText)) !== null) {
+                const ap = String(_am[1] || '').trim();
+                try { if (ap && fs.statSync(ap).isFile()) attachPaths.push(ap); } catch (e) { }
+            }
+            if (attachPaths.length) {
+                outText = outText.replace(ATTACH_TAG_RE, '').replace(/\n{3,}/g, '\n\n').trim();
+                this.log('codex.chat attach-tags', peer, attachPaths.join(','));
+            }
+            // 残缺标记清理：模型偶尔输出 [attach]路径[/ 这种半截尾巴
+            // （正则只吃完整闭合），用户不该看到任何协议痕迹。
+            if (/\[attach\]/i.test(outText)) {
+                outText = outText.replace(/\[attach\][^\r\n]{0,400}/gi, '').replace(/\n{3,}/g, '\n\n').trim();
+            }
             const threadId = res.threadId || session.threadId || '';
             this.store(peer, {
                 threadId, cwd, model,
                 updatedAt: Date.now(),
                 messages: ((readJson(this.sessionsPath, { peers: {} }).peers?.[peer] || {}).messages) || []
             });
-            this.append(peer, 'assistant', outText, { model, ms, threadId, code: res.code });
+            // 失败回复（[codex error] ...）不写入会话历史：网络/执行错误
+            // 属于"同步中断"，不能永久污染会话流（2026-11-23 用户明确
+            // 要求：不要在会话里报 http/网络错误）。真实内容（哪怕部分）
+            // 照常入库。
+            // 图片回传：view_image 看过的图 + 模型 [attach] 标记的图。
+            // images 带 base64（≤8MB/张、≤4 张）——relay 模式下上游(ECS 桥)
+            // 没有本机文件系统，靠 b64 落盘再发微信；imagePaths 供
+            // chat UI 走 /api/media（relay 模式经 fs.read）按需拉图回显。
+            const retImages = [];
+            const seenImgHash = new Set();
+            for (const ip of collectImagePaths(res.stdout).concat(attachPaths)) {
+                try {
+                    const st = fs.statSync(ip);
+                    if (st.size > RETURN_IMAGE_MAX_BYTES) continue;
+                    // 内容指纹去重：同内容多路径（截图复制/重放历史）只回传一张
+                    const h = crypto.createHash('md5').update(fs.readFileSync(ip)).digest('hex');
+                    if (seenImgHash.has(h)) continue;
+                    seenImgHash.add(h);
+                    retImages.push({ path: ip, name: path.basename(ip), size: st.size, b64: fs.readFileSync(ip).toString('base64') });
+                } catch (e) { }
+                if (retImages.length >= RETURN_IMAGE_MAX_COUNT) break;
+            }
+            // 本轮没新图时，带上会话历史里最近一次附过的图——
+            // 模型经常不重新 view_image 而是直接引用之前看过的图，
+            // 只收本轮事件会导致 chat 页"看不到附图"（图进过会话
+            // 就应该一直可见，用户才能对照分析）。
+            if (retImages.length === 0) {
+                const prevMsgs = ((readJson(this.sessionsPath, { peers: {} }).peers?.[peer] || {}).messages) || [];
+                for (let i = prevMsgs.length - 1; i >= 0; i--) {
+                    const pm = prevMsgs[i];
+                    if (pm.role === 'assistant' && Array.isArray(pm.images) && pm.images.length) {
+                        for (const ip of pm.images) {
+                            try {
+                                const st = fs.statSync(ip);
+                                if (st.size <= RETURN_IMAGE_MAX_BYTES) {
+                                    const h = crypto.createHash('md5').update(fs.readFileSync(ip)).digest('hex');
+                                    if (!seenImgHash.has(h)) {
+                                        seenImgHash.add(h);
+                                        retImages.push({ path: ip, name: path.basename(ip), size: st.size, b64: fs.readFileSync(ip).toString('base64') });
+                                    }
+                                }
+                            } catch (e) { }
+                        }
+                        break; // 只取最近一次有图的轮次
+                    }
+                }
+                if (retImages.length) this.log('codex.chat images(from history)', peer, retImages.map(x => x.path).join(','));
+            }
+            const imagePaths = retImages.map(x => x.path);
+            if (res.code === 0 || !String(outText).startsWith('[codex error]')) {
+                // assistant 消息带 images 路径：chat UI 历史回显（/api/media
+                // 按路径拉图）用。
+                this.append(peer, 'assistant', outText, { model, ms, threadId, code: res.code, images: imagePaths });
+            }
             this.log('codex.chat', peer, 'code=' + res.code, 'ms=' + ms, 'thread=' + threadId, 'chars=' + outText.length);
-            return { ok: res.code === 0, peer, cwd, model, threadId, text: outText, events: res.events, usage: res.usage, ms, code: res.code, error: res.error || '' };
+            this.log('codex.chat images', peer, (imagePaths.length ? imagePaths.join(',') : 'none'));
+            return { ok: res.code === 0, peer, cwd, model, threadId, text: outText, events: res.events, usage: res.usage, ms, code: res.code, error: res.error || '', userImages: inboundImages, imagePaths, images: retImages };
         });
     }
 
@@ -358,12 +601,12 @@ class CodexBridge {
         const ts = o => (o && o.timestamp) ? (Date.parse(o.timestamp) || 0) : 0;
         const turnOf = (p) => (p && p.internal_chat_message_metadata_passthrough && p.internal_chat_message_metadata_passthrough.turn_id) || curTurn;
         const push = (entry) => { out.push(entry); if (entry.item && entry.item.id) byId.set(entry.item.id, entry); return entry; };
-        setTexts.grab = (arr) => (Array.isArray(arr) ? arr : []).map(x => (x == null ? '' : (typeof x === 'string' ? x : String(x.text != null ? x.text : (x.summary != null ? x.summary : ''))))).filter(Boolean);
+        const grab = (arr) => (Array.isArray(arr) ? arr : []).map(x => (x == null ? '' : (typeof x === 'string' ? x : String(x.text != null ? x.text : (x.summary != null ? x.summary : ''))))).filter(Boolean);
         const setTexts = (it, p) => {
-            const grab = (arr) => (Array.isArray(arr) ? arr : []).map(x => (x == null ? '' : (typeof x === 'string' ? x : String(x.text != null ? x.text : (x.summary != null ? x.summary : ''))))).filter(Boolean);
             it.summary = grab(p.summary);
             it.content = grab(p.content);
         };
+        setTexts.grab = grab;
         for (const line of lines) {
             let o; try { o = JSON.parse(line); } catch (e) { continue; }
             const p = o.payload || {};
@@ -564,4 +807,5 @@ class CodexBridge {
 }
 
 module.exports = { CodexBridge, DEFAULT_MODELS };
+
 

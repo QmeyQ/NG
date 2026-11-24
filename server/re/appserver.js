@@ -25,9 +25,11 @@ class AppServerClient {
         if (this.isRunning()) return true;
         if (this.starting) return this.starting;
         this.starting = (async () => {
-            const bin = this.bin || this.resolveBin();
+            // 每次启动都重新解析 bin: WindowsApps 的 codex.exe 会随版本更新失效(EFTYPE), 不能缓存旧路径
+            const bin = this.resolveBin();
             if (!bin) throw new Error('未找到 codex CLI');
             this.child = cp.spawn(bin, ['app-server', '--stdio'], { windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
+            this.child.on('error', e => { this.log('appserver spawn error ' + (e && e.code) + ' ' + (e && e.message)); this.child = null; this.started = false; });
             this.child.stdout.on('data', d => this.onStdout(d));
             this.child.stderr.on('data', d => { const s = d.toString(); if (s.trim()) this.log('appserver stderr: ' + s.slice(0, 300)); });
             this.child.on('close', code => { this.log('appserver exited code=' + code); this.child = null; this.started = false; });
@@ -38,7 +40,13 @@ class AppServerClient {
         try { return await this.starting; } finally { this.starting = null; }
     }
 
-    resolveBin() {
+    resolveBin(force) {
+        if (!force && this._binCache && Date.now() - (this._binAt || 0) < 60000) return this._binCache;
+        const bin = this._resolveBinUncached();
+        this._binCache = bin; this._binAt = Date.now();
+        return bin;
+    }
+    _resolveBinUncached() {
         const cands = [];
         if (process.env.CODEX_CLI_PATH) cands.push(process.env.CODEX_CLI_PATH);
         try { const out = cp.execFileSync('where', ['codex'], { encoding: 'utf8', windowsHide: true }); out.split(/\r?\n/).filter(Boolean).forEach(x => cands.push(x.trim())); } catch (e) { }
@@ -65,7 +73,7 @@ class AppServerClient {
     onNotification(fn) { if (typeof fn === 'function') this.notificationHandlers.push(fn); }
 
     request(method, params, timeoutMs) {
-        if (!this.isRunning()) throw new Error('app-server 未运行');
+        if (!this.isRunning()) { const e = new Error('app-server 未运行(可能 codex 版本已更新, 将自动重连)'); e.code = 'EAPPDEAD'; throw e; }
         const id = ++this.id;
         const msg = { jsonrpc: '2.0', id, method, params: params || {} };
         this.child.stdin.write(JSON.stringify(msg) + '\n');

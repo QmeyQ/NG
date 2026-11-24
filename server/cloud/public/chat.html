@@ -84,6 +84,19 @@ select,input,textarea{font-family:inherit}
 .btn{border:1px solid var(--line);background:var(--panel);color:var(--txt);border-radius:8px;padding:8px 12px;cursor:pointer;font-size:13px}
 .btn.primary{border-color:var(--acc);background:linear-gradient(135deg,#2f8fff,#37c98b);color:#04110a;font-weight:700}
 .btn.ghost{background:transparent}\n.btn.danger{border-color:#8a2b2b;color:#ff8a8a}
+.cwdrow{display:flex;gap:8px}.cwdrow input{flex:1}
+.tag.failtag{color:#ff8a8a;border:1px solid #8a2b2b;margin-left:6px}
+.msgimgs{display:flex;flex-wrap:wrap;gap:6px;margin:6px 0}
+.msgimgs img{max-width:180px;max-height:180px;border-radius:8px;border:1px solid var(--line);cursor:pointer}
+.msgimgs img:hover{border-color:var(--acc)}
+.dirpanel{display:none;margin-top:8px;border:1px solid var(--line);border-radius:10px;background:var(--panel);overflow:hidden}
+.dirpanel.show{display:block}
+.dirhead{display:flex;align-items:center;gap:8px;padding:8px;border-bottom:1px solid var(--line);font-size:12px;color:var(--dim)}
+.dirhead span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dirlist{max-height:220px;overflow:auto}
+.diritem{padding:8px 10px;font-size:13px;cursor:pointer;border-bottom:1px solid rgba(255,255,255,.04)}
+.diritem:hover{background:rgba(47,143,255,.12)}
+.diractions{padding:8px;text-align:right;border-top:1px solid var(--line)}
 .mgrid{display:grid;grid-template-columns:90px 1fr;gap:6px;font-size:12px}.mgrid b{color:var(--dim);font-weight:600}.mactions{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}.mactions .btn{flex:1;min-width:90px}
 
 .queuebar{display:none;margin:0 0 8px;padding:6px 10px;border:1px solid var(--line);border-radius:10px;background:rgba(18,27,36,.92);font-size:12px}
@@ -181,6 +194,14 @@ select,input,textarea{font-family:inherit}
   <div class="card">
     <h3>新建聊天</h3>
     <div class="field"><label>会话 ID / 对方标识</label><input id="newPeer" placeholder="例如 wxid_xxx 或 project-a"></div>
+    <div class="field"><label>工作目录（留空=默认目录）</label>
+      <div class="cwdrow"><input id="newCwd" placeholder="例如 F:\\LayaProject"><button class="btn" id="newBrowse" type="button">浏览…</button></div>
+      <div class="dirpanel" id="dirPanel">
+        <div class="dirhead"><button class="btn ghost" id="dirUp" type="button">↑ 上级</button><span id="dirPath">-</span></div>
+        <div class="dirlist" id="dirList"></div>
+        <div class="diractions"><button class="btn primary" id="dirPick" type="button">选择此目录</button></div>
+      </div>
+    </div>
     <div class="field"><label>首条消息（可选）</label><textarea id="newText" rows="3" placeholder="给 Codex 的任务…"></textarea></div>
     <div class="actions"><button class="btn ghost" id="newCancel">取消</button><button class="btn primary" id="newOk">创建</button></div>
   </div>
@@ -220,12 +241,19 @@ function cacheRead(k,d){try{return JSON.parse(localStorage.getItem(k))??d}catch(
 function cacheWrite(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}}
 function cacheMsgs(peer){return cacheRead(CACHE.msgs+peer,[])}
 function cacheMsgsWrite(peer,msgs){cacheWrite(CACHE.msgs+peer,msgs.slice(-200))}
-const state={openItems:{},items:{},itemSig:{},shownPeer:null,lastSeen:{},bootTs:Date.now(),queues:{},queueOpen:false,token:localStorage.getItem('cx_token')||new URLSearchParams(location.search).get('token')||'',convs:[],active:null,models:[],sending:false,hist:{},unread:{}};
+const state={openItems:{},items:{},itemSig:{},shownPeer:null,lastSeen:{},bootTs:Date.now(),queues:{},queueOpen:false,token:localStorage.getItem('cx_token')||new URLSearchParams(location.search).get('token')||'',convs:[],active:null,models:[],sending:false,hist:{},unread:{},convCwd:{},dirParent:'',modelOf:{},convRenderSig:'',msgRenderSig:''};
+let _convReloadT=null;
+function scheduleConvReload(){
+  // 防抖：SSE 连发 conversations/message 事件时合并成一次数据刷新；
+  // 界面即时变化(未读徽标等)由 renderConvs 的签名去重兜住
+  if(_convReloadT) return;
+  _convReloadT=setTimeout(()=>{_convReloadT=null;loadConvs()},1500);
+}
 function toast(t){const e=$('toast');e.textContent=t;e.classList.add('show');clearTimeout(toast._t);toast._t=setTimeout(()=>e.classList.remove('show'),2200)}
 async function api(path,opts){
   opts=opts||{};const tk=(state.token||'').trim();opts.headers=Object.assign({},opts.headers||{});if(tk&&/^[\x20-\x7E]+$/.test(tk))opts.headers['X-Cx-Token']=tk;
   if(opts.body&&typeof opts.body!=='string'){opts.headers['Content-Type']='application/json';opts.body=JSON.stringify(opts.body)}
-  const r=await fetch(API_BASE+path,opts);
+  let r;try{r=await fetch(API_BASE+path,opts)}catch(e){throw new Error('网络中断，稍后自动重试')}
   let j;try{j=await r.json()}catch(e){throw new Error('HTTP '+r.status)}
   if(r.status===401){showToken();throw new Error('需要 Token')}
   if(!r.ok||j.ok===false)throw new Error(j.error||('HTTP '+r.status));
@@ -238,7 +266,13 @@ function avatar(c){return c.kind==='group'?'群':(c.kind==='wechat'?'微':(c.kin
 function renderConvs(){
   const q=($('q').value||'').toLowerCase();
   const list=state.convs.filter(c=>!q||(c.title||'').toLowerCase().includes(q)||(c.id||'').toLowerCase().includes(q));
+  // 签名去重+滚动保持：SSE 每条消息都触发重渲时，列表不能跳回顶部
+  const _sig=JSON.stringify(list.map(c=>[c.id,c.updatedAt||0,state.unread[c.id]||0,String(c.last||'').slice(0,48)]));
+  if(_sig===state.convRenderSig) return;
+  state.convRenderSig=_sig;
+  const _box=$('list'),_st=_box.scrollTop;
   $('list').innerHTML=list.length?list.map(c=>`<div class="conv ${c.id===state.active?'active':''}" data-id="${esc(c.id)}"><div class="av ${c.kind==='group'?'g':(c.kind==='wechat'?'':(c.kind==='ide'?'i':'c'))}">${avatar(c)}</div><div class="conv-body"><div class="conv-top"><div class="conv-title">${esc(c.title||c.id)}</div><div class="conv-time">${fmtTime(c.updatedAt)}</div></div><div class="conv-last">${esc(c.last||'（暂无消息）')}</div></div>${state.unread[c.id]?`<span class="badge">${state.unread[c.id]}</span>`:''}</div>`).join(''):`<div class="empty" style="padding:30px 10px"><div>暂无会话</div><div style="font-size:11px">点击 + 新建</div></div>`;
+  _box.scrollTop=_st;
   document.querySelectorAll('.conv').forEach(el=>{el.onclick=()=>openConv(el.dataset.id);el.ondblclick=e=>{e.preventDefault();openManage(el.dataset.id)}});
 }
 function queueItems(peer){return state.queues[peer]||[]}
@@ -273,7 +307,24 @@ async function loadConvs(){
   try{const r=await api('/api/conversations');state.convs=r.conversations||[];cacheWrite(CACHE.convs,state.convs);renderConvs()}catch(e){}
 }
 async function loadModels(){
-  try{const r=await api('/api/models');state.models=r.models||[];$('model').innerHTML=state.models.map(m=>`<option value="${esc(m.slug)}">${esc(m.label||m.slug)}</option>`).join('')}catch(e){}
+  try{
+    const r=await api('/api/models');state.models=r.models||[];
+    $('model').innerHTML=state.models.map(m=>`<option value="${esc(m.slug)}">${esc(m.label||m.slug)}</option>`).join('');
+    try{state.modelOf=JSON.parse(localStorage.getItem('cx_modelOf')||'{}')||{}}catch(e){state.modelOf={}}
+    applyModel(state.active);
+  }catch(e){}
+}
+function applyModel(peer){
+  if(!state.models.length)return;
+  const c=peer?(state.convs.find(x=>x.id===peer)||{}):{};
+  const want=(peer&&state.modelOf[peer])||c.model||'';
+  const sel=$('model');
+  if(want&&state.models.some(m=>m.slug===want))sel.value=want;
+}
+function setModelOf(peer,val){
+  if(!peer)return;
+  if(val)state.modelOf[peer]=val;else delete state.modelOf[peer];
+  try{localStorage.setItem('cx_modelOf',JSON.stringify(state.modelOf))}catch(e){}
 }
 async function openConv(id){
   state.active=id;delete state.unread[id];state.lastSeen[id]=Date.now();renderConvs();
@@ -282,20 +333,49 @@ async function openConv(id){
   $('send').disabled=false;
   const st=(c.status&&c.status.type)||'';
   const cwd=c.cwd||state.cwd||'-';
-  $('chatSub').textContent=(c.kind==='wechat'?'微信会话':c.kind==='group'?'微信群':(c.kind==='ide'?'Codex IDE 会话':'Codex 会话'))+' · '+cwd+(st?' · '+(st==='active'?'工作中':st==='idle'?'空闲':st):'');
+  $('chatSub').textContent=(c.kind==='wechat'?'微信会话':c.kind==='group'?'微信群':(c.kind==='ide'?'Codex IDE 会话':'Codex 会话'))+' · '+cwd+(st?' · '+(st==='active'?'工作中':st==='idle'?'空闲':st):'')+(c.model?' · '+c.model:'');
+  applyModel(id);
   if(String(id).startsWith('ide:')){
     loadQueue(id);
     api('/api/active',{method:'POST',body:{peer:id}}).catch(()=>{}); // 不阻塞
     const cached=cachedItems(id);
     if(cached&&cached.length){ // 本地缓存秒开, 后台增量刷新
       state.items[id]=cached;state.itemSig[id]=itemsSig(cached);state.shownPeer=id;renderItems(cached);
+    }else{
+      // 无缓存: 先清空并标记, 防止上一个会话内容残留(串窗); loadItems 成功再填
+      state.shownPeer=id;
+      $('msgs').innerHTML='<div class="empty"><div class="big">✨</div><div>加载中…</div></div>';
     }
     loadItems(id); // 后台增量同步(数据没变不重渲)
     return;
   }
-  const cached=cacheMsgs(id);renderMsgs(cached);
+  const cached=cacheMsgs(id);renderMsgs(cached,true);
   const since=cached.length?cached[cached.length-1].ts||0:0;
-  try{const r=await api('/api/history?peer='+encodeURIComponent(id)+(since?'&since='+since:''));const newMsgs=(r.history&&r.history.messages)||[];if(newMsgs.length){const merged=cached.concat(newMsgs).slice(-200);cacheMsgsWrite(id,merged);renderMsgs(merged)}}catch(e){if(!cached.length)$('msgs').innerHTML='<div class="empty"><div>'+esc(e.message)+'</div></div>'}
+  try{
+    const r=await api('/api/history?peer='+encodeURIComponent(id)+(since?'&since='+since:''));
+    // 竞态守卫：请求期间用户已切到别的会话 → 丢弃过期响应，
+    // 否则会把 A 会话的内容渲染进 B 会话窗口（"会话乱串"）
+    if(state.active!==id) return;
+    const h=r.history||{};
+    if(h.error){
+      // 同步中断（relay/隧道瞬断）：保留已同步内容，不渲染空历史
+      if(!cached.length)$('msgs').innerHTML='<div class="empty"><div class="big">&#8987;</div><div>同步中断，稍后自动重试</div></div>';
+    }else{
+      const newMsgs=h.messages||[];
+      if(newMsgs.length){
+        // 增量合并去重（ts+role）：桥端若退化为全量返回（如不带 since
+        // 的调用方），也不能把旧消息重复拼进会话（实测：点一次会话
+        // 弹一条旧消息就是这个）。
+        const seen=new Set(cached.map(c=>(c.ts||0)+':'+c.role));
+        const fresh=newMsgs.filter(m=>!seen.has((m.ts||0)+':'+m.role));
+        const merged=cached.concat(fresh).slice(-200);
+        cacheMsgsWrite(id,merged);
+        if(state.active===id)renderMsgs(merged,true)}
+    }
+  }catch(e){
+    // 网络中断：同样只保留已同步内容
+    if(state.active===id&&!cached.length)$('msgs').innerHTML='<div class="empty"><div class="big">&#8987;</div><div>同步中断，稍后自动重试</div></div>';
+  }
 }
 
 function cacheItems(peer,arr){try{localStorage.setItem('cx_items_'+peer,JSON.stringify(arr))}catch(e){}}
@@ -400,17 +480,36 @@ async function loadItems(peer){
     if(!arr.length&&(state.items[peer]||[]).length)return; // 空结果不覆盖已有数据(防闪烁)
     if(renderItemsIfChanged(peer,arr))cacheItems(peer,arr); // 数据有变化才写缓存
   }catch(e){
-    if(state.active===peer){$('msgs').innerHTML='<div class="empty"><div>&#9888;</div><div>'+esc(e.message)+'</div></div>';}
+    // 网络/同步中断：绝不替换已渲染内容（会话不能因瞬断消失），只留控制台痕迹
+    console.warn('[items] sync interrupted:', e.message);
   }
 }
-function renderMsgs(msgs){
-  state.shownPeer=state.active;
+function renderMsgs(msgs, force){
+  // 签名去重：SSE 高频广播(每秒多条 history/items)时数据没变不重渲，
+  // 否则消息区不停整页重建+强制滚底，正在往上翻历史会被反复拽走。
+  const _peer=state.active;
+  const _sig=_peer+':'+msgs.length+':'+(msgs.length?((msgs[msgs.length-1].ts||0)+'|'+String(msgs[msgs.length-1].text||'').length+(imgsOf(msgs))):'0');
+  if(!force && state.msgRenderSig===_sig && state.shownPeer===_peer) return;
+  state.msgRenderSig=_sig;
+  const box=$('msgs');
+  const _nearBottom=(box.scrollHeight-box.scrollTop-box.clientHeight)<150;
+  const _keepTop=box.scrollTop,_keepH=box.scrollHeight;
+  state.shownPeer=_peer;
   if(window.__boot&&window.__boot.firstContent===null&&msgs&&msgs.length)window.__boot.firstContent=performance.now();
-  if(!msgs.length){$('msgs').innerHTML='<div class="empty"><div class="big">✨</div><div>开始对话吧</div></div>';return}
-  $('msgs').innerHTML=msgs.map(m=>{const me=m.role==='user';return `<div class="msg ${me?'me':''}"><div class="b">${esc(m.text)}</div><div class="meta">${me?'我':'Codex'}${m.via==='wechat'?'<span class="tag">微信</span>':''} · ${fmtTime(m.ts)}</div></div>`}).join('');
-  $('msgs').scrollTop=$('msgs').scrollHeight;
+  if(!msgs.length){box.innerHTML='<div class="empty"><div class="big">✨</div><div>开始对话吧</div></div>';state.msgRenderSig='';return}
+  box.innerHTML=msgs.map(m=>{const me=m.role==='user';return `<div class="msg ${me?'me':''}"><div class="b">${esc(m.text)}</div>${imgHtml(m)}<div class="meta">${me?'我':'Codex'}${m.via==='wechat'?'<span class="tag">微信</span>':''} · ${fmtTime(m.ts)}</div></div>`}).join('');
+  // 会话切换(force)或本来就在底部→贴底；正在上翻→保持视口位置
+  if(force||_nearBottom){box.scrollTop=box.scrollHeight}
+  else{box.scrollTop=_keepTop+(box.scrollHeight-_keepH)}
 }
-function appendMsg(m){const e=$('msgs');if(!e.querySelector('.msg'))e.innerHTML='';const me=m.role==='user';const d=document.createElement('div');d.className='msg '+(me?'me':'');d.innerHTML=`<div class="b">${esc(m.text)}</div><div class="meta">${me?'我':'Codex'}${m.via==='wechat'?'<span class="tag">微信</span>':''} · ${fmtTime(Date.now())}</div>`;e.appendChild(d);e.scrollTop=e.scrollHeight}
+function imgsOf(msgs){let n=0;for(const m of (msgs||[])) if(Array.isArray(m.images)&&m.images.length) n+=m.images.length;return n}
+function imgSrc(u){return /^data:/i.test(u)?u:(API_BASE+'/api/media?path='+encodeURIComponent(u));}
+function imgHtml(m){
+  const arr=(Array.isArray(m.images)&&m.images.length)?m.images:(Array.isArray(m.imageUrls)&&m.imageUrls.length?m.imageUrls:[]);
+  if(!arr.length)return '';
+  return '<div class="msgimgs">'+arr.map(u=>'<img src="'+esc(imgSrc(u))+'" loading="lazy" onerror="this.replaceWith(document.createRange().createContextualFragment(\'[图片加载失败]\'))">').join('')+'</div>';
+}
+function appendMsg(m){const e=$('msgs');if(!e.querySelector('.msg'))e.innerHTML='';const me=m.role==='user';const d=document.createElement('div');d.className='msg '+(me?'me':'');d.innerHTML=`<div class="b">${esc(m.text)}</div>${imgHtml(m)}<div class="meta">${me?'我':'Codex'}${m.via==='wechat'?'<span class="tag">微信</span>':''} · ${fmtTime(Date.now())}</div>`;e.appendChild(d);e.scrollTop=e.scrollHeight}
 
 let manageId=null;
 function openManage(id){
@@ -446,14 +545,30 @@ async function deleteConv(){
 async function send(){
   const text=$('input').value.trim();if(!text||state.sending)return;
   if(!state.active){toast('请先选择或新建会话');return}
+  const _peer=state.active; // 发送期间切会话：回复只进对应会话历史，不串窗
   state.sending=true;$('send').disabled=true;$('typing').textContent='Codex 思考中…';
   $('input').value='';$('input').style.height='auto';
   appendMsg({role:'user',text});
   try{
-    const r=await api('/api/chat',{method:'POST',body:{peer:state.active,text,model:$('model').value||undefined}});
-    if(r.mode==='queued'){const q=r.result&&r.result.queued&&r.result.queued.queuedSubmission;addQueueItem(state.active,q);toast('已加入等待队列')}else{appendMsg({role:'assistant',text:r.text||'(空回复)'})}
-    await loadConvs();
-  }catch(e){appendMsg({role:'assistant',text:'[错误] '+e.message});toast(e.message)}
+    const _cv=state.convCwd[state.active]||((state.convs.find(x=>x.id===state.active)||{}).cwd)||undefined;
+    const _mv=state.modelOf[state.active]||((state.convs.find(x=>x.id===state.active)||{}).model)||$('model').value||undefined;
+    const r=await api('/api/chat',{method:'POST',body:{peer:state.active,text,cwd:_cv,model:_mv}});
+    if(state.active===_peer){
+      if(r.mode==='queued'){const q=r.result&&r.result.queued&&r.result.queued.queuedSubmission;addQueueItem(_peer,q);toast('已加入等待队列')}else{appendMsg({role:'assistant',text:r.text||'(空回复)',images:(r.imagePaths&&r.imagePaths.length)?r.imagePaths:r.imageUrls})}
+    }
+    scheduleConvReload();
+  }catch(e){
+    // 网络问题=发送中断：不往会话流里塞错误气泡（会话必须保持干净），
+    // 只标记本条用户消息发送失败，并把文本还给输入框便于重发。
+    const mine=(state.active===_peer)?$('msgs').querySelectorAll('.msg.me'):[];
+    const last=mine[mine.length-1];
+    if(last&&!last.querySelector('.failtag')){
+      const sp=document.createElement('span');sp.className='tag failtag';sp.textContent='发送失败';
+      const meta=last.querySelector('.meta');if(meta)meta.appendChild(sp);
+    }
+    $('input').value=text;$('input').style.height='auto';
+    toast('发送中断：'+e.message);
+  }
   finally{state.sending=false;$('send').disabled=false;$('typing').textContent=''}
 }
 async function boot(){
@@ -464,11 +579,11 @@ async function boot(){
   if(window.__boot)window.__boot.convs=performance.now();
   if(state.convs.length)openConv(state.convs[0].id);
   if(new URLSearchParams(location.search).get('noevents')==='1')return;
-  setInterval(function(){if(state.active&&String(state.active).startsWith('ide:'))loadQueue(state.active)},5000);
-  setInterval(function(){if(state.active&&String(state.active).startsWith('ide:'))loadItems(state.active)},2000); // 每页独立拉取, 不依赖 bridge 全局 active(多标签互不干扰)
+  setInterval(function(){if(!document.hidden&&state.active&&String(state.active).startsWith('ide:'))loadQueue(state.active)},6000);
+  setInterval(function(){if(!document.hidden&&state.active&&String(state.active).startsWith('ide:'))loadItems(state.active)},3500); // 降频+后台标签暂停：降低连接堆积（5xx 诱因之一），数据靠 SSE items 事件兜底
   const es=new EventSource(API_BASE+'/api/events');
-  es.addEventListener('message',ev=>{try{const m=JSON.parse(ev.data);const isIde=String(m.peer||'').startsWith('ide:');if(m.peer===state.active&&state.sending===false&&!isIde)appendMsg(m);else if(m.peer!==state.active){state.unread[m.peer]=(state.unread[m.peer]||0)+1;renderConvs();loadConvs()}}catch(e){}});
-  es.addEventListener('conversations',()=>loadConvs());
+  es.addEventListener('message',ev=>{try{const m=JSON.parse(ev.data);const isIde=String(m.peer||'').startsWith('ide:');if(m.peer===state.active&&state.sending===false&&!isIde)appendMsg(m);else if(m.peer!==state.active){state.unread[m.peer]=(state.unread[m.peer]||0)+1;renderConvs();scheduleConvReload()}}catch(e){}});
+  es.addEventListener('conversations',()=>scheduleConvReload());
       es.addEventListener('items',ev=>{try{const d=JSON.parse(ev.data);if(!d.peer||!Array.isArray(d.items))return;if(!d.items.length&&(state.items[d.peer]||[]).length)return;renderItemsIfChanged(d.peer,d.items)}catch(e){}});
   es.addEventListener('ideEvent',ev=>{try{const d=JSON.parse(ev.data);if(!d.peer||!Array.isArray(state.items[d.peer]))return;const arr=state.items[d.peer];const m=d.method||'';const pr=d.params||{};
     if(m==='item/started'||m==='item/completed'){const idx=arr.findIndex(e=>(e.item||{}).id===(pr.item||{}).id);if(idx>=0)arr[idx]={...arr[idx],item:pr.item,startedAtMs:pr.startedAtMs||arr[idx].startedAtMs,completedAtMs:pr.completedAtMs||arr[idx].completedAtMs};else arr.unshift({turnId:pr.turnId,item:pr.item,startedAtMs:pr.startedAtMs,completedAtMs:pr.completedAtMs})}
@@ -481,7 +596,7 @@ async function boot(){
 $('tokenSave').onclick=()=>{state.token=$('tokenInput').value.trim();localStorage.setItem('cx_token',state.token);$('tokenDlg').classList.remove('show');boot()};
 $('tokenLater').onclick=()=>$('tokenDlg').classList.remove('show');
 $('qToggle').onclick=function(){state.queueOpen=!state.queueOpen;$('queueBar').classList.toggle('open',state.queueOpen);renderQueue()};
-$('newChat').onclick=()=>{$('newDlg').classList.add('show');$('newPeer').value='';$('newText').value='';$('newPeer').focus()};
+$('newChat').onclick=()=>{$('newDlg').classList.add('show');$('newPeer').value='';$('newText').value='';$('newCwd').value='';$('dirPanel').classList.remove('show');$('newPeer').focus()};
 $('newCancel').onclick=()=>$('newDlg').classList.remove('show');
 $('mClose').onclick=()=>$('manageDlg').classList.remove('show');
 $('mContinue').onclick=()=>{$('manageDlg').classList.remove('show');openConv(manageId)};
@@ -490,7 +605,23 @@ $('mRename').onclick=()=>{const n=$('mName').value.trim();if(!n){toast('请输�
 $('mDelete').onclick=deleteConv;
 $('mArchive').onclick=()=>manageOp('archive');
 $('mUnarchive').onclick=()=>manageOp('unarchive');
-$('newOk').onclick=async()=>{const p=$('newPeer').value.trim()||('chat-'+Date.now());const t=$('newText').value.trim();$('newDlg').classList.remove('show');await openConv(p);if(t){$('input').value=t;send()}};
+async function loadDirs(p){
+  try{
+    const r=await api('/api/dirs'+(p?('?path='+encodeURIComponent(p)):''));
+    state.dirParent=r.parent||'';
+    $('dirPath').textContent=r.path||'-';
+    $('dirPath').title=r.path||'-';
+    const list=$('dirList');list.innerHTML='';
+    (r.dirs||[]).forEach(d=>{const el=document.createElement('div');el.className='diritem';el.textContent='📁 '+d.name;el.onclick=()=>loadDirs(d.path);list.appendChild(el)});
+    if(!(r.dirs||[]).length)list.innerHTML='<div class="diritem" style="color:var(--dim)">（没有子目录）</div>';
+    window.__dirCur=r.path||'';
+  }catch(e){toast(e.message)}
+}
+$('newBrowse').onclick=async()=>{const pn=$('dirPanel');if(pn.classList.contains('show')){pn.classList.remove('show');return}pn.classList.add('show');await loadDirs($('newCwd').value.trim())};
+$('dirUp').onclick=()=>{if(state.dirParent)loadDirs(state.dirParent)};
+$('dirPick').onclick=()=>{if(window.__dirCur){$('newCwd').value=window.__dirCur;toast('已选择 '+window.__dirCur)}$('dirPanel').classList.remove('show')};
+$('newOk').onclick=async()=>{const p=$('newPeer').value.trim()||('chat-'+Date.now());const t=$('newText').value.trim();const cv=$('newCwd').value.trim();if(cv)state.convCwd[p]=cv;$('newDlg').classList.remove('show');await openConv(p);if(t){$('input').value=t;send()}};
+$('model').onchange=function(){setModelOf(state.active,this.value)};
 $('send').onclick=send;
 // 标题滚动框: 鼠标按住拖动横向滚动
 (function(){const t=$('chatTitle');let down=false,sx=0,sl=0;

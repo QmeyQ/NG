@@ -622,3 +622,156 @@ Python/pythoncore-3.14-64/python.exe local/doupload.py      # PUB_FORCE=1, h6 �
 - 中转站点锁：同站点（aigc.midea.com）请求串行排队 300s；多笔并发 chat 测试会互相拖满超时——测试要错峰或换站点。
 - Git Bash curl 发中文 JSON body 会变 `??` 乱码（编码）；测试中文内容用 `--data-binary @file`（UTF-8 文件）。
 - CodexChat 是 NSSM 服务（LocalSystem 级），普通 shell taskkill/Restart-Service 均被拒；改代码后需 `net stop CodexChat && net start CodexChat`（管理员）或重启机器。**当前服务进程仍跑旧 codex.js：stdin 修复未加载，经 bridge/微信发消息会 600s 挂死超时；bin/model/timeout 配置已热生效。重启命令：管理员 cmd `net stop CodexChat && net start CodexChat`。**
+
+## h23 2D Sprite 帧动画自动生产 + 华为 AGC 自动登录（2026-11-24 已验证）
+
+> 工作流节点：`docs/index.js` 顶层组 `spr`（2D Sprite 动画生产）→ 子树 `docs/nodes/spr.js`（s1 路径核对 → s2 帧表契约 → s3 生成 → s4 校验 → s5 打包 g2.br → s6 上传 → s7 逐帧目检 → s8 回填）。doccheck 实测 new errors=0。
+
+### h23.1 生成链路
+- 生成器：`dragonbones-local-web/web/sprite-creator.html`（程序化绘制 15 帧 / 128px / 5×3；idle 0-4、move 4-8、attack 8-13、hit 14；导出 `__exportSprite()` → png + frames + fw/fh/cols/rows/n）。换角色/换动作 = 改 `pose()/drawChar()`。
+- 驱动：`local/gen_sprite.cjs` —— headless Edge CDP **9265** + fresh profile `local/edge-sprite-<ts>`，等 `window.__ready` 后取导出数据落盘。
+- **路径契约（11-24 已修）**：必须同时写
+  - `assets/game/sprite/`（IDE 侧素材源）
+  - `web/g2/sprite/`（**运行时**：`src/g2/cha.ts:201` `PRes.get("g2/sprite/hero.png")`，也是 g2.br 打包源）
+  - `web/game/sprite/`（历史兼容路径）
+  旧版只写 `web/game/sprite`，线上读不到；已补 `web/g2/sprite`（备份 `local/gen_sprite.cjs.bak-20261124`）。
+- 产物：`hero.png`（41164B）+ `hero_frames.json`（n=15）。确定性绘制 → 重跑 SHA256 不变（`3FC45ACF…97238`），只有 mtime 更新。
+
+### h23.2 打包与复验
+- 只重建 g2 包（不连带 ui/nor）：
+  ```
+  Remove-Item .tmp_g2 -Recurse -Force
+  Copy-Item web\g2 .tmp_g2 -Recurse
+  node tool/assetsBr.js .tmp_g2 g2.br 11
+  Remove-Item .tmp_g2 -Recurse -Force
+  ```
+  实测干净目录重建 = 原 `g2.br` **字节级一致**（40540B，91.4%，4 files）。
+- 整链打包才用 `local/packstage.cjs → tool/assetsCollect.js local/packstage --dst F:/LayaProject/web → tool/tmpPack.js`（会重建 ui.br/nor.br，非必要不跑）。
+- 复验：`local/g2drive.cjs` 进对局，idle/move/attack/hit 逐帧截图 + view_image 目检；生产复验走 www CDN。
+
+### h23.3 华为 AGC 自动登录（Edge 记忆凭据）
+- 脚本：`local/agc_autologin.cjs`（新增）。前置：可见 Edge CDP **9227** + profile `local/edge-agc-login`（账号密码由 Edge 密码管理器记忆）。
+- 流程：确保 9227 在线（不在则按 openagc.cjs 拉起）→ **新建独立标签**（`PUT /json/new`，避免复用已损坏的旧标签）→ 判断登录态（控制台页面且无 password 输入框）→ 未登录则找 `id1.cloud.huawei.com/.../loginAuth` 标签，**真实鼠标点击**用户/密码框触发 autofill（JS 赋值不触发保存凭据）→ 点“登录”→ 重开标签复核 → 点左侧“云存储”→ 校验 `cslp` iframe 就绪。
+- 出口码：0 `AGC_OK{loggedIn,cslp}`；2 `AGC_NEED_MANUAL`（需验证码/扫码）；3 `AGC_NO_CSLP`。
+- 实测 11-24：autofill 密码位 9 字符成功提交，控制台登录态成立；`agc_autologin.cjs` 连跑 exit 0，iframes 命中 `service/josp/agc/cslp/...#/cloudStorage`。
+- 上传仍走 `tool/webpub/publish.py` 的 `Console`（go_root → upload g2.br/ui.br/nor.br → read_tokens；js 目录单独传 bundle.js）。403/登录失效先修登录态，禁止反复重传（假成功）。
+
+### h23.4 坑
+- 旧标签会在导航后失效（`Runtime.enable timeout`）——登录/复核一律**新开标签**，不复用。
+- 华为登录页 JS 直接 set input.value 不触发密码管理器 autofill，必须 CDP 真实点击。
+- Cloudflare `*.html` 307、apex vs www 入口差异照旧（见 h17.3）。
+
+## h24 boy 动画逐帧优化（第一轮，2026-11-24，进行中）
+
+> 产物：`3d/model/boy_anim_v2.blend`（**未覆盖 boy.blend**）。渲染证据：`local/boy_frames`(旧) / `local/boy_v2`(v2) / `local/boy_dense` / `local/boy_retime`。工具：`local/blendercli.cjs`（经 addon socket 9876 执行 bpy，免 MCP 客户端）。
+
+### 诊断（m2）
+- 当前 9 轨中 6 轨（stand/up/back/left/right/down）用的是 `mcp_*` 动作：**只驱动 19 根骨、无根位移** → 视觉上接近静态（diving 5 帧渲染字节几乎相同）。
+- 原始 Mixamo 动作骨骼丰富（43~63 骨）但**带根位移**：moveh Hips 平移 1.018/0.457，diving 2.887/0.852/2.513 → 直接用于游戏会整体漂移。
+- 轨道端点/共享 action 问题仍在（up/back/down 共享 action；小数端点）。
+
+### 第一轮修复（已做）
+- 生成 in-place 版本：复制原 action → Hips 的 X/Y 位移置常量（保留 Z 起伏）。
+- 循环轨闭合：把 strip 末帧关键帧值设为首帧值（stand 1..30、walk 22..38、run 20..50）。
+- 重建 9 条 NLA 轨（整数帧、独立 action）：stand=v2_stand(1..30)；up=v2_run(1..31)；back=v2_walk_rev；left=v2_walk_a；right=v2_walk_b；down=v2_walk_a；hitoff=v2_hit；jumphit=v2_jump；diving=v2_dive。
+- 触球对齐（按 LP 拍头世界坐标）：hitoff 最高点 action 37 → strip 起 29（触球≈第 9 帧）；jumphit 最高点 action 102 → 起 94；diving 最远点 action 89 → 起 81。
+- 渲染复核：stand 由“举拍过顶”改为持拍于体前低位；up/left/right 出现真实迈步（此前几乎不动）。
+
+### 仍未达标（下一轮）
+- hitoff/jumphit 仍是低位挥拍/前伸，不是标准过顶杀球弧线；diving 缺扑救剪影（原动作靠根位移完成，剥离后丢失）。
+- 拍面朝向（拍头是否正对出球方向）未校；racket 为对象级 parent=pole，需查 RP/LeftHand 顶点组或骨骼局部旋转。
+- 未导出 FBX、未替换 assets/nor/boy.fbx、未重建 nor.br、未做游戏内复验——这些在用户确认 v2 观感后再走 h19 m4→m7。
+- 图像模型复核：Token Plan 视觉模型全部 429（月度配额耗尽，11-29 16:00 UTC 重置），本轮改用渲染对照 + 人工目视。
+
+
+## h25 boy 动画 v3 逐轨重建（2026-11-24，Blender 5.4 headless 程序化关键帧）
+
+> 产物：`3d/model/boy_anim_v3.blend`、`3d/model/boy_v3.fbx`（9 take 已回读验证）、`assets/nor/boy.fbx` 已替换（`.meta` 原样保留，git 可回退）。工具：`local/boy_v3_author.py`（全身 IK 逐帧）、`local/boy_v3_render2.py`、`local/boy_v3_finalize.py`、`local/boy_v3_export.py`。
+
+### 先修的两个致命问题
+- **v2 九条 strip 的 influence 全为 0.0、track 全 mute**：Blender 与 FBX 求值等于静止，等于动画没导出；diving strip 的 `action_slot` 还是 null（action 有 2 个 slot）。v3 统一 `influence=1.0 / mute=false / extrapolation=NOTHING / 整数端点 / 正确 slot`。
+- **one-shot 动作带常量 Hips 偏移**：diving 世界 y≈-1.7（渲染直接出画）。v3 全部按角色原点重锚；游戏 `Ani.update` 本身会把 Hips XZ 对齐 owner、保留 Y，所以重锚不改变位移逻辑。
+
+### 逐轨重建（30fps，全部首尾姿态差=0，可直接 crossFade 回 stand）
+- **stand 1-30**：全身 IK 重摆，右手持拍从腰下抬到胸口；RP z 0.72→1.10~1.15；脚零滑动；保留轻微呼吸摆动。
+- **hitoff 1-41**：右手 IK + 手腕驱拍。弧线=预备→后上举（拍头 z≈2.06、y+0.43）→第 9 帧触球（手 z≈1.44，拍头前上）→左前下随挥（拍头 z≈0.64）→回收。触球帧=9，对齐 `upTime≈300ms@30fps`；脚滑动≤0.06。
+- **jumphit 1-28**：真实起跳，Hips z 0.66→1.30→0.80，双脚离地 z≈0.62~0.66，触球帧=9，拍头最高≈2.07；零脚滑。
+- **diving 1-41**：前倾俯冲（躯干 pitch 8→48°），Hips z 0.80→0.52，拍头前下探至 z≈0.21 / y≈-1.16；脚为大跨步（0.24~0.31，属主动迈步）。
+- **down 轨改指 v3_down（复刻 v2_walk_rev 22-38）**：此前 down 与 left 完全同 action，八向语义错误；back 保留原动作（游戏状态表未引用）。
+- 移动四向（up/back/left/right）仍沿用 v2 的 Mixamo 跑步/走步：循环闭合，但脚滑 0.24、拍子低垂（RP z 0.70~0.87），未按羽毛球步法重建。
+
+### 导出验证
+- 9 take：`pole|stand/up/down/left/right/back/hitoff/jumphit/diving`，帧长 30/31/17/17/17/17/41/28/41。
+- 必须加 `object_types={'ARMATURE','MESH'}`：否则 AI_Cam 也出 take，回读 27 个（含 .001 重复）。
+- 回读：`boy_v3.fbx` 8,546,044B；对象 body(920v)+pole(130 骨)，与旧 `assets/nor/boy.fbx`(6,175,436B) 结构一致。
+
+### 未完成（下一轮从这里续）
+- **IDE 资源导出没触发**：`ide-build` 0.8~3.4s 返回 Success，但 `release/web/nor` 无 `boy@0.lh`，`release/wxgame/nor/boy` 仍是 10/25 旧文件（8 个 lani，缺 back/right）。已尝试先 `ide-open-scene` 打开 `game/badm.ls`、`nor/match/match.ls` 再 build，仍无产物 → 需确认 IDE 完整发布流程/构建设置（不是 scriptsOnly）。
+- 未跑 `packstage → assetsCollect → tmpPack → 华为云上传`，未做浏览器复验 → **本轮未发布**。
+- 图像复核：Token Plan 视觉仍 429（11-29 16:00 UTC 重置），本轮用 Blender 渲染 + 本模型目检，未走外部视觉 API。
+
+## h26 2D 角色骨骼动画（Spine 3.8）接入（2026-11-24，首版完成）
+
+- 结论：g2 角色渲染已从 15 帧图集切到 Spine 骨骼（catgirl，22 骨，3.8.0），状态映射 stand/move/attack/hit；帧图链路保留作回退。
+- 资产：`web/g2/catgirl/catgirl.{json,atlas,png}`（源自 `local/packstage_g2min/resources/catgirl`）；`hit` 为补制动画（0.4s，root/body/head/shoulder 关键帧后仰）。
+- 代码：`src/g2/cha.ts` 增加 `Laya.Spine2DRenderNode` 分支。三个必须：① 先设 `loop` 再设 `templet`（否则 loop setter 会以 null animationName 调 `play` 抛 "animationName cannot be null"）；② templet 设完再设 `animationName='stand'`；③ `offset=(-templet.offsetX, templet.offsetY)` 抵消包围盒偏移；scale 0.25；翻转仍走 `bodySprite.scaleX`。
+- 包与产物：`g2.br` 7 文件 / 1,269,261B；`release/web/js/bundle.js` 已同步 dev 构建；均留 `.bak-20261124-spine`。
+- 验证：`local/spine_anim_probe.cjs` 实测 idle→attack→stand、hit→stand 动画名切换正确，攻击带 firecat 特效；对局截图三态目检通过；`bodySprite.graphics.cmds=0` 证明不再走帧图。
+- 回退：`window.__g2FrameAnim=1` 回老 `spriteTick`。
+- 下一步：`docs/nodes/spr.js` s10 骨骼编辑页（载入骨架 → 骨骼树/时间轴关键帧 → 导出 Spine 3.8 JSON）与 s11 校验回滚；AGC 上传未做。
+
+## h27 2D 骨骼动画编辑与 AI 自动化策划（2026-11-24，仅策划，未执行）
+
+> 依据：s9 已完成 Spine 3.8 运行时接管；`web/g2/catgirl/catgirl.json` 实测 22 骨 / 21 槽 / 19 region + 4 mesh + 2 clipping，`attack` 含 deform；`LayaAir3.4/src/layaAir/jsLibs/spine-core-3.8.js` 可用；`Spine2DRenderNode` 已暴露 `skinName` / `showSkinByName` / `getBoneByName` / `getSkeleton` / `play(start,end)` / `playbackRate` / `externalSkins`。本轮只落策划图，不改代码、不打包、不上传。
+
+### 目标与优先级
+
+| 优先级 | 内容 | 节点 |
+|---|---|---|
+| P0 基座 | 骨骼编辑器内核：原始 JSON AST + 预览（GUI 与 AI 共用） | s10 |
+| P0 | AI 自动化骨骼动画：无头命令 API + 配方库，零人工拖拽产出/改动画 | s14 |
+| P1 | 绑定：插槽/附件/皮肤/武器挂点 | s12 |
+| P1 | 边界定义：hit / hurt / body / pick 判定盒 | s13 |
+| 必经 | 导出校验与回滚 | s11 |
+| P1 | 对标 Spine 3.8 能力矩阵 + spineboy 结构等价回归 | s15 |
+| 收口 | catgirl 试点、四态截图、按授权上传、回填 | s16 |
+
+链路：s9 骨骼接入 → s10 内核 → s14 AI 自动化 → s12 绑定 → s13 边界 → s11 校验回滚 → s15 对标基线 → s16 试点验收 → 生产完成。
+
+### 关键设计决策（写死）
+
+1. **权威数据 = 原始 Spine JSON AST**。编辑直接改 JSON 对象并保留未知字段；`spine-core` 只用于预览/求值，禁止“载入运行时对象再反向序列化”，避免 3.8 字段丢失。
+2. **运行时同源**。`spine-core-3.8.js` 从 `LayaAir3.4/src/layaAir/jsLibs` 复制，版本与生产 `Spine2DRenderNode` 一致（3.8.0），不引入 4.x 语义差。
+3. **mesh/clipping/deform 只读**。catgirl 的 body/footl/footr/hair1 是 mesh，firecat/firecat2 是 clipping，attack 有 deform。首版编辑器不得重建或丢弃这些数据；mesh 顶点/权重编辑为明确非目标。
+4. **边界走 sidecar 烘焙**。JSON 内写 boundingbox 附件作编辑源；另烘焙 `web/g2/catgirl/catgirl.bounds.json`（30fps、每帧每盒四点多边形、骨骼局部坐标，记录 scale=0.25 与 scaleX 镜像规则）。运行时开关 `__g2SpineBounds=1` 才启用，默认仍是 radius=80 圆，缺盒回退圆。
+5. **导出必经 s11**。覆盖前写 `*.bak-<时间戳>`，g2.br/bundle 同步备份；任一校验失败立即回滚，不重打、不上传。
+6. **兼容优先**。动画名 `stand/move/attack/hit`、骨骼名、槽名不改；帧图回退开关 `window.__g2FrameAnim=1` 与半径 80 碰撞全程保留。
+
+### 计划文件（尚未创建）
+
+- `dragonbones-local-web/web/spine-editor.html`：编辑器 GUI；`?headless=1` 暴露 `window.__spineApi`。
+- `dragonbones-local-web/web/libs/spine-core-3.8.js`：自 LayaAir3.4 复制。
+- `local/spine_auto.cjs`：headless Edge CDP 9265（沿用 gen_sprite.cjs 模式）执行 job JSON。
+- `local/spine_test.cjs`：结构校验/往返/确定性测试。
+- `web/g2/catgirl/catgirl.bounds.json`：边界烘焙产物（s13 阶段）。
+- 运行时改动仅限 `src/g2/cha.ts` 的边界开关（s13 阶段，后续轮次）。
+
+### 验收（每阶段）
+
+- `node local/doccheck.cjs` new errors=0；tsc 仅基线 `card.ts(80/82)`；离线测试通过。
+- 四态截图（stand/move/attack/hit）无错位、无旧图残留。
+- AI 闭环：job JSON → 导出 → 校验 → 进对局可见，零人工拖拽；同一 job 两次运行结果一致。
+- 每轮回填 `docs/handover.md` + `docs/nodes/spr.js` + `docs/auto/state.json`，未回填=本轮未完成。
+
+### 风险与坑
+
+- spine-core 3.8 **没有 JSON 序列化器**，必须 AST 编辑；对象往返会丢未知字段。
+- Spine 3.8 的 skin 是数组、attachments 嵌套两层，勿按 4.x 的 `skins{}` 写。
+- 改骨骼姿态会带动 mesh 变形；编辑器默认“只改姿态/关键帧”安全模式，顶点/权重入口一律禁用。
+- 边界盒受 `scaleX=-1` 翻转与 `scale=0.25` 影响，烘焙时统一换算，运行时不得二次缩放。
+- 3.8 的 boundingBoxes 时间轴在部分运行时不生效 → 以 sidecar 为准，JSON 仅作编辑源。
+- AGC 上传只在明确授权且本地验收通过后执行；本地复验与生产复验分开记录。
+
+### 下一轮起点
+
+`docs/auto/state.json` 的 `next` 第 1 条：s10 内核骨架（载入 catgirl 三件套 + 只读预览四态）。
